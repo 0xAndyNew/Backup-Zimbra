@@ -1,0 +1,38 @@
+name: zimbra-backup
+arch: all
+platform: linux
+version: 0.1.0
+release: 1
+section: admin
+priority: optional
+maintainer: Zimbra Backup Project
+license: Unspecified
+description: |
+  Experimental Zimbra standalone full backup manager.
+  Full-state incremental backup and restore are disabled pending validation on Zimbra 10.
+depends:
+  - bash
+  - coreutils
+  - findutils
+  - tar
+  - gzip
+  - curl
+  - util-linux
+  - cronie
+contents:
+  - src: ./zimbra-backup
+    dst: /usr/bin/zimbra-backup
+    file_info:
+      mode: 0755
+  - dst: /var/lib/zimbra-backup
+    type: dir
+    file_info:
+      owner: zimbra
+      group: zimbra
+      mode: 0700
+  - dst: /var/lib/zimbra-backup/logs
+    type: dir
+    file_info:
+      owner: zimbra
+      group: zimbra
+      mode: 0700

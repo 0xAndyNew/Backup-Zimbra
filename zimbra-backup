@@ -1,0 +1,437 @@
+#!/usr/bin/env bash
+# Zimbra backup manager. Incremental full-state backup is intentionally disabled
+# until an adapter is validated on the target Zimbra 10 edition and version.
+set -Eeuo pipefail
+umask 077
+
+VERSION=0.1.0
+STATE_DIR=${ZB_STATE_DIR:-/var/lib/zimbra-backup}
+PATH="/opt/zimbra/bin:/opt/zimbra/common/bin:$PATH"
+export PATH
+CONFIG="$STATE_DIR/settings"
+LOCK="$STATE_DIR/operation.lock"
+LOG_DIR="$STATE_DIR/logs"
+STORE_ROOT=/mnt/backup
+KEEP_FULL_COUNT=2
+FULL_SCHEDULE=off
+FULL_DAY=0
+FULL_HOUR=2
+FULL_MINUTE=0
+TELEGRAM_ENABLED=no
+TELEGRAM_TOKEN=
+TELEGRAM_CHAT_ID=
+TELEGRAM_THREAD_ID=
+DISK_WARN_PERCENT=85
+
+message() { printf '%s\n' "$*"; }
+fail() { message "[LỖI] $*" >&2; return 1; }
+log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
+pause() { read -r -p 'Nhấn Enter để tiếp tục... ' _ || true; }
+
+# Never evaluate the configuration as shell code. Reject unknown entries.
+load_config() {
+    [[ -f "$CONFIG" ]] || return 0
+    local key value
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        case "$key" in
+            STORE_ROOT|KEEP_FULL_COUNT|FULL_SCHEDULE|FULL_DAY|FULL_HOUR|FULL_MINUTE|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|DISK_WARN_PERCENT)
+                printf -v "$key" '%s' "$value" ;;
+            ''|'#'*) ;;
+            *) fail "Cấu hình không hợp lệ: $key"; return 1 ;;
+        esac
+    done < "$CONFIG"
+    validate_config
+}
+
+validate_config() {
+    [[ "$STORE_ROOT" =~ ^/[a-zA-Z0-9_/-]+$ && "$STORE_ROOT" != / && "$STORE_ROOT" != *//* && "$STORE_ROOT" != */ ]] || { fail 'Đường dẫn lưu trữ không hợp lệ'; return 1; }
+    [[ "$KEEP_FULL_COUNT" =~ ^[1-9][0-9]*$ && ${#KEEP_FULL_COUNT} -le 3 ]] || { fail 'Số bản Full phải từ 1 đến 999'; return 1; }
+    [[ "$FULL_SCHEDULE" == off || "$FULL_SCHEDULE" == daily || "$FULL_SCHEDULE" == weekly ]] || { fail 'Lịch Full không hợp lệ'; return 1; }
+    [[ "$FULL_DAY" =~ ^[0-6]$ && "$FULL_HOUR" =~ ^([0-9]|1[0-9]|2[0-3])$ && "$FULL_MINUTE" =~ ^([0-9]|[1-5][0-9])$ ]] || { fail 'Ngày/giờ không hợp lệ'; return 1; }
+    [[ "$TELEGRAM_ENABLED" == yes || "$TELEGRAM_ENABLED" == no ]] || { fail 'Trạng thái Telegram không hợp lệ'; return 1; }
+    [[ "$TELEGRAM_TOKEN" =~ ^[a-zA-Z0-9_:-]*$ && "$TELEGRAM_CHAT_ID" =~ ^-?[0-9]*$ && "$TELEGRAM_THREAD_ID" =~ ^[0-9]*$ ]] || { fail 'Thông số Telegram không hợp lệ'; return 1; }
+    [[ "$DISK_WARN_PERCENT" =~ ^([1-9]|[1-9][0-9])$ ]] || { fail 'Ngưỡng đĩa không hợp lệ'; return 1; }
+}
+
+save_config() {
+    validate_config || return 1
+    local tmp
+    tmp=$(mktemp "$STATE_DIR/.settings.XXXXXX") || return 1
+    {
+        printf 'STORE_ROOT=%s\nKEEP_FULL_COUNT=%s\nFULL_SCHEDULE=%s\nFULL_DAY=%s\nFULL_HOUR=%s\nFULL_MINUTE=%s\n' "$STORE_ROOT" "$KEEP_FULL_COUNT" "$FULL_SCHEDULE" "$FULL_DAY" "$FULL_HOUR" "$FULL_MINUTE"
+        printf 'TELEGRAM_ENABLED=%s\nTELEGRAM_TOKEN=%s\nTELEGRAM_CHAT_ID=%s\nTELEGRAM_THREAD_ID=%s\nDISK_WARN_PERCENT=%s\n' "$TELEGRAM_ENABLED" "$TELEGRAM_TOKEN" "$TELEGRAM_CHAT_ID" "$TELEGRAM_THREAD_ID" "$DISK_WARN_PERCENT"
+    } > "$tmp"
+    chmod 600 "$tmp"
+    mv -f -- "$tmp" "$CONFIG"
+}
+
+require_zimbra() {
+    if [[ "$(id -un)" == zimbra ]]; then return 0; fi
+    if (( EUID == 0 )); then
+        id zimbra >/dev/null 2>&1 || { fail 'Không có user zimbra'; return 1; }
+        exec runuser -u zimbra -- "$0" "$@"
+    fi
+    fail 'Hãy chạy bằng root hoặc user zimbra'
+}
+
+# The backup root must itself be mounted. Never write to an unmounted /mnt/backup.
+check_store() {
+    validate_config || return 1
+    [[ -d "$STORE_ROOT" && ! -L "$STORE_ROOT" ]] || { fail "Không tìm thấy kho backup: $STORE_ROOT"; return 1; }
+    mountpoint -q -- "$STORE_ROOT" || { fail "Kho backup chưa mount đúng điểm: $STORE_ROOT"; return 1; }
+    [[ -w "$STORE_ROOT" ]] || { fail "Không thể ghi kho backup: $STORE_ROOT"; return 1; }
+    local part path="$STORE_ROOT"
+    while [[ "$path" != / ]]; do
+        [[ ! -L "$path" ]] || { fail "Không chấp nhận symlink: $path"; return 1; }
+        path=${path%/*}; [[ -n "$path" ]] || path=/
+    done
+    part=$(df -P -- "$STORE_ROOT" | tail -n 1 | awk '{gsub("%", "", $5); print $5}')
+    if [[ "$part" =~ ^[0-9]+$ ]] && (( part >= DISK_WARN_PERCENT )); then
+        log "CẢNH BÁO: ổ backup đã dùng ${part}% (ngưỡng ${DISK_WARN_PERCENT}%)"
+    fi
+}
+
+ensure_layout() {
+    local child
+    for child in standalone-full incremental manual-accounts incremental/base incremental/daily; do
+        [[ ! -L "$STORE_ROOT/$child" ]] || { fail "Thư mục con không được là symlink: $child"; return 1; }
+    done
+    mkdir -p -- "$STORE_ROOT/standalone-full" "$STORE_ROOT/incremental/base" "$STORE_ROOT/incremental/daily" "$STORE_ROOT/manual-accounts"
+}
+
+acquire_lock() {
+    exec 9>"$LOCK"
+    flock -n 9 || fail 'Đang có tác vụ backup/restore khác'
+}
+
+send_telegram() {
+    [[ "$TELEGRAM_ENABLED" == yes && -n "$TELEGRAM_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]] || return 0
+    local text=$1
+    local -a args=(--fail --silent --connect-timeout 8 --max-time 20 --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=$text")
+    [[ -z "$TELEGRAM_THREAD_ID" ]] || args+=(--data-urlencode "message_thread_id=$TELEGRAM_THREAD_ID")
+    # Avoid leaking a token-bearing URL to logs on curl failure.
+    curl "${args[@]}" "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" >/dev/null 2>&1 || {
+        log 'Không gửi được thông báo Telegram (backup vẫn giữ nguyên kết quả)'; return 1;
+    }
+}
+
+start_log() {
+    local kind=$1
+    mkdir -p -- "$LOG_DIR"
+    RUN_LOG="$LOG_DIR/${kind}_$(date +%Y%m%d_%H%M%S)_$$.log"
+    exec > >(tee -a "$RUN_LOG") 2>&1
+}
+
+# Manifest is committed only after every mailbox has passed an archive check.
+write_manifest() {
+    local dir=$1 type=$2 count=$3
+    {
+        printf 'format=zb-full-v1\ntype=%s\ncreated=%s\naccounts=%s\n' "$type" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$count"
+        (cd "$dir" && sha256sum -- mailboxes/*.tgz) | LC_ALL=C sort
+    } > "$dir/manifest.tmp"
+    mv -- "$dir/manifest.tmp" "$dir/manifest"
+}
+
+valid_full() {
+    local dir=$1 type=$2
+    [[ -d "$dir" && ! -L "$dir" && -d "$dir/accounts" && ! -L "$dir/accounts" && -d "$dir/mailboxes" && ! -L "$dir/mailboxes" && -f "$dir/manifest" && ! -L "$dir/manifest" && -f "$dir/accounts/active_accounts.txt" && ! -L "$dir/accounts/active_accounts.txt" ]] || return 1
+    [[ "$(sed -n '2p' "$dir/manifest")" == "type=$type" ]] || return 1
+    [[ "$(sed -n '1p' "$dir/manifest")" == 'format=zb-full-v1' ]] || return 1
+}
+
+verify_full() {
+    local dir=$1 type=$2 account file actual expected checksum recorded
+    valid_full "$dir" "$type" || { fail "Bản Full không hợp lệ: $dir"; return 1; }
+    [[ -f "$dir/domains/domains.txt" && ! -L "$dir/domains/domains.txt" && -f "$dir/admins/admins.txt" && -f "$dir/dl/distribution_lists.txt" ]] || { fail 'Thiếu metadata Full'; return 1; }
+    expected=$(wc -l < "$dir/accounts/active_accounts.txt")
+    actual=$(sed -n '4s/^accounts=//p' "$dir/manifest")
+    [[ "$expected" == "$actual" && "$actual" =~ ^[1-9][0-9]*$ ]] || { fail 'Số account trong manifest không khớp'; return 1; }
+    while IFS= read -r account; do
+        [[ "$account" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+$ ]] || { fail 'Tên account không hợp lệ'; return 1; }
+        file="$dir/mailboxes/$account.tgz"
+        if [[ ! -f "$file" || -L "$file" ]] || ! tar -tzf "$file" >/dev/null 2>&1; then
+            fail "Mailbox hỏng: $account"; return 1
+        fi
+        checksum=$(sha256sum -- "$file"); checksum=${checksum%% *}
+        recorded=$(awk -v name="mailboxes/$account.tgz" '$2 == name { print $1 }' "$dir/manifest")
+        [[ "$checksum" == "$recorded" ]] || { fail "Checksum không khớp: $account"; return 1; }
+    done < "$dir/accounts/active_accounts.txt"
+}
+
+# Only direct timestamp-named children with matching manifests are eligible.
+list_full_dirs() {
+    local parent=$1 type=$2 dir
+    [[ -d "$parent" && ! -L "$parent" ]] || return 0
+    for dir in "$parent"/*; do
+        [[ -d "$dir" && ! -L "$dir" ]] || continue
+        [[ "${dir##*/}" =~ ^[0-9]{8}_[0-9]{6}$ ]] || continue
+        if valid_full "$dir" "$type"; then printf '%s\n' "$dir"; fi
+    done | LC_ALL=C sort
+}
+
+prune_standalone_before_backup() {
+    local parent="$STORE_ROOT/standalone-full" dir count=0 remove_count
+    local -a dirs=()
+    for dir in "$parent"/*; do
+        [[ -d "$dir" && ! -L "$dir" && "${dir##*/}" =~ ^[0-9]{8}_[0-9]{6}$ ]] || continue
+        valid_full "$dir" standalone || { fail "Bản Full không hợp lệ trong kho: $dir (ngừng dọn để tránh xóa nhầm)"; return 1; }
+        dirs+=("$dir")
+    done
+    # Timestamp names are sorted lexically; glob order is locale-dependent.
+    local -a ordered=()
+    if ((${#dirs[@]})); then
+        while IFS= read -r dir; do [[ -z "$dir" ]] || ordered+=("$dir"); done < <(printf '%s\n' "${dirs[@]}" | LC_ALL=C sort)
+    fi
+    dirs=("${ordered[@]}")
+    count=${#dirs[@]}
+    if (( count < KEEP_FULL_COUNT )); then return 0; fi
+    remove_count=$((count - KEEP_FULL_COUNT + 1))
+    log "Có $count bản Full; sẽ xóa $remove_count bản cũ TRƯỚC backup mới (nếu backup mới lỗi sẽ chỉ còn các bản cũ còn lại)."
+    for (( i=0; i<remove_count; i++ )); do
+        dir=${dirs[i]}
+        # Recheck the mount and parent before each destructive operation.
+        check_store || return 1
+        [[ "$(dirname -- "$dir")" == "$parent" && ! -L "$dir" ]] || fail 'Đường dẫn xóa không an toàn' || return 1
+        verify_full "$dir" standalone || return 1
+        rm -rf -- "$dir" || fail "Không xóa được $dir" || return 1
+        log "Đã xóa bản Full cũ: $dir"
+    done
+}
+
+list_accounts() {
+    local output=$1
+    zmprov -l sa '(zimbraAccountStatus=active)' > "$output.raw" || return 1
+    LC_ALL=C sort -u "$output.raw" | tr -d '\r' | awk '/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$/ && !/^(galsync\.|spam\.|ham\.|virus-quarantine\.)/ { print }' > "$output"
+    rm -- "$output.raw"
+    [[ -s "$output" ]] || fail 'Danh sách account rỗng; không tạo bản Full'
+}
+
+export_full() {
+    local dir=$1 type=$2 list=$3 acc archive failed=0 count=0
+    mkdir -p -- "$dir"/{domains,admins,dl,accounts,passwords,aliases,filters,signatures,mailboxes}
+    cp -- "$list" "$dir/accounts/active_accounts.txt"
+    zmprov gad > "$dir/domains/domains.txt" || return 1
+    zmprov gaaa > "$dir/admins/admins.txt" || return 1
+    zmprov gadl > "$dir/dl/distribution_lists.txt" || return 1
+    while IFS= read -r acc; do
+        [[ "$acc" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+$ ]] || fail "Account không hợp lệ: $acc" || return 1
+        if ! zmprov -l ga "$acc" > "$dir/accounts/$acc.ldif"; then
+            log "[FAIL] Metadata $acc"; failed=$((failed+1)); continue
+        fi
+        awk '$1 == "userPassword:" { print $2 }' "$dir/accounts/$acc.ldif" > "$dir/passwords/$acc.shadow"
+        awk '$1 == "zimbraMailAlias:" { print $2 }' "$dir/accounts/$acc.ldif" > "$dir/aliases/$acc.txt"
+        awk '/^zimbraMailSieveScript: / {sub(/^zimbraMailSieveScript: /, ""); print}' "$dir/accounts/$acc.ldif" > "$dir/filters/$acc.filter"
+        archive="$dir/mailboxes/$acc.tgz"
+        if ! zmmailbox -z -m "$acc" getRestURL '/?fmt=tgz' > "$archive" || ! tar -tzf "$archive" >/dev/null 2>&1; then
+            rm -f -- "$archive"
+            log "[FAIL] Mailbox $acc"; failed=$((failed+1)); continue
+        fi
+        count=$((count+1)); log "[OK] $acc"
+    done < "$list"
+    if (( failed > 0 )); then fail "$failed account lỗi; bản backup không được công bố"; return 1; fi
+    while IFS= read -r acc; do
+        [[ -f "$dir/accounts/$acc.ldif" && -f "$dir/mailboxes/$acc.tgz" ]] || { fail "Thiếu account hoặc mailbox: $acc"; return 1; }
+    done < "$list"
+    write_manifest "$dir" "$type" "$count"
+    verify_full "$dir" "$type"
+}
+
+run_full() (
+    local type=$1 account=${2:-} parent stamp staging dest list rc=0
+    # Subshell closes the lock and restores stdout/stderr when the run ends.
+    acquire_lock || return 1
+    start_log "$type"
+    if ! check_store || ! ensure_layout; then send_telegram "❌ $type: kho backup không sẵn sàng" || true; return 1; fi
+    command -v zmprov >/dev/null && command -v zmmailbox >/dev/null || { fail 'Thiếu lệnh Zimbra'; return 1; }
+    case "$type" in
+        standalone) parent="$STORE_ROOT/standalone-full" ;;
+        base) parent="$STORE_ROOT/incremental/base";
+            if [[ -n "$(list_full_dirs "$parent" base)" ]]; then fail 'Full nền đã tồn tại; không tự tạo/xóa nền mới'; return 1; fi ;;
+        manual) parent="$STORE_ROOT/manual-accounts" ;;
+        *) fail "Loại backup không hợp lệ: $type"; return 1 ;;
+    esac
+    stamp=$(date +%Y%m%d_%H%M%S)
+    dest="$parent/$stamp"
+    [[ ! -e "$dest" ]] || fail "Bản backup đã tồn tại: $dest" || return 1
+    staging=$(mktemp -d "$parent/.pending.XXXXXXXX") || return 1
+    list=$(mktemp "$STATE_DIR/.accounts.XXXXXXXX") || return 1
+    if [[ "$type" == manual ]]; then
+        if [[ ! "$account" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+$ ]] || ! zmprov -l ga "$account" >/dev/null 2>&1; then
+            rm -f -- "$list"; rmdir -- "$staging" 2>/dev/null || true
+            fail 'Email không hợp lệ hoặc account không tồn tại'; return 1
+        fi
+        printf '%s\n' "$account" > "$list"
+    else
+        if ! list_accounts "$list"; then
+            rm -f -- "$list"; rmdir -- "$staging" 2>/dev/null || true
+            return 1
+        fi
+    fi
+    if [[ "$type" == standalone ]]; then
+        if ! prune_standalone_before_backup; then
+            rm -f -- "$list"; rmdir -- "$staging" 2>/dev/null || true
+            send_telegram '❌ Full độc lập: không dọn được bản cũ; backup chưa chạy' || true
+            return 1
+        fi
+    fi
+    log "Bắt đầu backup $type vào $dest"
+    if export_full "$staging" "$type" "$list" && mv -- "$staging" "$dest"; then
+        log "[OK] $type: $dest"
+        send_telegram "✅ Backup $type thành công: $dest ($(wc -l < "$list") account)" || true
+    else
+        rc=1
+        log "[FAIL] $type: dữ liệu lỗi giữ tại $staging (KHÔNG tính là bản hợp lệ)"
+        send_telegram "❌ Backup $type thất bại: xem log $RUN_LOG" || true
+    fi
+    rm -f -- "$list"
+    return "$rc"
+)
+
+# Cron management edits only our one tagged entry; unrelated entries survive.
+update_cron() {
+    local tmp old
+    tmp=$(mktemp "$STATE_DIR/.cron.XXXXXXXX") || return 1
+    old=$(mktemp "$STATE_DIR/.cron.XXXXXXXX") || return 1
+    crontab -l > "$old" 2>/dev/null || :
+    awk '!/#[[:space:]]*zimbra-backup:standalone$/ {print}' "$old" > "$tmp"
+    if [[ "$FULL_SCHEDULE" != off ]]; then
+        local day='*'
+        [[ "$FULL_SCHEDULE" != weekly ]] || day=$FULL_DAY
+        printf '%s %s * * %s /usr/bin/zimbra-backup --cron-standalone # zimbra-backup:standalone\n' "$FULL_MINUTE" "$FULL_HOUR" "$day" >> "$tmp"
+    fi
+    crontab "$tmp" || { rm -f -- "$tmp" "$old"; fail 'Không lưu được cron'; return 1; }
+    rm -f -- "$tmp" "$old"
+}
+
+show_jobs() {
+    message "Full độc lập: kho $STORE_ROOT/standalone-full | giữ $KEEP_FULL_COUNT bản | lịch $FULL_SCHEDULE ${FULL_HOUR}:${FULL_MINUTE} (thứ $FULL_DAY nếu hằng tuần)"
+    message "Incremental: full nền $STORE_ROOT/incremental/base | daily $STORE_ROOT/incremental/daily | CHƯA BẬT (cần xác minh cơ chế Zimbra 10)"
+    message 'Chú ý: cài RPM không tự tạo lịch; lịch Full được quản lý trong cron user zimbra.'
+    crontab -l 2>/dev/null | awk '/#[[:space:]]*zimbra-backup:standalone$/ {print}' || true
+}
+
+configure_full() {
+    local answer keep sched day hour minute
+    message "Đang cấu hình job Full độc lập: $STORE_ROOT/standalone-full"
+    read -r -p "Điểm mount kho lưu trữ [$STORE_ROOT]: " answer || return 0
+    [[ -z "$answer" ]] || STORE_ROOT=$answer
+    read -r -p "Số bản Full cần giữ [$KEEP_FULL_COUNT]: " keep || return 0
+    [[ -z "$keep" ]] || KEEP_FULL_COUNT=$keep
+    message 'Lịch: off (chỉ chạy tay), daily (hằng ngày), weekly (hằng tuần)'
+    read -r -p "Lịch [$FULL_SCHEDULE]: " sched || return 0
+    [[ -z "$sched" ]] || FULL_SCHEDULE=$sched
+    if [[ "$FULL_SCHEDULE" == weekly ]]; then
+        read -r -p "Thứ chạy (0=Chủ Nhật, 1=Thứ Hai, ..., 6=Thứ Bảy) [$FULL_DAY]: " day || return 0
+        [[ -z "$day" ]] || FULL_DAY=$day
+    fi
+    if [[ "$FULL_SCHEDULE" != off ]]; then
+        read -r -p "Giờ (0-23) [$FULL_HOUR]: " hour || return 0
+        read -r -p "Phút (0-59) [$FULL_MINUTE]: " minute || return 0
+        [[ -z "$hour" ]] || FULL_HOUR=$hour
+        [[ -z "$minute" ]] || FULL_MINUTE=$minute
+    fi
+    validate_config || return 1
+    message "Đường dẫn: $STORE_ROOT/standalone-full | giữ $KEEP_FULL_COUNT | lịch $FULL_SCHEDULE ${FULL_HOUR}:${FULL_MINUTE}"
+    message 'CẢNH BÁO: bản Full cũ nhất sẽ bị xóa TRƯỚC khi tạo bản mới. Nếu bản mới lỗi, chỉ còn ít bản hơn.'
+    read -r -p 'Nhập LUU để xác nhận: ' answer || return 0
+    [[ "$answer" == LUU ]] || return 0
+    check_store || return 1
+    save_config
+    update_cron
+    message 'Đã lưu job Full độc lập.'
+}
+
+configure_telegram() {
+    local answer
+    message "Telegram đang: $TELEGRAM_ENABLED"
+    message '1) Nhập Bot Token  2) Nhập Chat ID  3) Nhập Thread ID  4) Bật  5) Tắt  6) Gửi thử  0) Quay lại'
+    read -r -p 'Chọn: ' answer || return 0
+    case "$answer" in
+        1) read -r -s -p 'Bot Token: ' TELEGRAM_TOKEN; printf '\n'; save_config ;;
+        2) read -r -p 'Chat ID: ' TELEGRAM_CHAT_ID; save_config ;;
+        3) read -r -p 'Thread ID (trống nếu không dùng): ' TELEGRAM_THREAD_ID; save_config ;;
+        4) [[ -n "$TELEGRAM_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]] || fail 'Cần token và chat ID' || return 1
+           TELEGRAM_ENABLED=yes; save_config ;;
+        5) TELEGRAM_ENABLED=no; save_config ;;
+        6) send_telegram 'Thử thông báo Zimbra Backup' && message 'Đã gửi thử' ;;
+        0) return 0 ;;
+        *) fail 'Lựa chọn không hợp lệ' ;;
+    esac
+}
+
+show_store() {
+    if ! check_store; then return 1; fi
+    message "Kho: $STORE_ROOT"; df -h -- "$STORE_ROOT"
+    message 'Full độc lập:'; list_full_dirs "$STORE_ROOT/standalone-full" standalone || true
+    message 'Full account thủ công:'; list_full_dirs "$STORE_ROOT/manual-accounts" manual || true
+    message 'Full nền Incremental:'; list_full_dirs "$STORE_ROOT/incremental/base" base || true
+    message 'Incremental: chưa hỗ trợ full-state trên Zimbra 10 khi chưa xác minh phiên bản/edition.'
+}
+
+show_restore_status() {
+    message 'Restore chưa được xác minh trên Zimbra 10; bản thử nghiệm này không sửa dữ liệu máy chủ.'
+    message 'Các bản Full có thể kiểm tra bằng menu Thông tin backup; không sử dụng script restore gốc trên production khi chưa thử nghiệm.'
+}
+
+show_logs() {
+    local file
+    [[ -d "$LOG_DIR" ]] || { message 'Chưa có log'; return; }
+    message 'Các log gần nhất:'
+    for file in "$LOG_DIR"/*.log; do [[ -f "$file" ]] && printf '%s\n' "$file"; done
+    read -r -p 'Nhập đường dẫn log cần xem (Enter để quay lại): ' file || return 0
+    [[ -z "$file" ]] && return 0
+    [[ "$file" == "$LOG_DIR/"* && -f "$file" && ! -L "$file" ]] || fail 'Chỉ được xem log trong thư mục log' || return 1
+    less -- "$file"
+}
+
+backup_menu() {
+    local choice
+    while :; do
+        message '=== BACKUP ==='
+        message '1) Full độc lập: thiết lập/xem/sửa job  2) Chạy Full độc lập ngay'
+        message '3) Backup Full account chỉ định  4) Tạo Full nền Incremental ban đầu'
+        message '5) Incremental hằng ngày (chưa hỗ trợ toàn trạng thái)  6) Telegram  0) Quay lại'
+        read -r -p 'Chọn: ' choice || return 0
+        case "$choice" in
+            1) show_jobs; configure_full || true ;;
+            2) run_full standalone || true ;;
+            3) local email; read -r -p 'Email account cần backup Full: ' email || continue; run_full manual "$email" || true ;;
+            4) run_full base || true ;;
+            5) message 'Chưa thể backup incremental toàn trạng thái bằng date:>=. Cần xác minh Zimbra 10.x edition và thử restore.' ;;
+            6) configure_telegram || true ;;
+            0) return 0 ;;
+            *) message 'Lựa chọn không hợp lệ' ;;
+        esac
+        pause
+    done
+}
+
+main_menu() {
+    local choice
+    while :; do
+        message "=== ZIMBRA BACKUP $VERSION ==="
+        message '1) Backup  2) Restore  3) Thông tin backup  4) Log  0) Thoát'
+        read -r -p 'Chọn: ' choice || return 0
+        case "$choice" in
+            1) backup_menu ;;
+            2) show_restore_status; pause ;;
+            3) show_jobs; show_store || true; pause ;;
+            4) show_logs || true ;;
+            0) return 0 ;;
+            *) message 'Lựa chọn không hợp lệ' ;;
+        esac
+    done
+}
+
+main() {
+    require_zimbra "$@"
+    mkdir -p -m 700 -- "$STATE_DIR" "$LOG_DIR"
+    load_config
+    case "${1:-}" in
+        '') main_menu ;;
+        --cron-standalone) [[ "$FULL_SCHEDULE" != off ]] || fail 'Job Full chưa bật' || return 1
+                           run_full standalone ;;
+        *) fail 'Chỉ hỗ trợ menu tương tác; argument nội bộ chỉ dùng cho lịch cron' ;;
+    esac
+}
+main "$@"
