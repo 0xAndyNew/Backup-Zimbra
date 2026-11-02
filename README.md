@@ -1,4 +1,4 @@
-# Zimbra Backup (`zimbra-backup` v0.2.0)
+# Zimbra Backup (`zimbra-backup` v0.3.0)
 
 Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9**, trang bị **Menu tương tác TUI tiếng Anh rút gọn (100% Pure 7-bit ASCII — không bao giờ lỗi font `□` trên mọi SSH / VM Console)** cùng hệ thống **CLI tự động hóa** đầy đủ.
 
@@ -42,24 +42,30 @@ Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collabo
 
 ## Cài đặt / Nâng cấp gói RPM trên máy chủ Zimbra
 
-- **Gói đóng gói sẵn**: `zimbra-backup-0.2.0-1.noarch.rpm`
+- **Gói đóng gói sẵn mới nhất**: `zimbra-backup-0.3.0-1.noarch.rpm`
 
 Yêu cầu máy chủ đã cài sẵn Zimbra (`user zimbra` tồn tại dưới `/opt/zimbra`).
 
 ```bash
-dnf install -y ./zimbra-backup-0.2.0-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.0-1.noarch.rpm
 ```
 
-Nếu máy đã cài bản cũ, nâng cấp trực tiếp bằng:
+Nếu máy đã cài bản cũ (`0.1.0`, `0.2.0`...), nâng cấp thẳng lên bản mới (giữ nguyên toàn bộ Job và lịch Cron hiện có):
 
 ```bash
-rpm -Uvh --force ./zimbra-backup-0.2.0-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.0-1.noarch.rpm
 ```
 
-Trên CentOS/RHEL 7:
+Hoặc nâng cấp bằng `rpm` trên mọi phiên bản CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9:
 
 ```bash
-yum install -y ./zimbra-backup-0.2.0-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.0-1.noarch.rpm
+```
+
+Trên CentOS/RHEL 7 (cài mới):
+
+```bash
+yum install -y ./zimbra-backup-0.3.0-1.noarch.rpm
 ```
 
 Gỡ cài đặt sạch hoàn toàn chỉ với 1 lệnh (tự động dọn khối cron `zimbra-backup` và `/var/lib/zimbra-backup`, **không chạm tới dịch vụ Zimbra `/opt/zimbra` hay dữ liệu các bản backup đã lưu**):
@@ -191,8 +197,8 @@ nfpm package --config nfpm.yaml --packager rpm
 Hoặc đóng gói bằng `rpmbuild` trên RHEL/CentOS/AlmaLinux/Rocky:
 
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.2.0 && \
-cp -r bin lib packaging README.md zimbra-backup-0.2.0/ && \
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.2.0.tar.gz" zimbra-backup-0.2.0 && \
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.0 && \
+cp -r bin lib packaging README.md zimbra-backup-0.3.0/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.0.tar.gz" zimbra-backup-0.3.0 && \
 rpmbuild -ba zimbra-backup.spec
 ```

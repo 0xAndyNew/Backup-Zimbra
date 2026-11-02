@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,11 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
-* Mon Nov 02 2026 Zimbra Backup Maintainers <ops@localhost> - 0.2.0-1
+* Mon Nov 02 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.0-1
+- Separate backup directories (full/, incremental/, account/) with DD-MM-YYYY_HHMMSS naming
+- Require explicit Backup Storage Directory in TUI Create Job wizard and support recursive custom-dir restore
+- Add clean one-command RPM uninstall hooks (%preun/%postun) with Zimbra cron and lock safety guards
+
+* Sun Nov 01 2026 Zimbra Backup Maintainers <ops@localhost> - 0.2.0-1
 - Unified Full & Chain-based Incremental backups, multi-job crontab sync, and granular restore
 - Streamlined pure-ASCII English TUI for universal SSH/VM console compatibility
