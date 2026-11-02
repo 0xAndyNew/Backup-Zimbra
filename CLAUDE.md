@@ -2,9 +2,9 @@
 
 Tài liệu này hướng dẫn Claude Code (claude.ai/code) khi làm việc với mã nguồn trong repository này.
 
-## Tổng quan kiến trúc (`zimbra-backup` v0.3.0)
+## Tổng quan kiến trúc (`zimbra-backup` v0.3.1)
 
-Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** thành một gói RPM `noarch` duy nhất (`zimbra-backup-0.3.0-1.noarch.rpm`), hợp nhất và khắc phục các lỗi toàn vẹn dữ liệu của 3 script rời ban đầu (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh` — giữ lại ở thư mục gốc để đối chiếu, không đóng gói vào RPM).
+Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** thành một gói RPM `noarch` duy nhất (`zimbra-backup-0.3.1-1.noarch.rpm`), hợp nhất và khắc phục các lỗi toàn vẹn dữ liệu của 3 script rời ban đầu (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh` — giữ lại ở thư mục gốc để đối chiếu, không đóng gói vào RPM).
 
 ### Phân tách module
 
@@ -76,9 +76,9 @@ nfpm package --config nfpm.yaml --packager rpm
 Đóng gói bằng `rpmbuild` trên máy chủ Linux có `rpm-build`:
 
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.0 && \
-cp -r bin lib packaging README.md zimbra-backup-0.3.0/ && \
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.0.tar.gz" zimbra-backup-0.3.0 && \
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.1 && \
+cp -r bin lib packaging README.md zimbra-backup-0.3.1/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.1.tar.gz" zimbra-backup-0.3.1 && \
 rpmbuild -ba zimbra-backup.spec
 ```
 

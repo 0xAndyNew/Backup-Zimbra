@@ -4,6 +4,18 @@
 # Compatible with Bash 4.2+ (no wait -n, no namerefs).
 
 ZB_SNAP_FORMAT="zb-backup-v2"
+ZB_ACTIVE_WORKER_PIDS=()
+
+zb_terminate_active_workers() {
+    local p
+    for p in "${ZB_ACTIVE_WORKER_PIDS[@]+"${ZB_ACTIVE_WORKER_PIDS[@]}"}"; do
+        kill -TERM "$p" 2>/dev/null || true
+    done
+    for p in "${ZB_ACTIVE_WORKER_PIDS[@]+"${ZB_ACTIVE_WORKER_PIDS[@]}"}"; do
+        wait "$p" 2>/dev/null || true
+    done
+    ZB_ACTIVE_WORKER_PIDS=()
+}
 
 # Read a manifest file safely (key=value lines before `# --- sha256 ---`)
 zb_read_manifest_meta() {
@@ -254,8 +266,10 @@ zb_prune_job_storage() {
     local idx=0
     while (( idx < remove_cnt )); do
         local victim="${items[$idx]}"
-        zb_log "Pruning expired backup (${phase}, keeping ${keep}): $victim"
-        rm -rf -- "$victim"
+        if [[ -d "$victim" && ! -L "$victim" ]]; then
+            zb_log "Pruning expired backup (${phase}, keeping ${keep}): $victim"
+            rm -rf -- "$victim"
+        fi
         idx=$((idx + 1))
     done
     return 0
@@ -489,6 +503,8 @@ zb_export_metadata_stage() {
 
 # Single account worker invoked in background for parallel mailbox export
 zb_backup_mailbox_worker() {
+    # Close inherited lock FD 9 and saved stdio FDs 7/8 so workers never hold operation.lock open
+    exec 9>&- 7>&- 8>&- 2>/dev/null || true
     local idx="$1"
     local total="$2"
     local email="$3"
@@ -523,7 +539,7 @@ zb_export_mailboxes_parallel() {
     local total
     total="$(wc -l < "$acc_file" | awk '{print $1}')"
 
-    # Prepare shared admin auth config (refreshed per batch)
+    # Prepare shared admin auth config (refreshed per batch / elapsed age)
     zb_ensure_auth_cfg 1 || zb_log "WARNING: Could not acquire ZM_ADMIN_AUTH_TOKEN; falling back to zmmailbox CLI."
 
     local fail_dir
@@ -531,30 +547,44 @@ zb_export_mailboxes_parallel() {
 
     zb_log "Exporting mailboxes ($step_type) for $total account(s) with $parallel_limit parallel worker(s)..."
 
+    ZB_ACTIVE_WORKER_PIDS=()
     local -a pids=()
-    local idx=0 email batch_counter=0
+    local idx=0 email batch_counter=0 now_ts=0
     while IFS= read -r email <&3; do
         [[ -n "$email" ]] || continue
         idx=$((idx + 1))
         batch_counter=$((batch_counter + 1))
 
-        # Refresh admin auth token periodically before launching new workers
-        if (( batch_counter >= 40 )); then
+        # Re-check free disk space every 10 accounts so large runs never fill the filesystem
+        if (( idx > 1 && (idx - 1) % 10 == 0 )); then
+            if ! zb_check_disk_space "$stage_dir" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB"; then
+                zb_terminate_active_workers
+                rm -rf -- "$fail_dir"
+                return 1
+            fi
+        fi
+
+        # Refresh admin auth token periodically (every 40 accounts or >=20 minutes elapsed)
+        now_ts="$(date +%s)"
+        if (( batch_counter >= 40 || (ZB_AUTH_TOKEN_TIME > 0 && (now_ts - ZB_AUTH_TOKEN_TIME) >= 1200) )); then
             local p
             for p in "${pids[@]+"${pids[@]}"}"; do
                 wait "$p" || true
             done
             pids=()
+            ZB_ACTIVE_WORKER_PIDS=()
             batch_counter=0
             zb_ensure_auth_cfg 1 || true
         fi
 
         zb_backup_mailbox_worker "$idx" "$total" "$email" "$stage_dir" "$step_type" "$cp_from" "${ZB_AUTH_CFG_FILE:-}" "$fail_dir" &
         pids+=("$!")
+        ZB_ACTIVE_WORKER_PIDS=("${pids[@]}")
 
         if (( ${#pids[@]} >= parallel_limit )); then
             wait "${pids[0]}" || true
             pids=("${pids[@]:1}")
+            ZB_ACTIVE_WORKER_PIDS=("${pids[@]}")
         fi
     done 3< "$acc_file"
 
@@ -562,6 +592,7 @@ zb_export_mailboxes_parallel() {
     for rem_pid in "${pids[@]+"${pids[@]}"}"; do
         wait "$rem_pid" || true
     done
+    ZB_ACTIVE_WORKER_PIDS=()
 
     shopt -s nullglob
     local -a fails=("$fail_dir"/*.fail)
@@ -610,14 +641,19 @@ zb_run_job() (
 
     cleanup_job_run() {
         local rc=$?
+        trap - EXIT INT TERM HUP
+        zb_terminate_active_workers
         zb_cleanup_auth_token
-        if [[ -n "${stage_dir:-}" && -d "$stage_dir" ]]; then
+        if [[ -n "${stage_dir:-}" && -d "$stage_dir" && ! -L "$stage_dir" ]]; then
             zb_log "Cleaning up incomplete staging directory: $stage_dir"
             rm -rf -- "$stage_dir"
         fi
+        zb_close_run_log
         return "$rc"
     }
     trap cleanup_job_run EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
 
     zb_log "============================================================"
     zb_log "STARTING BACKUP JOB: $JOB_ID ($JOB_NAME) | mode=$BACKUP_TYPE"
@@ -636,9 +672,14 @@ zb_run_job() (
         zb_notify "error" "Backup Job '$JOB_ID' aborted (low disk space)" "Path: $target_base. Log: $ZB_CURRENT_LOG"
         return 1
     fi
+    if zb_same_filesystem "$target_base" "$ZB_ZIMBRA_HOME"; then
+        zb_log "WARNING: Backup storage '$target_base' shares the same filesystem as '$ZB_ZIMBRA_HOME'. Consider mounting a dedicated disk/NFS."
+    fi
 
     job_root="$(zb_job_storage_root)"
+    zb_check_no_symlinks "$job_root" || return 1
     mkdir -p -m 700 -- "$job_root" || return 1
+    [[ ! -L "$job_root" ]] || { zb_err "Job storage root must not be a symlink: $job_root"; return 1; }
 
     local stamp cp_to final_dir backup_id step_type chain_id chain_seq parent_id cp_from snap_leaf
     stamp="$(date '+%d-%m-%Y_%H%M%S')"
@@ -663,7 +704,9 @@ zb_run_job() (
         if [[ "$PRUNE_TIMING" == "before" && "$step_type" == "full" ]]; then
             zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before"
         fi
-        mkdir -p -m 700 -- "$ZB_PLAN_CHAIN_DIR"
+        zb_check_no_symlinks "$ZB_PLAN_CHAIN_DIR" || return 1
+        mkdir -p -m 700 -- "$ZB_PLAN_CHAIN_DIR" || return 1
+        [[ ! -L "$ZB_PLAN_CHAIN_DIR" ]] || { zb_err "Chain directory must not be a symlink: $ZB_PLAN_CHAIN_DIR"; return 1; }
         chain_id="${ZB_PLAN_CHAIN_DIR##*/}"
         chain_seq="$ZB_PLAN_SEQ"
         parent_id="$ZB_PLAN_PARENT_ID"
@@ -727,22 +770,47 @@ Path: ${final_dir}"
     return 0
 )
 
-# Ad-hoc single/multi-account Full backup (used from TUI or `zimbra-backup backup user <emails> [--dir <dir>]`)
+# Ad-hoc single/multi-account Full backup (used from TUI or `zimbra-backup backup user <emails> [--dir <dir>] [--require-mount yes|no]`)
 zb_run_adhoc_users() (
     local emails_csv="$1"
     local custom_dir="${2:-}"
+    local req_mount_override="${3:-}"
 
     zb_load_settings || return 1
     zb_require_zimbra_cli || return 1
     zb_validate_scope_values "accounts" "$emails_csv" || return 1
 
     local base_dir="${custom_dir:-$DEFAULT_BACKUP_DIR}"
-    base_dir="${base_dir%/}"
+    base_dir="$(zb_normalize_dir_input "$base_dir")"
+    local stage_dir=""
     zb_acquire_lock || return 1
     zb_start_run_log "adhoc_user"
 
-    zb_check_backup_dir "$base_dir" "$REQUIRE_MOUNTPOINT" "no" || return 1
+    cleanup_adhoc() {
+        local rc=$?
+        trap - EXIT INT TERM HUP
+        zb_terminate_active_workers
+        zb_cleanup_auth_token
+        if [[ -n "${stage_dir:-}" && -d "$stage_dir" && ! -L "$stage_dir" ]]; then
+            rm -rf -- "$stage_dir"
+        fi
+        zb_close_run_log
+        return "$rc"
+    }
+    trap cleanup_adhoc EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
+
+    local eff_req_mount="$REQUIRE_MOUNTPOINT"
+    if [[ "$req_mount_override" == "yes" || "$req_mount_override" == "no" ]]; then
+        eff_req_mount="$req_mount_override"
+    fi
+
+    zb_check_backup_dir "$base_dir" "$eff_req_mount" "no" || return 1
     zb_check_disk_space "$base_dir" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB" || return 1
+    if zb_same_filesystem "$base_dir" "$ZB_ZIMBRA_HOME"; then
+        zb_log "WARNING: Backup storage '$base_dir' shares the same filesystem as '$ZB_ZIMBRA_HOME'. Consider mounting a dedicated disk/NFS."
+    fi
 
     local adhoc_root base_leaf="${base_dir##*/}"
     if [[ "${base_leaf,,}" == "account" ]]; then
@@ -750,7 +818,9 @@ zb_run_adhoc_users() (
     else
         adhoc_root="$base_dir/account"
     fi
+    zb_check_no_symlinks "$adhoc_root" || return 1
     mkdir -p -m 700 -- "$adhoc_root" || return 1
+    [[ ! -L "$adhoc_root" ]] || { zb_err "Ad-hoc backup directory must not be a symlink: $adhoc_root"; return 1; }
 
     local -a raw_emails=() clean_emails=()
     local em
@@ -764,23 +834,13 @@ zb_run_adhoc_users() (
         acct_tag="${clean_emails[0]}+$(( ${#clean_emails[@]} - 1 ))more"
     fi
 
-    local stamp cp_to stage_dir final_dir backup_id snap_leaf
+    local stamp cp_to final_dir backup_id snap_leaf
     stamp="$(date '+%d-%m-%Y_%H%M%S')"
     cp_to="$(date +%s)"
     final_dir="$(zb_unique_path "$adhoc_root/backup-${acct_tag}-${stamp}")"
     snap_leaf="${final_dir##*/}"
     backup_id="account/${snap_leaf}"
     stage_dir="$adhoc_root/.pending.${snap_leaf}.$$"
-
-    cleanup_adhoc() {
-        local rc=$?
-        zb_cleanup_auth_token
-        if [[ -n "${stage_dir:-}" && -d "$stage_dir" ]]; then
-            rm -rf -- "$stage_dir"
-        fi
-        return "$rc"
-    }
-    trap cleanup_adhoc EXIT
 
     mkdir -p -m 700 -- "$stage_dir"
     zb_log "Starting ad-hoc Full backup for account(s): $emails_csv"
@@ -799,6 +859,11 @@ zb_run_adhoc_users() (
 zb_clean_pending_dirs() (
     local scan_dir="${1:-}"
     zb_load_settings || return 1
+    if [[ -n "$scan_dir" ]]; then
+        scan_dir="$(zb_normalize_dir_input "$scan_dir")"
+        zb_valid_safe_path "$scan_dir" || { zb_err "Invalid directory path: $scan_dir"; return 1; }
+        zb_check_no_symlinks "$scan_dir" || return 1
+    fi
     zb_acquire_lock || return 1
 
     local -a roots=()
@@ -819,8 +884,10 @@ zb_clean_pending_dirs() (
 
     local r p count=0
     for r in "${roots[@]+"${roots[@]}"}"; do
-        [[ -d "$r" ]] || continue
+        [[ -d "$r" && ! -L "$r" ]] || continue
+        zb_check_no_symlinks "$r" || continue
         while IFS= read -r -d '' p; do
+            [[ -d "$p" && ! -L "$p" ]] || continue
             zb_info "Removing incomplete staging directory: $p"
             rm -rf -- "$p"
             count=$((count + 1))

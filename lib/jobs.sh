@@ -291,17 +291,54 @@ zb_cron_sync() (
     zb_ensure_state_dirs || return 1
     command -v crontab >/dev/null 2>&1 || { zb_warn "Command 'crontab' not found; skipping cron sync."; return 0; }
 
-    local cur_cron stripped new_cron
+    if command -v flock >/dev/null 2>&1; then
+        exec 6>"$ZB_CRON_LOCK_FILE" || { zb_err "Cannot open cron lock file: $ZB_CRON_LOCK_FILE"; return 1; }
+        if ! flock -w 15 6; then
+            zb_err "Timed out waiting for cron lock ($ZB_CRON_LOCK_FILE)."
+            return 1
+        fi
+    fi
+
+    local cur_cron stripped new_cron orig_zm new_zm
     cur_cron="$(mktemp "$ZB_RUN_DIR/.cron_cur.XXXXXX")" || return 1
     stripped="$(mktemp "$ZB_RUN_DIR/.cron_strip.XXXXXX")" || { rm -f -- "$cur_cron"; return 1; }
     new_cron="$(mktemp "$ZB_RUN_DIR/.cron_new.XXXXXX")" || { rm -f -- "$cur_cron" "$stripped"; return 1; }
 
     crontab -l > "$cur_cron" 2>/dev/null || : > "$cur_cron"
-    awk -v b="$ZB_CRON_BEGIN" -v e="$ZB_CRON_END" '
-        $0 == b { skip = 1; next }
-        $0 == e { skip = 0; next }
-        !skip { print }
-    ' "$cur_cron" > "$stripped"
+
+    # Verify managed markers are balanced and never enclose any Zimbra system cron line
+    if awk '
+        BEGIN { in_blk = 0; bad = 0 }
+        index($0, "# BEGIN zimbra-backup") == 1 {
+            if (in_blk) { bad = 1 }
+            in_blk = 1
+            next
+        }
+        index($0, "# END zimbra-backup") == 1 {
+            if (!in_blk) { bad = 1 }
+            in_blk = 0
+            next
+        }
+        in_blk && ($0 ~ /ZIMBRASTART|ZIMBRAEND|\/opt\/zimbra/) { bad = 1 }
+        END {
+            if (in_blk || bad) exit 1
+            exit 0
+        }
+    ' "$cur_cron"; then
+        awk '
+            index($0, "# BEGIN zimbra-backup") == 1 { skip = 1; next }
+            index($0, "# END zimbra-backup") == 1   { skip = 0; next }
+            !skip { print }
+        ' "$cur_cron" > "$stripped"
+    else
+        zb_warn "Detected unbalanced zimbra-backup markers in crontab; repairing safely without touching Zimbra entries."
+        awk '
+            index($0, "# BEGIN zimbra-backup") == 1 { next }
+            index($0, "# END zimbra-backup") == 1   { next }
+            index($0, "/zimbra-backup job run ") > 0 { next }
+            { print }
+        ' "$cur_cron" > "$stripped"
+    fi
 
     cat "$stripped" > "$new_cron"
     # Ensure trailing newline before managed block if file non-empty
@@ -330,6 +367,18 @@ zb_cron_sync() (
             printf '%s\n' "$ZB_CRON_END"
         } >> "$new_cron"
     fi
+
+    # Hard safety invariant: Zimbra system cron entries must remain 100% byte-for-byte identical
+    orig_zm="$(mktemp "$ZB_RUN_DIR/.cron_ozm.XXXXXX")" || { rm -f -- "$cur_cron" "$stripped" "$new_cron"; return 1; }
+    new_zm="$(mktemp "$ZB_RUN_DIR/.cron_nzm.XXXXXX")" || { rm -f -- "$cur_cron" "$stripped" "$new_cron" "$orig_zm"; return 1; }
+    grep -E 'ZIMBRASTART|ZIMBRAEND|/opt/zimbra' "$cur_cron" > "$orig_zm" || true
+    grep -E 'ZIMBRASTART|ZIMBRAEND|/opt/zimbra' "$new_cron" > "$new_zm" || true
+    if ! cmp -s "$orig_zm" "$new_zm"; then
+        rm -f -- "$cur_cron" "$stripped" "$new_cron" "$orig_zm" "$new_zm"
+        zb_err "Aborting crontab update to protect Zimbra system cron entries."
+        return 1
+    fi
+    rm -f -- "$orig_zm" "$new_zm"
 
     crontab "$new_cron" || {
         rm -f -- "$cur_cron" "$stripped" "$new_cron"
@@ -546,14 +595,16 @@ zb_cli_job() {
             [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup job enable <job_id>"; return 1; }
             zb_job_load "$1" || return 1
             ENABLED="yes"
-            zb_job_save && zb_cron_sync
+            zb_job_save || return 1
+            zb_cron_sync || return 1
             zb_info "Enabled cron schedule for job '$JOB_ID'."
             ;;
         disable)
             [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup job disable <job_id>"; return 1; }
             zb_job_load "$1" || return 1
             ENABLED="no"
-            zb_job_save && zb_cron_sync
+            zb_job_save || return 1
+            zb_cron_sync || return 1
             zb_info "Disabled cron schedule for job '$JOB_ID'."
             ;;
         delete|rm)

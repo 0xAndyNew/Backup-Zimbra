@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -34,7 +34,7 @@ SHA-256 verification, and granular restore (full server, domain, or selected use
 # Shell-based noarch package
 
 %pre
-if ! getent passwd zimbra >/dev/null 2>&1; then
+if ! (getent passwd zimbra >/dev/null 2>&1 || id zimbra >/dev/null 2>&1); then
     echo "ERROR: System user 'zimbra' not found. Install Zimbra Collaboration before zimbra-backup." >&2
     exit 1
 fi
@@ -65,7 +65,7 @@ if [ "${1:-0}" -eq 0 ]; then
             exit 1
         fi
     fi
-    if command -v crontab >/dev/null 2>&1 && getent passwd zimbra >/dev/null 2>&1; then
+    if command -v crontab >/dev/null 2>&1 && (getent passwd zimbra >/dev/null 2>&1 || id zimbra >/dev/null 2>&1); then
         TMP_BASE="/tmp"
         if [ -d "${STATE_DIR}/run" ] && [ ! -L "${STATE_DIR}/run" ] && [ -w "${STATE_DIR}/run" ]; then
             TMP_BASE="${STATE_DIR}/run"
@@ -93,7 +93,7 @@ if [ "${1:-0}" -eq 0 ]; then
                 find "${STATE_DIR}/${sub}" -mindepth 1 -exec rm -rf -- {} + 2>/dev/null || true
             fi
         done
-        rm -f -- "${STATE_DIR}/settings.conf" "${STATE_DIR}/operation.lock" 2>/dev/null || true
+        rm -f -- "${STATE_DIR}/settings.conf" "${STATE_DIR}/operation.lock" "${STATE_DIR}/cron.lock" 2>/dev/null || true
     fi
 fi
 
@@ -124,6 +124,12 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Mon Nov 02 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.1-1
+- Harden system safety: close lock/log FDs in workers, throttle fallback zmmailbox JVMs, and cache LDAP lookups on restore
+- Preserve locked/maintenance/closed user accounts while excluding system/calendar resource accounts
+- Refresh expiring ZM_ADMIN_AUTH_TOKEN on long runs, support dual HTML+text signatures, and keep legacy LDIF restores read-only
+- Harden crontab marker verification, UTF-8 locale under cron, logrotate cleanup, and TUI/CLI input validation
+
 * Mon Nov 02 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.0-1
 - Separate backup directories (full/, incremental/, account/) with DD-MM-YYYY_HHMMSS naming
 - Require explicit Backup Storage Directory in TUI Create Job wizard and support recursive custom-dir restore

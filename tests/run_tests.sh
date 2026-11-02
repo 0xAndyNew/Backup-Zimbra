@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.0
+# End-to-end automated test suite for zimbra-backup v0.3.1
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -202,7 +202,12 @@ empty@example.com
 LDIF
         ;;
     sa)
-        printf 'admin@example.com\nuser1@example.com\nempty@example.com\nsales@sub.example.com\nspam.xyz@example.com\n'
+        printf 'admin@example.com\nuser1@example.com\nempty@example.com\nsales@sub.example.com\nspam.xyz@example.com\ngalsync.sync@example.com\n'
+        if [[ -n "${MOCK_SA_EXTRA:-}" ]]; then
+            for extra_acc in $MOCK_SA_EXTRA; do
+                printf '%s\n' "$extra_acc"
+            done
+        fi
         ;;
     gaa)
         if [[ -n "${1:-}" ]]; then
@@ -241,6 +246,7 @@ LDIF
 zimbraSignatureId: sig-001
 zimbraSignatureName: Chữ ký Công ty
 zimbraPrefMailSignatureHTML: <div>Trân trọng,<br>Nguyễn Văn A</div>
+zimbraPrefMailSignature: Trân trọng, Nguyễn Văn A
 SIG
         fi
         ;;
@@ -312,6 +318,13 @@ fi
 
 grep -q 'MOCK_ADMIN_TOKEN_SECRET_999' "$cfg_file" || { echo "Missing admin auth cookie" >&2; exit 3; }
 
+if [[ -n "${MOCK_EXPIRE_ONCE_FILE:-}" && -f "$MOCK_EXPIRE_ONCE_FILE" && "$is_post" -eq 0 ]]; then
+    rm -f -- "$MOCK_EXPIRE_ONCE_FILE"
+    [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && : > "$out_file"
+    printf '401'
+    exit 0
+fi
+
 if (( is_post == 1 )); then
     [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && : > "$out_file"
     printf '200'
@@ -350,7 +363,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.0" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.0"
+assert_contains "$ver_out" "zimbra-backup 0.3.1" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.1"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -494,7 +507,9 @@ dry_calls="$(grep -c 'ZMPROV \|CURL post=1' "$MOCK_LOG" || true)"
 restore_log="$(cat "$MOCK_LOG")"
 assert_contains "$restore_log" "ZMPROV ma user1@example.com userPassword {SSHA}secretHash123" "Khôi phục đúng hash mật khẩu gốc của user"
 assert_contains "$restore_log" "displayName Nguyễn Văn A" "Khôi phục đúng displayName tiếng Việt có dấu"
-assert_contains "$restore_log" "ZMPROV csig user1@example.com Chữ ký Công ty" "Khôi phục chữ ký người dùng bằng zmprov csig"
+assert_contains "$restore_log" "ZMPROV csig user1@example.com Chữ ký Công ty zimbraPrefMailSignatureHTML" "Khôi phục đồng thời cả chữ ký HTML và chữ ký Text trong 1 lệnh zmprov csig"
+assert_contains "$restore_log" "zimbraPrefMailSignature Trân trọng, Nguyễn Văn A" "Bảo toàn phần chữ ký văn bản thuần (zimbraPrefMailSignature) bên cạnh HTML"
+assert_not_contains "$restore_log" "ZMPROV -l ga " "Cache danh sách LDAP giúp Restore không phải gọi zmprov ga từng user"
 assert_contains "$restore_log" "resolve=reset" "Bước 1 (000_full) dùng resolve=reset khi chọn chế độ reset"
 assert_contains "$restore_log" "resolve=modify" "Các bước Incremental (001_incr, 002_incr) tự chuyển sang resolve=modify để bồi đắp dữ liệu"
 
@@ -669,6 +684,97 @@ assert_contains "$cron_after_uninstall" "0 1 * * * /opt/zimbra/libexec/zmstatusl
 [[ -d "$tui_snap" && -d "$STORE_DIR/account" ]] \
     && pass "Gỡ gói (\$1=0) giữ nguyên an toàn tuyệt đối toàn bộ dữ liệu các bản backup đã sao lưu" \
     || fail "Dữ liệu backup bị ảnh hưởng khi gỡ gói"
+
+printf '\n=== 10. Kiểm tra hồi quy bảo vệ hệ thống v0.3.1 (HTTP 401 refresh, Read-only LDIF, Subfolder Guard, Cron Repair, Locked Accounts) ===\n'
+mkdir -p "$STATE_DIR"
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --disk-warn 95 --disk-min-mb 10 >/dev/null
+
+# 10a. Ad-hoc backup --require-mount override
+if "$ZB_CMD" backup user "user1@example.com" --dir "$UNMOUNTED_DIR" >/dev/null 2>&1; then
+    fail "Phải chặn backup user vào thư mục chưa mount khi REQUIRE_MOUNTPOINT=yes và không truyền --require-mount no"
+else
+    pass "Chặn đúng backup user vào thư mục chưa mount khi mặc định REQUIRE_MOUNTPOINT=yes"
+fi
+"$ZB_CMD" backup user "user1@example.com" --dir "$UNMOUNTED_DIR" --require-mount no >/dev/null
+pass "Cho phép ghi đè --require-mount no khi sao lưu lẻ account vào thư mục cục bộ"
+
+# 10b. HTTP 401 expired admin token auto-refresh inside worker without falling back to heavy zmmailbox JVM
+: > "$MOCK_LOG"
+EXPIRE_MARKER="$TEST_TMP/expire_401.once"
+printf '1\n' > "$EXPIRE_MARKER"
+MOCK_EXPIRE_ONCE_FILE="$EXPIRE_MARKER" "$ZB_CMD" backup user "user1@example.com" --dir "$UNMOUNTED_DIR" --require-mount no >/dev/null
+zmsoap_401_cnt="$(grep -c '^ZMSOAP ' "$MOCK_LOG" || true)"
+zmmbox_401_cnt="$(grep -c '^ZMMAILBOX ' "$MOCK_LOG" || true)"
+(( zmsoap_401_cnt >= 2 )) && [[ "$zmmbox_401_cnt" == "0" ]] \
+    && pass "Worker tự xin lại ZM_ADMIN_AUTH_TOKEN khi gặp HTTP 401 mà không phải rơi xuống chạy JVM zmmailbox nặng" \
+    || fail "Xử lý HTTP 401 chưa chuẩn (zmsoap=$zmsoap_401_cnt, zmmailbox=$zmmbox_401_cnt)"
+leftover_401="$(find "$STATE_DIR/run" -type f 2>/dev/null | wc -l | tr -d '[:space:]')"
+[[ "$leftover_401" == "0" ]] && pass "Dọn sạch hoàn toàn file token tạm của worker sau khi refresh HTTP 401" \
+    || fail "Còn sót file tạm trong $STATE_DIR/run sau khi xử lý HTTP 401"
+
+# 10c. Non-active accounts (locked/maintenance/closed) included while system/galsync/spam accounts excluded
+MOCK_SA_EXTRA="locked_user@example.com" "$ZB_CMD" job add sec10-full --type full --target-dir "$STORE_DIR" --schedule daily --hour 4 --minute 0 >/dev/null
+MOCK_SA_EXTRA="locked_user@example.com" "$ZB_CMD" job run sec10-full >/dev/null
+sec10_snap="$(find "$STORE_DIR/full/sec10-full" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | head -n 1)"
+sec10_accs="$(cat "$sec10_snap/accounts/active_accounts.txt")"
+assert_contains "$sec10_accs" "locked_user@example.com" "Sao lưu đầy đủ cả tài khoản người dùng đang ở trạng thái locked/maintenance/closed"
+assert_not_contains "$sec10_accs" "spam.xyz@example.com" "Loại bỏ chính xác tài khoản hệ thống spam.*"
+assert_not_contains "$sec10_accs" "galsync.sync@example.com" "Loại bỏ chính xác tài khoản hệ thống galsync.*"
+
+# 10d. Reject path traversal / query injection in --subfolder-name before touching Zimbra
+: > "$MOCK_LOG"
+if "$ZB_CMD" restore --from "$sec10_snap" --users "user1@example.com" --mode subfolder --subfolder-name "../Evil&resolve=reset" --yes >/dev/null 2>&1; then
+    fail "Phải từ chối --subfolder-name chứa '..' hoặc ký tự chèn query URL"
+else
+    pass "Chặn thành công --subfolder-name chứa '..' / ký tự chèn query URL"
+fi
+inj_writes="$(grep -c 'ZMPROV \|CURL post=1' "$MOCK_LOG" || true)"
+[[ "$inj_writes" == "0" ]] && pass "Từ chối --subfolder-name không hợp lệ ngay từ đầu trước khi chạm vào Zimbra" \
+    || fail "Đã phát sinh lệnh gọi Zimbra khi --subfolder-name không hợp lệ"
+
+# 10e. Legacy .ldif restore never writes into snapshot directory (Read-Only NFS safe)
+RO_SNAP="$TEST_TMP/ro_legacy_snap/20260102_030000"
+mkdir -p "$RO_SNAP"/{domains,accounts,mailboxes}
+printf 'example.com\n' > "$RO_SNAP/domains/domains.txt"
+printf 'ro_user@example.com\n' > "$RO_SNAP/accounts/active_accounts.txt"
+cat > "$RO_SNAP/accounts/ro_user@example.com.ldif" <<'EOF'
+# name ro_user@example.com
+userPassword:: e1NTSEF9cm9IYXNoNzg5
+displayName:: VHLhuqduIFRo4buLIEI=
+zimbraMailQuota: 1073741824
+zimbraMailAlias: ro_alias@example.com
+zimbraMailSieveScript: require ["fileinto"];
+EOF
+cp -- "$MOCK_DATA/normal_mail.tgz" "$RO_SNAP/mailboxes/ro_user@example.com.tgz"
+chmod 555 "$RO_SNAP/accounts" "$RO_SNAP/mailboxes" "$RO_SNAP/domains" "$RO_SNAP"
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$RO_SNAP" --users "ro_user@example.com" --yes >/dev/null
+chmod 755 "$RO_SNAP" "$RO_SNAP/accounts" "$RO_SNAP/mailboxes" "$RO_SNAP/domains"
+[[ ! -e "$RO_SNAP/attributes" && ! -e "$RO_SNAP/passwords" ]] \
+    && pass "Khôi phục từ bản sao lưu LDIF đời cũ hoàn toàn Read-Only (không ghi file tạm vào thư mục nguồn)" \
+    || fail "Đã ghi thêm thư mục phụ vào trong thư mục nguồn Read-Only"
+ro_log="$(cat "$MOCK_LOG")"
+assert_contains "$ro_log" "ZMPROV ma ro_user@example.com userPassword {SSHA}roHash789" \
+    "Giải mã và khôi phục đúng mật khẩu từ file .ldif đời cũ trong vùng nhớ tạm an toàn"
+assert_contains "$ro_log" "ZMPROV aaa ro_user@example.com ro_alias@example.com" \
+    "Giải mã và khôi phục đúng Alias từ file .ldif đời cũ"
+
+# 10f. Unbalanced crontab marker recovery preserves Zimbra system cron 100%
+cat > "$MOCK_CRONTAB_FILE" <<'EOF'
+# BEGIN zimbra-backup (managed automatically - do not edit inside this block)
+0 4 * * * /usr/bin/zimbra-backup job run orphan --cron >/dev/null 2>&1
+# ZIMBRASTART -- DO NOT EDIT ANYTHING BETWEEN THIS LINE AND ZIMBRAEND
+0 1 * * * /opt/zimbra/libexec/zmstatuslog > /dev/null 2>&1
+# ZIMBRAEND -- DO NOT EDIT ANYTHING BETWEEN THIS LINE AND ZIMBRAEND
+EOF
+"$ZB_CMD" cron sync >/dev/null 2>&1
+repaired_cron="$(cat "$MOCK_CRONTAB_FILE")"
+assert_contains "$repaired_cron" "0 1 * * * /opt/zimbra/libexec/zmstatuslog > /dev/null 2>&1" \
+    "Khi crontab bị mất dòng đóng # END, cron sync tự phục hồi an toàn mà KHÔNG làm mất cron hệ thống Zimbra"
+assert_not_contains "$repaired_cron" "job run orphan" \
+    "Tự dọn sạch dòng job mồ côi khi sửa lại khối crontab bị lệch thẻ đóng"
+assert_contains "$repaired_cron" "# END zimbra-backup" \
+    "Tái lập đầy đủ cặp thẻ # BEGIN / # END zimbra-backup chuẩn xác"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

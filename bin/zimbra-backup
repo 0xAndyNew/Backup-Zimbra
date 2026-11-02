@@ -78,7 +78,7 @@ USAGE:
      zimbra-backup backup list [--job <job_id> | --dir /custom/backup/path]
      zimbra-backup backup inspect <index|backup_id|path> [--job <id> | --dir /path] [--search keyword]
      zimbra-backup backup verify <index|backup_id|path> [--job <id> | --dir /path]
-     zimbra-backup backup user <email1,email2> [--dir /path]
+     zimbra-backup backup user <email1,email2> [--dir /path] [--require-mount yes|no]
      zimbra-backup backup clean-pending [--dir /path]
 
   4. Granular Restore:
@@ -148,7 +148,11 @@ main() {
         cron)
             local sub="${1:-sync}"
             case "$sub" in
-                sync) zb_load_settings && zb_cron_sync && zb_info "Synchronized crontab for user '$ZB_ZIMBRA_USER'." ;;
+                sync)
+                    zb_load_settings || return 1
+                    zb_cron_sync || return 1
+                    zb_info "Synchronized crontab for user '$ZB_ZIMBRA_USER'."
+                    ;;
                 show) zb_cron_print_managed ;;
                 *) zb_err "Usage: zimbra-backup cron [sync|show]"; return 1 ;;
             esac
@@ -166,7 +170,7 @@ main() {
             zb_cli_logs "$@"
             ;;
         run-account)
-            zb_run_adhoc_users "${1:-}" "${2:-}"
+            zb_run_adhoc_users "${1:-}" "${2:-}" "${3:-}"
             ;;
         *)
             zb_err "Unknown command: '$cmd'. Run 'zimbra-backup --help' for usage."

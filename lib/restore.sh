@@ -433,46 +433,136 @@ zb_select_restore_accounts() {
     return 0
 }
 
+ZB_EXIST_DOMS_FILE=""
+ZB_EXIST_ACCS_FILE=""
+ZB_EXIST_DLS_FILE=""
+ZB_EXIST_DOMS_READY=0
+ZB_EXIST_ACCS_READY=0
+ZB_EXIST_DLS_READY=0
+ZB_RESTORE_LEGACY_TMP=""
+
+zb_init_restore_ldap_cache() {
+    zb_cleanup_restore_ldap_cache
+    local raw_d raw_a raw_l
+    ZB_EXIST_DOMS_FILE="$(mktemp "$ZB_RUN_DIR/.exist_doms.XXXXXX")" || return 1
+    ZB_EXIST_ACCS_FILE="$(mktemp "$ZB_RUN_DIR/.exist_accs.XXXXXX")" || return 1
+    ZB_EXIST_DLS_FILE="$(mktemp "$ZB_RUN_DIR/.exist_dls.XXXXXX")" || return 1
+    raw_d="$(mktemp "$ZB_RUN_DIR/.raw_doms.XXXXXX")" || return 1
+    raw_a="$(mktemp "$ZB_RUN_DIR/.raw_accs.XXXXXX")" || { rm -f -- "$raw_d"; return 1; }
+    raw_l="$(mktemp "$ZB_RUN_DIR/.raw_dls.XXXXXX")" || { rm -f -- "$raw_d" "$raw_a"; return 1; }
+
+    if zmprov -l gad </dev/null > "$raw_d" 2>/dev/null; then
+        tr -d '\r' < "$raw_d" | awk 'NF { print tolower($0) }' | LC_ALL=C sort -u > "$ZB_EXIST_DOMS_FILE"
+        ZB_EXIST_DOMS_READY=1
+    fi
+    if zmprov -l gaa </dev/null > "$raw_a" 2>/dev/null; then
+        tr -d '\r' < "$raw_a" | awk 'NF { print tolower($0) }' | LC_ALL=C sort -u > "$ZB_EXIST_ACCS_FILE"
+        ZB_EXIST_ACCS_READY=1
+    fi
+    if zmprov -l gadl </dev/null > "$raw_l" 2>/dev/null; then
+        tr -d '\r' < "$raw_l" | awk 'NF { print tolower($0) }' | LC_ALL=C sort -u > "$ZB_EXIST_DLS_FILE"
+        ZB_EXIST_DLS_READY=1
+    fi
+    rm -f -- "$raw_d" "$raw_a" "$raw_l"
+    return 0
+}
+
+zb_cleanup_restore_ldap_cache() {
+    [[ -n "${ZB_EXIST_DOMS_FILE:-}" ]] && rm -f -- "$ZB_EXIST_DOMS_FILE"
+    [[ -n "${ZB_EXIST_ACCS_FILE:-}" ]] && rm -f -- "$ZB_EXIST_ACCS_FILE"
+    [[ -n "${ZB_EXIST_DLS_FILE:-}" ]] && rm -f -- "$ZB_EXIST_DLS_FILE"
+    ZB_EXIST_DOMS_FILE=""
+    ZB_EXIST_ACCS_FILE=""
+    ZB_EXIST_DLS_FILE=""
+    ZB_EXIST_DOMS_READY=0
+    ZB_EXIST_ACCS_READY=0
+    ZB_EXIST_DLS_READY=0
+}
+
 zb_domain_exists() {
     local dom="$1"
+    if (( ZB_EXIST_DOMS_READY == 1 )) && [[ -n "${ZB_EXIST_DOMS_FILE:-}" && -f "$ZB_EXIST_DOMS_FILE" ]]; then
+        if grep -Fxq -- "${dom,,}" "$ZB_EXIST_DOMS_FILE"; then
+            return 0
+        fi
+        return 1
+    fi
     zmprov -l gd "$dom" zimbraId </dev/null >/dev/null 2>&1
 }
 
 zb_account_exists() {
     local email="$1"
+    if (( ZB_EXIST_ACCS_READY == 1 )) && [[ -n "${ZB_EXIST_ACCS_FILE:-}" && -f "$ZB_EXIST_ACCS_FILE" ]]; then
+        if grep -Fxq -- "${email,,}" "$ZB_EXIST_ACCS_FILE"; then
+            return 0
+        fi
+        return 1
+    fi
     zmprov -l ga "$email" zimbraId </dev/null >/dev/null 2>&1
 }
 
 zb_dl_exists() {
     local dl="$1"
+    if (( ZB_EXIST_DLS_READY == 1 )) && [[ -n "${ZB_EXIST_DLS_FILE:-}" && -f "$ZB_EXIST_DLS_FILE" ]]; then
+        if grep -Fxq -- "${dl,,}" "$ZB_EXIST_DLS_FILE"; then
+            return 0
+        fi
+        return 1
+    fi
     zmprov -l gdl "$dl" zimbraId </dev/null >/dev/null 2>&1
 }
 
 zb_find_password_file() {
-    local snap_dir="$1" email="$2"
+    local snap_dir="$1" email="$2" fallback_dir="${3:-}"
     if [[ -s "$snap_dir/passwords/${email}.shadow" ]]; then
         printf '%s' "$snap_dir/passwords/${email}.shadow"
     elif [[ -s "$snap_dir/userpass/${email}.shadow" ]]; then
         printf '%s' "$snap_dir/userpass/${email}.shadow"
+    elif [[ -n "$fallback_dir" && -s "$fallback_dir/passwords/${email}.shadow" ]]; then
+        printf '%s' "$fallback_dir/passwords/${email}.shadow"
     fi
 }
 
 zb_find_alias_file() {
-    local snap_dir="$1" email="$2"
+    local snap_dir="$1" email="$2" fallback_dir="${3:-}"
     if [[ -s "$snap_dir/aliases/${email}.txt" ]]; then
         printf '%s' "$snap_dir/aliases/${email}.txt"
     elif [[ -s "$snap_dir/alias/${email}.txt" ]]; then
         printf '%s' "$snap_dir/alias/${email}.txt"
+    elif [[ -n "$fallback_dir" && -s "$fallback_dir/aliases/${email}.txt" ]]; then
+        printf '%s' "$fallback_dir/aliases/${email}.txt"
     fi
 }
 
 zb_find_sieve_in_file() {
-    local snap_dir="$1" email="$2"
+    local snap_dir="$1" email="$2" fallback_dir="${3:-}"
     if [[ -s "$snap_dir/filters/${email}.sieve" ]]; then
         printf '%s' "$snap_dir/filters/${email}.sieve"
     elif [[ -s "$snap_dir/filter/${email}.sieve" ]]; then
         printf '%s' "$snap_dir/filter/${email}.sieve"
+    elif [[ -n "$fallback_dir" && -s "$fallback_dir/filters/${email}.sieve" ]]; then
+        printf '%s' "$fallback_dir/filters/${email}.sieve"
     fi
+}
+
+zb_apply_restored_signature() {
+    local acct="$1" name_b64="$2" html_b64="$3" text_b64="$4"
+    [[ -n "$name_b64" ]] || return 0
+    [[ -n "$html_b64" || -n "$text_b64" ]] || return 0
+    local sig_name sig_html="" sig_text=""
+    sig_name="$(printf '%s' "$name_b64" | base64 -d 2>/dev/null || printf '%s' "$name_b64" | base64 --decode 2>/dev/null || printf 'Default')"
+    local -a sig_args=()
+    if [[ -n "$html_b64" ]]; then
+        sig_html="$(printf '%s' "$html_b64" | base64 -d 2>/dev/null || printf '%s' "$html_b64" | base64 --decode 2>/dev/null || printf '')"
+        sig_args+=(zimbraPrefMailSignatureHTML "$sig_html")
+    fi
+    if [[ -n "$text_b64" ]]; then
+        sig_text="$(printf '%s' "$text_b64" | base64 -d 2>/dev/null || printf '%s' "$text_b64" | base64 --decode 2>/dev/null || printf '')"
+        sig_args+=(zimbraPrefMailSignature "$sig_text")
+    fi
+    (( ${#sig_args[@]} > 0 )) || return 0
+    zmprov csig "$acct" "$sig_name" "${sig_args[@]}" </dev/null >/dev/null 2>&1 || \
+        zmprov msig "$acct" "$sig_name" "${sig_args[@]}" </dev/null >/dev/null 2>&1 || true
 }
 
 # Restore LDAP metadata (domains, accounts, attrs, hashes, aliases, DLs, signatures, Sieve, admins)
@@ -482,9 +572,13 @@ zb_restore_ldap_metadata() {
     local acc_list_file="$3"
     local target_user_override="${4:-}"
 
+    local legacy_ext_dir=""
+    legacy_ext_dir="$(mktemp -d "$ZB_RUN_DIR/.legacy_ext.XXXXXX")" || return 1
+    ZB_RESTORE_LEGACY_TMP="$legacy_ext_dir"
+
     # Collect required domains
     local req_doms
-    req_doms="$(mktemp "$ZB_RUN_DIR/.rest_doms.XXXXXX")" || return 1
+    req_doms="$(mktemp "$ZB_RUN_DIR/.rest_doms.XXXXXX")" || { rm -rf -- "$legacy_ext_dir"; ZB_RESTORE_LEGACY_TMP=""; return 1; }
     if [[ -n "$target_user_override" ]]; then
         printf '%s\n' "${target_user_override#*@}" > "$req_doms"
     elif [[ "$scope_kind" == "all" && -f "$snap_dir/domains/domains.txt" ]]; then
@@ -499,7 +593,11 @@ zb_restore_ldap_metadata() {
         [[ -n "$dom" ]] || continue
         if ! zb_domain_exists "$dom"; then
             zb_log "  + Creating domain: $dom"
-            zmprov cd "$dom" </dev/null >/dev/null 2>&1 || zb_warn "Could not create domain: $dom"
+            if zmprov cd "$dom" </dev/null >/dev/null 2>&1; then
+                [[ -n "${ZB_EXIST_DOMS_FILE:-}" && -f "$ZB_EXIST_DOMS_FILE" ]] && printf '%s\n' "${dom,,}" >> "$ZB_EXIST_DOMS_FILE"
+            else
+                zb_warn "Could not create domain: $dom"
+            fi
         fi
     done 3< "$req_doms"
 
@@ -513,10 +611,12 @@ zb_restore_ldap_metadata() {
             local tmp_pass
             tmp_pass="Tmp$(date +%s)$$Aa1!"
             zb_log "  + Creating account: $dest_email"
-            zmprov ca "$dest_email" "$tmp_pass" </dev/null >/dev/null 2>&1 || {
+            if zmprov ca "$dest_email" "$tmp_pass" </dev/null >/dev/null 2>&1; then
+                [[ -n "${ZB_EXIST_ACCS_FILE:-}" && -f "$ZB_EXIST_ACCS_FILE" ]] && printf '%s\n' "${dest_email,,}" >> "$ZB_EXIST_ACCS_FILE"
+            else
                 zb_warn "Failed to create account: $dest_email"
                 continue
-            }
+            fi
         fi
 
         # When redirecting restore to a different existing target user, do not overwrite their password/aliases!
@@ -524,13 +624,11 @@ zb_restore_ldap_metadata() {
             continue
         fi
 
-        # Restore attributes fromzb-backup-v2 `.attrs` (or unfold legacy `.ldif` on the fly)
+        # Restore attributes from zb-backup-v2 `.attrs` (or unfold legacy `.ldif` into $ZB_RUN_DIR without writing $snap_dir)
         local attrs_file="$snap_dir/attributes/${src_email}.attrs"
-        local temp_attrs=""
         if [[ ! -f "$attrs_file" && -f "$snap_dir/accounts/${src_email}.ldif" ]]; then
-            temp_attrs="$(mktemp "$ZB_RUN_DIR/.legacy_attrs.XXXXXX")"
-            zb_extract_account_artifacts "$snap_dir/accounts/${src_email}.ldif" "$snap_dir" "$src_email" 2>/dev/null || true
-            attrs_file="$snap_dir/attributes/${src_email}.attrs"
+            zb_extract_account_artifacts "$snap_dir/accounts/${src_email}.ldif" "$snap_dir" "$src_email" "$legacy_ext_dir" 2>/dev/null || true
+            attrs_file="$legacy_ext_dir/attributes/${src_email}.attrs"
         fi
 
         if [[ -s "$attrs_file" ]]; then
@@ -545,10 +643,9 @@ zb_restore_ldap_metadata() {
                 zmprov ma "$dest_email" "${ma_args[@]}" </dev/null >/dev/null 2>&1 || zb_warn "Warning applying attributes for $dest_email"
             fi
         fi
-        [[ -n "$temp_attrs" ]] && rm -f -- "$temp_attrs"
 
         local pw_file
-        pw_file="$(zb_find_password_file "$snap_dir" "$src_email")"
+        pw_file="$(zb_find_password_file "$snap_dir" "$src_email" "$legacy_ext_dir")"
         if [[ -n "$pw_file" && -s "$pw_file" ]]; then
             local shadow_hash
             shadow_hash="$(head -n 1 "$pw_file" | tr -d '\r\n')"
@@ -563,6 +660,8 @@ zb_restore_ldap_metadata() {
     # Skip aliases, DLs, signatures, filters, admin grants when redirecting to a different target account
     if [[ -n "$target_user_override" ]]; then
         rm -f -- "$req_doms"
+        rm -rf -- "$legacy_ext_dir"
+        ZB_RESTORE_LEGACY_TMP=""
         return 0
     fi
 
@@ -570,7 +669,7 @@ zb_restore_ldap_metadata() {
     while IFS= read -r src_email <&3; do
         [[ -n "$src_email" ]] || continue
         local alias_file alias_addr
-        alias_file="$(zb_find_alias_file "$snap_dir" "$src_email")"
+        alias_file="$(zb_find_alias_file "$snap_dir" "$src_email" "$legacy_ext_dir")"
         [[ -n "$alias_file" && -s "$alias_file" ]] || continue
         while IFS= read -r alias_addr <&4; do
             alias_addr="$(zb_trim "$alias_addr")"
@@ -589,7 +688,9 @@ zb_restore_ldap_metadata() {
                 dl_dom="${dl#*@}"
                 grep -Fxq -- "$dl_dom" "$req_doms" || continue
                 if ! zb_dl_exists "$dl"; then
-                    zmprov cdl "$dl" </dev/null >/dev/null 2>&1 || true
+                    if zmprov cdl "$dl" </dev/null >/dev/null 2>&1; then
+                        [[ -n "${ZB_EXIST_DLS_FILE:-}" && -f "$ZB_EXIST_DLS_FILE" ]] && printf '%s\n' "${dl,,}" >> "$ZB_EXIST_DLS_FILE"
+                    fi
                 fi
                 if [[ -s "$snap_dir/dl/${dl}.members" ]]; then
                     while IFS= read -r member <&4; do
@@ -608,14 +709,24 @@ zb_restore_ldap_metadata() {
         [[ -n "$src_email" ]] || continue
         local sig_file="$snap_dir/signatures/${src_email}.sigs"
         if [[ -s "$sig_file" ]]; then
-            local name_b64 sig_attr content_b64 sig_name sig_body
+            local cur_name_b64="" cur_html_b64="" cur_text_b64=""
+            local name_b64 sig_attr content_b64
             while IFS=$'\t' read -r name_b64 sig_attr content_b64 <&4; do
                 [[ -n "$name_b64" && -n "$content_b64" ]] || continue
-                sig_name="$(printf '%s' "$name_b64" | base64 -d 2>/dev/null || printf 'Default')"
-                sig_body="$(printf '%s' "$content_b64" | base64 -d 2>/dev/null || printf '')"
-                zmprov csig "$src_email" "$sig_name" "$sig_attr" "$sig_body" </dev/null >/dev/null 2>&1 || \
-                    zmprov msig "$src_email" "$sig_name" "$sig_attr" "$sig_body" </dev/null >/dev/null 2>&1 || true
+                if [[ -n "$cur_name_b64" && "$name_b64" != "$cur_name_b64" ]]; then
+                    zb_apply_restored_signature "$src_email" "$cur_name_b64" "$cur_html_b64" "$cur_text_b64"
+                    cur_html_b64=""
+                    cur_text_b64=""
+                fi
+                cur_name_b64="$name_b64"
+                case "$sig_attr" in
+                    zimbraPrefMailSignatureHTML) cur_html_b64="$content_b64" ;;
+                    zimbraPrefMailSignature) cur_text_b64="$content_b64" ;;
+                esac
             done 4< "$sig_file"
+            if [[ -n "$cur_name_b64" ]]; then
+                zb_apply_restored_signature "$src_email" "$cur_name_b64" "$cur_html_b64" "$cur_text_b64"
+            fi
         elif [[ -s "$snap_dir/signature/${src_email}.sig" ]]; then
             # Legacy signature fallback
             local legacy_sig
@@ -627,13 +738,18 @@ zb_restore_ldap_metadata() {
     zb_log "[LDAP 6/7] Restoring Sieve mail filters..."
     while IFS= read -r src_email <&3; do
         [[ -n "$src_email" ]] || continue
-        local sieve_in
-        sieve_in="$(zb_find_sieve_in_file "$snap_dir" "$src_email")"
+        local sieve_in sieve_out=""
+        sieve_in="$(zb_find_sieve_in_file "$snap_dir" "$src_email" "$legacy_ext_dir")"
         if [[ -n "$sieve_in" && -s "$sieve_in" ]]; then
             zmprov ma "$src_email" zimbraMailSieveScript "$(cat "$sieve_in")" </dev/null >/dev/null 2>&1 || true
         fi
         if [[ -s "$snap_dir/filters/${src_email}.out.sieve" ]]; then
-            zmprov ma "$src_email" zimbraMailOutgoingSieveScript "$(cat "$snap_dir/filters/${src_email}.out.sieve")" </dev/null >/dev/null 2>&1 || true
+            sieve_out="$snap_dir/filters/${src_email}.out.sieve"
+        elif [[ -s "$legacy_ext_dir/filters/${src_email}.out.sieve" ]]; then
+            sieve_out="$legacy_ext_dir/filters/${src_email}.out.sieve"
+        fi
+        if [[ -n "$sieve_out" ]]; then
+            zmprov ma "$src_email" zimbraMailOutgoingSieveScript "$(cat "$sieve_out")" </dev/null >/dev/null 2>&1 || true
         fi
     done 3< "$acc_list_file"
 
@@ -650,6 +766,8 @@ zb_restore_ldap_metadata() {
     fi
 
     rm -f -- "$req_doms"
+    rm -rf -- "$legacy_ext_dir"
+    ZB_RESTORE_LEGACY_TMP=""
     return 0
 }
 
@@ -708,11 +826,17 @@ zb_run_restore() (
     acc_list="$(mktemp "$ZB_RUN_DIR/.rest_accs.XXXXXX")" || return 1
     cleanup_restore() {
         local rc=$?
+        trap - EXIT INT TERM HUP
         zb_cleanup_auth_token
+        zb_cleanup_restore_ldap_cache
+        [[ -n "${ZB_RESTORE_LEGACY_TMP:-}" && -d "$ZB_RESTORE_LEGACY_TMP" ]] && rm -rf -- "$ZB_RESTORE_LEGACY_TMP"
         rm -f -- "$acc_list"
+        zb_close_run_log
         return "$rc"
     }
     trap cleanup_restore EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
 
     zb_select_restore_accounts "$target_snap" "$scope_kind" "$scope_arg" "$acc_list" || return 1
     local acc_count
@@ -726,8 +850,17 @@ zb_run_restore() (
         fi
     fi
 
-    if [[ "$mode" == "subfolder" && -z "$subfolder_name" ]]; then
-        subfolder_name="Restore_$(date +%Y%m%d_%H%M%S)"
+    if [[ "$mode" == "subfolder" || -n "$subfolder_name" ]]; then
+        subfolder_name="${subfolder_name#/}"
+        if [[ "$mode" == "subfolder" && -z "$subfolder_name" ]]; then
+            subfolder_name="Restore_$(date +%Y%m%d_%H%M%S)"
+        fi
+        if [[ -n "$subfolder_name" ]]; then
+            zb_valid_subfolder_name "$subfolder_name" || {
+                zb_err "Invalid --subfolder-name '$subfolder_name' (allowed: letters, digits, '.', '_', '-', '/'; no '..' or query characters)."
+                return 1
+            }
+        fi
     fi
 
     zb_msg "============================================================"
@@ -781,6 +914,8 @@ zb_run_restore() (
         fi
     done
 
+    zb_init_restore_ldap_cache || true
+
     # Restore LDAP metadata from the target point-in-time snapshot (latest state in chain)
     if [[ "$only_part" == "all" || "$only_part" == "ldap" ]]; then
         zb_restore_ldap_metadata "$target_snap" "$scope_kind" "$acc_list" "$target_user" || return 1
@@ -817,7 +952,9 @@ zb_run_restore() (
 
                 if ! zb_account_exists "$dest_u"; then
                     zb_log "  + Destination account '$dest_u' missing; creating automatically before mailbox import..."
-                    zmprov ca "$dest_u" "Tmp$(date +%s)$$Aa1!" </dev/null >/dev/null 2>&1 || true
+                    if zmprov ca "$dest_u" "Tmp$(date +%s)$$Aa1!" </dev/null >/dev/null 2>&1; then
+                        [[ -n "${ZB_EXIST_ACCS_FILE:-}" && -f "$ZB_EXIST_ACCS_FILE" ]] && printf '%s\n' "${dest_u,,}" >> "$ZB_EXIST_ACCS_FILE"
+                    fi
                 fi
 
                 zb_log "  ($u_idx/$acc_count) Importing ${tgz##*/} -> $dest_u ..."
@@ -903,14 +1040,29 @@ zb_cli_backup() {
             zb_info "Verification PASSED (${#ZB_RESTORE_CHAIN_DIRS[@]} step(s) verified)."
             ;;
         user|users)
-            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup user <email1,email2> [--dir <path>]"; return 1; }
-            local emails="$1"
+            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup user <email1,email2> [--dir <path>] [--require-mount yes|no]"; return 1; }
+            local emails="$1" req_mount=""
             shift
-            [[ "${1:-}" == "--dir" ]] && { custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2; }
-            zb_run_adhoc_users "$emails" "$custom_dir"
+            while (( $# > 0 )); do
+                case "$1" in
+                    --dir) custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
+                    --require-mount) req_mount="${2-}"; shift 2 ;;
+                    *) zb_err "Unknown option: $1"; return 1 ;;
+                esac
+            done
+            if [[ -n "$req_mount" && "$req_mount" != "yes" && "$req_mount" != "no" ]]; then
+                zb_err "--require-mount must be yes or no."
+                return 1
+            fi
+            zb_run_adhoc_users "$emails" "$custom_dir" "$req_mount"
             ;;
         clean-pending)
-            [[ "${1:-}" == "--dir" ]] && { custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2; }
+            while (( $# > 0 )); do
+                case "$1" in
+                    --dir) custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
+                    *) zb_err "Unknown option: $1"; return 1 ;;
+                esac
+            done
             zb_clean_pending_dirs "$custom_dir"
             ;;
         *)

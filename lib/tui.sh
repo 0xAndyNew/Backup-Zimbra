@@ -220,12 +220,20 @@ zb_tui_edit_backup_mode() {
 }
 
 zb_tui_edit_retention() {
-    if [[ "$BACKUP_TYPE" == "incremental" ]]; then
-        zb_msg "Note: For Incremental mode, 1 chain = 1 Full base + ${FULL_CYCLE_VALUE} Incremental runs."
-        KEEP_COUNT="$(zb_tui_prompt_default "Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
-    else
-        KEEP_COUNT="$(zb_tui_prompt_default "Keep how many FULL snapshots?" "$KEEP_COUNT")"
-    fi
+    local k_in
+    while true; do
+        if [[ "$BACKUP_TYPE" == "incremental" ]]; then
+            zb_msg "Note: For Incremental mode, 1 chain = 1 Full base + ${FULL_CYCLE_VALUE} Incremental runs."
+            k_in="$(zb_tui_prompt_default "Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
+        else
+            k_in="$(zb_tui_prompt_default "Keep how many FULL snapshots?" "$KEEP_COUNT")"
+        fi
+        if [[ "$k_in" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
+            KEEP_COUNT="$k_in"
+            break
+        fi
+        zb_warn "Invalid retention count '$k_in'. Enter an integer between 1 and 999."
+    done
 }
 
 zb_tui_edit_full_cycle() {
@@ -399,7 +407,17 @@ zb_tui_job_edit_loop() {
             5) zb_tui_prompt_job_storage_dir 1 ;;
             6) zb_tui_edit_scope ;;
             7) zb_tui_edit_prune_timing ;;
-            8) PARALLEL_JOBS="$(zb_tui_prompt_default "Parallel mailbox workers (1-16)" "$PARALLEL_JOBS")" ;;
+            8)
+                local p_in
+                while true; do
+                    p_in="$(zb_tui_prompt_default "Parallel mailbox workers (1-16)" "$PARALLEL_JOBS")"
+                    if [[ "$p_in" =~ ^([1-9]|1[0-6])$ ]]; then
+                        PARALLEL_JOBS="$p_in"
+                        break
+                    fi
+                    zb_warn "Invalid worker count '$p_in'. Enter an integer between 1 and 16."
+                done
+                ;;
             9) JOB_NAME="$(zb_tui_prompt_default "Job description" "$JOB_NAME")" ;;
             10) ENABLED="$(zb_tui_prompt_yesno "Enable automatic cron schedule for this job?" "$ENABLED")" ;;
             s|save)
@@ -470,12 +488,27 @@ zb_tui_job_create() {
     zb_tui_configure_schedule
 
     zb_msg ""
+    local k_ans
     if [[ "$BACKUP_TYPE" == "incremental" ]]; then
         zb_msg "5. Retention Policy (1 chain = 1 Full + ${FULL_CYCLE_VALUE} Incrementals):"
-        KEEP_COUNT="$(zb_tui_prompt_default "   Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
+        while true; do
+            k_ans="$(zb_tui_prompt_default "   Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
+            if [[ "$k_ans" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
+                KEEP_COUNT="$k_ans"
+                break
+            fi
+            zb_warn "Invalid retention count '$k_ans'. Enter an integer between 1 and 999."
+        done
     else
         zb_msg "5. Retention Policy:"
-        KEEP_COUNT="$(zb_tui_prompt_default "   Keep how many FULL snapshots?" "$KEEP_COUNT")"
+        while true; do
+            k_ans="$(zb_tui_prompt_default "   Keep how many FULL snapshots?" "$KEEP_COUNT")"
+            if [[ "$k_ans" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
+                KEEP_COUNT="$k_ans"
+                break
+            fi
+            zb_warn "Invalid retention count '$k_ans'. Enter an integer between 1 and 999."
+        done
     fi
 
     zb_msg ""
@@ -490,6 +523,11 @@ zb_tui_job_create() {
         zb_msg ""
         zb_info "Created job '$JOB_ID' and synchronized crontab!"
         zb_job_print_detail "$JOB_ID"
+    else
+        zb_warn "Validation or crontab sync failed; opening editor so you can review and fix fields."
+        zb_pause
+        zb_tui_job_edit_loop "REVIEW / FIX NEW"
+        return 0
     fi
     zb_pause
 }
@@ -576,14 +614,16 @@ zb_tui_jobs_menu() {
                 ;;
             4)
                 if zb_tui_pick_job_id "Select job to toggle"; then
-                    zb_job_load "$ZB_PICKED_JOB" || true
-                    if [[ "$ENABLED" == "yes" ]]; then
-                        ENABLED="no"
-                    else
-                        ENABLED="yes"
+                    if zb_job_load "$ZB_PICKED_JOB"; then
+                        if [[ "$ENABLED" == "yes" ]]; then
+                            ENABLED="no"
+                        else
+                            ENABLED="yes"
+                        fi
+                        if zb_job_save && zb_cron_sync; then
+                            zb_info "Job '$JOB_ID' schedule enabled = $ENABLED"
+                        fi
                     fi
-                    zb_job_save && zb_cron_sync
-                    zb_info "Job '$JOB_ID' schedule enabled = $ENABLED"
                 fi
                 zb_pause
                 ;;
@@ -628,7 +668,7 @@ zb_tui_run_backup_menu() {
             fi
             ;;
         3)
-            local emails dir_override tip_dir
+            local emails dir_override tip_dir adhoc_req_mount="$REQUIRE_MOUNTPOINT"
             emails="$(zb_tui_prompt_default "Account email(s) (comma-separated)" "")"
             [[ -n "$emails" ]] || return 0
             while true; do
@@ -638,7 +678,18 @@ zb_tui_run_backup_menu() {
                     zb_warn "Invalid path '$dir_override'. Enter an absolute path (e.g. /home/backup or /backup)."
                     continue
                 fi
-                if [[ ! -d "$dir_override" && "$REQUIRE_MOUNTPOINT" == "no" ]]; then
+                if ! zb_check_no_symlinks "$dir_override"; then
+                    continue
+                fi
+                adhoc_req_mount="$REQUIRE_MOUNTPOINT"
+                if [[ "$adhoc_req_mount" == "yes" ]] && ! zb_has_mounted_base "$dir_override"; then
+                    local allow_adhoc_local
+                    allow_adhoc_local="$(zb_tui_prompt_yesno "   '$dir_override' is not a mounted disk/NFS. Allow local folder for this run?" "yes")"
+                    if [[ "$allow_adhoc_local" == "yes" ]]; then
+                        adhoc_req_mount="no"
+                    fi
+                fi
+                if [[ ! -d "$dir_override" && "$adhoc_req_mount" == "no" ]]; then
                     local mk_adhoc
                     mk_adhoc="$(zb_tui_prompt_yesno "   Directory '$dir_override' does not exist. Create it now?" "yes")"
                     if [[ "$mk_adhoc" == "yes" ]]; then
@@ -653,7 +704,7 @@ zb_tui_run_backup_menu() {
                 fi
                 break
             done
-            zb_run_adhoc_users "$emails" "$dir_override" || true
+            zb_run_adhoc_users "$emails" "$dir_override" "$adhoc_req_mount" || true
             tip_dir="${dir_override%/}"
             [[ "${tip_dir##*/}" =~ ^[Aa]ccount$ ]] || tip_dir="${tip_dir}/account"
             zb_info "Tip: Use Menu 4 (Restore from Custom Dir -> $tip_dir) to restore account backups."
@@ -819,8 +870,16 @@ zb_tui_restore_from_catalog() {
         case "$m_c" in
             2)
                 mode_val="subfolder"
-                local sf
-                sf="$(zb_tui_prompt_default "Subfolder name" "Restore_$(date +%Y%m%d_%H%M)")"
+                local sf sf_def
+                sf_def="Restore_$(date +%Y%m%d_%H%M)"
+                while true; do
+                    sf="$(zb_tui_prompt_default "Subfolder name" "$sf_def")"
+                    sf="${sf#/}"
+                    if zb_valid_subfolder_name "$sf"; then
+                        break
+                    fi
+                    zb_warn "Invalid subfolder name '$sf' (allowed: letters, digits, '.', '_', '-', '/'; no '..' or spaces)."
+                done
                 restore_args+=(--subfolder-name "$sf")
                 ;;
             3) mode_val="modify" ;;
@@ -1071,7 +1130,9 @@ zb_tui_settings_menu() {
                     mk="$(zb_tui_prompt_yesno "Directory does not exist. Create '$DEFAULT_BACKUP_DIR' now?" "yes")"
                     [[ "$mk" == "yes" ]] && mkdir -p -m 700 -- "$DEFAULT_BACKUP_DIR" || true
                 fi
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             2)
@@ -1083,23 +1144,31 @@ zb_tui_settings_menu() {
                 else
                     CUSTOM_RESTORE_DIR="$rdir_in"
                 fi
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             3)
                 REQUIRE_MOUNTPOINT="$(zb_tui_prompt_yesno "Require dedicated mounted disk/NFS?" "$REQUIRE_MOUNTPOINT")"
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             4)
                 DISK_WARN_PERCENT="$(zb_tui_prompt_default "Disk usage warning threshold (%)" "$DISK_WARN_PERCENT")"
                 DISK_MIN_FREE_MB="$(zb_tui_prompt_default "Minimum free disk space (MB)" "$DISK_MIN_FREE_MB")"
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             5)
                 HOST_LABEL="$(zb_tui_prompt_default "Server label (blank = hostname)" "$HOST_LABEL")"
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             6)
@@ -1109,7 +1178,9 @@ zb_tui_settings_menu() {
                     TELEGRAM_CHAT_ID="$(zb_tui_prompt_default "Telegram Chat ID" "$TELEGRAM_CHAT_ID")"
                     TELEGRAM_THREAD_ID="$(zb_tui_prompt_default "Topic Thread ID (blank if none)" "$TELEGRAM_THREAD_ID")"
                 fi
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             7)
@@ -1117,7 +1188,9 @@ zb_tui_settings_menu() {
                 if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
                     EMAIL_ALERT_TO="$(zb_tui_prompt_default "Recipient email address" "$EMAIL_ALERT_TO")"
                 fi
-                zb_save_settings && zb_info "Saved."
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
                 zb_pause
                 ;;
             8)

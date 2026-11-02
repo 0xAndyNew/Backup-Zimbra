@@ -1,10 +1,19 @@
 /var/lib/zimbra-backup/logs/*.log {
     weekly
     rotate 12
+    maxage 90
     missingok
     notifempty
     compress
-    delaycompress
-    create 0600 zimbra zimbra
+    nocreate
     su zimbra zimbra
+    lastaction
+        LOCK="/var/lib/zimbra-backup/operation.lock"
+        LOGDIR="/var/lib/zimbra-backup/logs"
+        if [ -d "$LOGDIR" ] && [ ! -L "$LOGDIR" ]; then
+            if [ ! -f "$LOCK" ] || ( exec 9>"$LOCK" && flock -n 9 ) 2>/dev/null; then
+                find "$LOGDIR" -maxdepth 1 -type f \( -name '*.log' -o -name '*.log.*' -o -name '*.gz' \) -mtime +90 -delete 2>/dev/null || true
+            fi
+        fi
+    endscript
 }

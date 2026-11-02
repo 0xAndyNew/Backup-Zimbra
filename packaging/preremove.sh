@@ -40,7 +40,7 @@ fi
 clean_zimbra_crontab() {
     command -v crontab >/dev/null 2>&1 || return 0
     if [ "${ZB_SKIP_USER_CHECK:-0}" != "1" ]; then
-        id "$ZIMBRA_USER" >/dev/null 2>&1 || return 0
+        (getent passwd "$ZIMBRA_USER" || id "$ZIMBRA_USER") >/dev/null 2>&1 || return 0
     fi
 
     TMP_BASE="/tmp"
@@ -110,7 +110,7 @@ case "$STATE_DIR" in
                     find "${STATE_DIR}/${sub}" -mindepth 1 -exec rm -rf -- {} + 2>/dev/null || true
                 fi
             done
-            rm -f -- "${STATE_DIR}/settings.conf" "${STATE_DIR}/operation.lock" 2>/dev/null || true
+            rm -f -- "${STATE_DIR}/settings.conf" "${STATE_DIR}/operation.lock" "${STATE_DIR}/cron.lock" 2>/dev/null || true
         fi
         ;;
 esac

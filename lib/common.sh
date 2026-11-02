@@ -2,13 +2,14 @@
 # Core utilities, configuration parser, privilege switching, locking, and storage guards.
 # Compatible with Bash 4.2+ (CentOS/RHEL 7, 8, 9).
 
-ZB_VERSION="0.3.0"
+ZB_VERSION="0.3.1"
 ZB_STATE_DIR="${ZB_STATE_DIR:-/var/lib/zimbra-backup}"
 ZB_SETTINGS_FILE="$ZB_STATE_DIR/settings.conf"
 ZB_JOBS_DIR="$ZB_STATE_DIR/jobs"
 ZB_LOG_DIR="$ZB_STATE_DIR/logs"
 ZB_RUN_DIR="$ZB_STATE_DIR/run"
 ZB_LOCK_FILE="$ZB_STATE_DIR/operation.lock"
+ZB_CRON_LOCK_FILE="$ZB_STATE_DIR/cron.lock"
 
 ZB_ZIMBRA_HOME="${ZB_ZIMBRA_HOME:-/opt/zimbra}"
 ZB_ZIMBRA_BIN="${ZB_ZIMBRA_BIN:-$ZB_ZIMBRA_HOME/bin}"
@@ -33,6 +34,7 @@ HOST_LABEL=""
 
 ZB_CURRENT_LOG=""
 ZB_LOCK_ACQUIRED=0
+ZB_LOG_ACTIVE=0
 
 zb_msg() { printf '%s\n' "$*"; }
 zb_info() { printf '[INFO] %s\n' "$*"; }
@@ -81,7 +83,33 @@ zb_host_label() {
     hostname -f 2>/dev/null || hostname 2>/dev/null || printf 'zimbra-host'
 }
 
+zb_ensure_utf8_ctype() {
+    local cur_ctype="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
+    case "$cur_ctype" in
+        *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) return 0 ;;
+    esac
+    if [[ "${LC_ALL:-}" == "C" || "${LC_ALL:-}" == "POSIX" ]]; then
+        export LANG="${LANG:-C}"
+        unset LC_ALL
+    fi
+    if command -v locale >/dev/null 2>&1; then
+        local avail pick=""
+        avail="$(locale -a 2>/dev/null || true)"
+        if printf '%s\n' "$avail" | grep -Eixq 'C\.utf-?8'; then
+            pick="C.UTF-8"
+        elif printf '%s\n' "$avail" | grep -Eixq 'en_US\.utf-?8'; then
+            pick="en_US.UTF-8"
+        else
+            pick="$(printf '%s\n' "$avail" | grep -Ei '\.utf-?8$' | head -n 1 || true)"
+        fi
+        if [[ -n "$pick" ]]; then
+            export LC_CTYPE="$pick"
+        fi
+    fi
+}
+
 zb_load_zimbra_env() {
+    zb_ensure_utf8_ctype
     PATH="$ZB_ZIMBRA_BIN:$ZB_ZIMBRA_HOME/common/bin:$ZB_ZIMBRA_HOME/libexec:$PATH"
     export PATH
     if [[ "$ZB_SKIP_ZMSHUTIL" != "1" && -f "$ZB_ZIMBRA_BIN/zmshutil" ]]; then
@@ -94,6 +122,7 @@ zb_load_zimbra_env() {
         fi
         set -eu
     fi
+    zb_ensure_utf8_ctype
 }
 
 zb_require_zimbra() {
@@ -141,6 +170,20 @@ zb_normalize_dir_input() {
 zb_valid_safe_path() {
     local p="${1-}"
     [[ -n "$p" && "$p" =~ ^/[A-Za-z0-9._@+/-]+$ && "$p" != "/" && "$p" != *//* && "$p" != */ && "$p" != *..* ]]
+}
+
+zb_valid_subfolder_name() {
+    local s="${1-}"
+    [[ -n "$s" && "$s" =~ ^[A-Za-z0-9._/-]{1,128}$ && "$s" != /* && "$s" != */ && "$s" != *//* && "$s" != *..* ]]
+}
+
+zb_same_filesystem() {
+    local p1="${1-}" p2="${2-}"
+    [[ -e "$p1" && -e "$p2" ]] || return 1
+    local d1 d2
+    d1="$(df -P -- "$p1" 2>/dev/null | awk 'NR==2 {print $1}')" || return 1
+    d2="$(df -P -- "$p2" 2>/dev/null | awk 'NR==2 {print $1}')" || return 1
+    [[ -n "$d1" && "$d1" == "$d2" ]]
 }
 
 zb_valid_slug() {
@@ -388,8 +431,20 @@ zb_acquire_lock() {
 zb_start_run_log() {
     local prefix="${1:-run}"
     zb_ensure_state_dirs || return 1
+    if [[ -d "$ZB_LOG_DIR" && ! -L "$ZB_LOG_DIR" ]]; then
+        find "$ZB_LOG_DIR" -maxdepth 1 -type f \( -name '*.log' -o -name '*.log.*' -o -name '*.gz' \) -mtime +90 -delete 2>/dev/null || true
+    fi
     ZB_CURRENT_LOG="$ZB_LOG_DIR/${prefix}_$(date +%Y%m%d_%H%M%S)_$$.log"
     touch "$ZB_CURRENT_LOG"
     chmod 600 "$ZB_CURRENT_LOG"
+    exec 7>&1 8>&2
+    ZB_LOG_ACTIVE=1
     exec > >(tee -a "$ZB_CURRENT_LOG") 2>&1
+}
+
+zb_close_run_log() {
+    if [[ "${ZB_LOG_ACTIVE:-0}" == "1" ]]; then
+        ZB_LOG_ACTIVE=0
+        exec 1>&7 2>&8 7>&- 8>&- 2>/dev/null || true
+    fi
 }
