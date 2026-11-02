@@ -419,11 +419,27 @@ sleep 1
 sleep 1
 "$ZB_CMD" job run full-daily
 
-snap_count="$(find "$STORE_DIR/full-daily/snapshots" -mindepth 1 -maxdepth 1 -type d -name 'full_*' | wc -l | tr -d '[:space:]')"
-[[ "$snap_count" == "2" ]] && pass "Giới hạn lưu trữ KEEP_COUNT=2 (after) giữ đúng 2 bản Full mới nhất" \
+snap_count="$(find "$STORE_DIR/full/full-daily" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | wc -l | tr -d '[:space:]')"
+[[ "$snap_count" == "2" ]] && pass "Tách thư mục full/full-daily/backup-full-DD-MM-YYYY_HHMMSS & giữ đúng KEEP_COUNT=2 (after)" \
     || fail "Số bản Full thực tế ($snap_count) khác 2"
 
-latest_full="$(find "$STORE_DIR/full-daily/snapshots" -mindepth 1 -maxdepth 1 -type d -name 'full_*' | LC_ALL=C sort | tail -n 1)"
+latest_full="$(find "$STORE_DIR/full/full-daily" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | LC_ALL=C sort | tail -n 1)"
+[[ "${latest_full##*/}" =~ ^backup-full-[0-9]{2}-[0-9]{2}-[0-9]{4}_[0-9]{6}$ ]] \
+    && pass "Đặt tên thư mục Full đúng chuẩn backup-full-ngay-thang-nam (${latest_full##*/})" \
+    || fail "Tên thư mục Full sai định dạng: ${latest_full##*/}"
+
+# Verify chronological pruning across month boundary (28-10-2026 older than 02-11-2026 despite '02' < '28')
+FAKE_OLD_OCT="$STORE_DIR/full/full-daily/backup-full-28-10-2020_010000"
+cp -r -- "$latest_full" "$FAKE_OLD_OCT"
+sed -i 's/^created_at=.*/created_at=2020-10-28T01:00:00Z/; s/^checkpoint_to=.*/checkpoint_to=1603846800/' "$FAKE_OLD_OCT/manifest"
+sleep 1
+"$ZB_CMD" job run full-daily
+[[ ! -d "$FAKE_OLD_OCT" ]] \
+    && pass "Xóa bản cũ theo đúng thứ tự thời gian thực (28-10-2020 bị xóa trước bản tháng 11 mới hơn)" \
+    || fail "Bản cũ 28-10-2020 chưa được xóa khi vượt KEEP_COUNT=2"
+latest_full="$("$ZB_CMD" backup list --job full-daily | awk 'NR==3 {print $NF}')"
+latest_full="$STORE_DIR/full/full-daily/${latest_full##*/}"
+
 assert_file_exists "$latest_full/mailboxes/empty@example.com.tgz" "Không xóa nhầm hộp thư rỗng <200 bytes (empty@example.com.tgz)"
 assert_file_exists "$latest_full/signatures/user1@example.com.sigs" "Xuất chữ ký người dùng bằng zmprov gsig thành công"
 assert_file_exists "$latest_full/dl/all@example.com.members" "Xuất danh sách thành viên Distribution List (gdlm) thành công"
@@ -440,19 +456,22 @@ leftover_tokens="$(find "$STATE_DIR/run" -type f 2>/dev/null | wc -l | tr -d '[:
 [[ "$leftover_tokens" == "0" ]] && pass "Tự động dọn sạch file chứa token tạm trong $STATE_DIR/run sau khi chạy" \
     || fail "Còn sót file token trong $STATE_DIR/run"
 
-printf '\n=== 5. Kiểm tra Chuỗi Incremental (000_full -> 001_incr -> 002_incr) & Xoay chuỗi mới (before) ===\n'
-"$ZB_CMD" job run incr-main # Chain 1: 000_full
+printf '\n=== 5. Kiểm tra Chuỗi Incremental (000_backup-full -> 001_backup-incremental -> 002_backup-incremental) ===\n'
+"$ZB_CMD" job run incr-main # Chain 1: 000_backup-full
 sleep 1
-"$ZB_CMD" job run incr-main # Chain 1: 001_incr
+"$ZB_CMD" job run incr-main # Chain 1: 001_backup-incremental
 sleep 1
-"$ZB_CMD" job run incr-main # Chain 1: 002_incr
+"$ZB_CMD" job run incr-main # Chain 1: 002_backup-incremental
 
-chain1_dir="$(find "$ALT_STORE_DIR/incr-main/chains" -mindepth 1 -maxdepth 1 -type d -name 'chain_*' | head -n 1)"
+chain1_dir="$(find "$ALT_STORE_DIR/incremental/incr-main" -mindepth 1 -maxdepth 1 -type d -name 'chain-*' | head -n 1)"
 step_count="$(find "$chain1_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
-[[ "$step_count" == "3" ]] && pass "Tạo chuỗi Incremental gồm 1 bản Full gốc + 2 bản Incremental kế tiếp" \
+[[ "$step_count" == "3" ]] && pass "Tách thư mục incremental/incr-main/chain-* gồm 1 bản Full gốc + 2 bản Incremental" \
     || fail "Số bước trong chuỗi 1 ($step_count) khác 3"
 
-incr2_dir="$(find "$chain1_dir" -mindepth 1 -maxdepth 1 -type d -name '002_incr_*' | head -n 1)"
+incr2_dir="$(find "$chain1_dir" -mindepth 1 -maxdepth 1 -type d -name '002_backup-incremental-*' | head -n 1)"
+[[ "${incr2_dir##*/}" =~ ^002_backup-incremental-[0-9]{2}-[0-9]{2}-[0-9]{4}_[0-9]{6}$ ]] \
+    && pass "Đặt tên bước Incremental đúng chuẩn 002_backup-incremental-ngay-thang-nam (${incr2_dir##*/})" \
+    || fail "Tên thư mục Incremental sai định dạng: ${incr2_dir##*/}"
 assert_file_exists "$incr2_dir/mailboxes/empty@example.com.empty" "Ghi nhận trạng thái empty-delta cho hộp thư không phát sinh mail mới"
 
 # Test Restore from Incremental step BEFORE rolling over chain 1
@@ -490,16 +509,22 @@ assert_not_contains "$sub_log" "ZMPROV ma manager@example.com userPassword" \
 # Now run 4th time on incr-main (max_incr=2 reached -> opens Chain 2, PRUNE_TIMING=before with KEEP_COUNT=1 deletes Chain 1)
 sleep 1
 "$ZB_CMD" job run incr-main
-chains_remaining="$(find "$ALT_STORE_DIR/incr-main/chains" -mindepth 1 -maxdepth 1 -type d -name 'chain_*' | wc -l | tr -d '[:space:]')"
+chains_remaining="$(find "$ALT_STORE_DIR/incremental/incr-main" -mindepth 1 -maxdepth 1 -type d -name 'chain-*' | wc -l | tr -d '[:space:]')"
 [[ "$chains_remaining" == "1" ]] && pass "Chu kỳ tạo chuỗi Full mới + xóa chuỗi cũ theo KEEP_COUNT=1 (before) hoạt động chính xác" \
     || fail "Số chuỗi còn lại ($chains_remaining) khác 1"
 
 # Ad-hoc user backup + pending cleanup + job-only discovery isolation + legacy directory restore
-printf '\n=== 7. Kiểm tra Cô lập thư mục theo Job, Backup lẻ, Dọn .pending.* & Thư mục Restore riêng ===\n'
+printf '\n=== 7. Kiểm tra Tách thư mục account/, Đặt tên backup-<email>-ngay-thang-nam & Thư mục Restore riêng ===\n'
+"$ZB_CMD" backup user "user1@example.com"
+single_adhoc="$(find "$STORE_DIR/account" -mindepth 1 -maxdepth 1 -type d -name 'backup-user1@example.com-*' | head -n 1)"
+[[ -n "$single_adhoc" && "${single_adhoc##*/}" =~ ^backup-user1@example\.com-[0-9]{2}-[0-9]{2}-[0-9]{4}_[0-9]{6}$ ]] \
+    && pass "Sao lưu lẻ 1 email lưu vào account/backup-user1@example.com-ngay-thang-nam (${single_adhoc##*/})" \
+    || fail "Tên thư mục sao lưu lẻ 1 email không đúng: ${single_adhoc:-none}"
+
 "$ZB_CMD" backup user "user1@example.com,empty@example.com"
-adhoc_count="$(find "$STORE_DIR/manual-accounts/snapshots" -mindepth 1 -maxdepth 1 -type d -name 'adhoc_*' | wc -l | tr -d '[:space:]')"
-[[ "$adhoc_count" == "1" ]] && pass "Sao lưu nhanh tài khoản lẻ (manual-accounts) độc lập với giới hạn của Job" \
-    || fail "Không tìm thấy bản sao lưu lẻ"
+multi_adhoc="$(find "$STORE_DIR/account" -mindepth 1 -maxdepth 1 -type d -name 'backup-user1@example.com+1more-*' | head -n 1)"
+[[ -n "$multi_adhoc" ]] && pass "Sao lưu lẻ nhiều email lưu vào account/backup-<email>+<N>more-ngay-thang-nam" \
+    || fail "Không tìm thấy bản sao lưu lẻ nhiều email trong $STORE_DIR/account"
 
 # Create a stray unconfigured backup folder inside STORE_DIR to verify default discovery ignores non-job dirs
 STRAY_SNAP="$STORE_DIR/unconfigured-folder/snapshots/full_20990101_000000"
@@ -510,23 +535,23 @@ cp -- "$MOCK_DATA/normal_mail.tgz" "$STRAY_SNAP/mailboxes/user1@example.com.tgz"
 default_cat="$("$ZB_CMD" backup list)"
 assert_contains "$default_cat" "full-daily" "Danh sách mặc định lấy đúng thư mục của Job full-daily"
 assert_contains "$default_cat" "incr-main" "Danh sách mặc định lấy đúng thư mục của Job incr-main"
-assert_not_contains "$default_cat" "manual-accounts" "Danh sách Job mặc định KHÔNG quét lẫn thư mục sao lưu lẻ manual-accounts"
+assert_not_contains "$default_cat" "account/backup-" "Danh sách Job mặc định KHÔNG quét lẫn thư mục sao lưu lẻ account/"
 assert_not_contains "$default_cat" "20990101_000000" "Danh sách Job mặc định KHÔNG quét tràn lan thư mục lạ ngoài Job trên cùng ổ đĩa"
 
 single_job_cat="$("$ZB_CMD" backup list --job full-daily)"
 assert_contains "$single_job_cat" "full-daily" "Lọc theo --job full-daily hiển thị đúng các bản sao lưu của Job đó"
 assert_not_contains "$single_job_cat" "incr-main" "Lọc theo --job full-daily không lẫn bản sao lưu của Job khác"
 
-adhoc_cat="$("$ZB_CMD" backup list --dir "$STORE_DIR/manual-accounts")"
-assert_contains "$adhoc_cat" "manual-accounts" "Quét riêng --dir nhận diện đúng bản sao lưu lẻ (manual-accounts)"
+adhoc_cat="$("$ZB_CMD" backup list --dir "$STORE_DIR/account")"
+assert_contains "$adhoc_cat" "backup-user1@example.com-" "Quét riêng --dir account/ nhận diện đúng bản sao lưu lẻ theo email"
 
-mkdir -p "$STORE_DIR/full-daily/snapshots/.pending.99999"
+mkdir -p "$STORE_DIR/full/full-daily/.pending.99999"
 "$ZB_CMD" backup clean-pending >/dev/null
-[[ ! -d "$STORE_DIR/full-daily/snapshots/.pending.99999" ]] && pass "Dọn sạch thư mục tạm .pending.* bị dở dang" \
+[[ ! -d "$STORE_DIR/full/full-daily/.pending.99999" ]] && pass "Dọn sạch thư mục tạm .pending.* bị dở dang" \
     || fail "Chưa xóa được thư mục .pending.99999"
 
-# Legacy auto_full_backup.sh layout compatibility & separate CUSTOM_RESTORE_DIR setting
-LEGACY_DIR="$TEST_TMP/legacy_root/20260101_020000"
+# Legacy auto_full_backup.sh layout compatibility (including nested /backup/full/<timestamp>) & CUSTOM_RESTORE_DIR
+LEGACY_DIR="$TEST_TMP/legacy_root/full/20260101_020000"
 mkdir -p "$LEGACY_DIR"/{domains,accounts,userpass,alias,signatures,filter,mailboxes}
 printf 'example.com\n' > "$LEGACY_DIR/domains/domains.txt"
 printf 'legacy@example.com\n' > "$LEGACY_DIR/accounts/active_accounts.txt"
@@ -538,7 +563,19 @@ assert_contains "$(cat "$STATE_DIR/settings.conf")" "CUSTOM_RESTORE_DIR=$TEST_TM
     "Lưu cấu hình thư mục Restore riêng (CUSTOM_RESTORE_DIR) độc lập với DEFAULT_BACKUP_DIR"
 
 cat_out="$("$ZB_CMD" backup list --dir "$TEST_TMP/legacy_root")"
-assert_contains "$cat_out" "legacy-full" "Nhận diện và hiển thị được thư mục backup định dạng cũ (auto_full_backup.sh)"
+assert_contains "$cat_out" "legacy-full" "Quét đệ quy từ đường dẫn bất kỳ người dùng nhập vào tự động tìm thấy thư mục con bên trong"
+cat_direct_out="$("$ZB_CMD" backup list --dir "$TEST_TMP/legacy_root/full")"
+assert_contains "$cat_direct_out" "legacy-full" "Gõ trực tiếp thư mục cấp con vẫn nhận diện bình thường"
+
+# Arbitrary user-supplied path & arbitrary non-numeric folder names (no hardcoded /backup or /full)
+ARB_DIR="$TEST_TMP/duong_dan_tuy_chon/server_cu/kho_thang_10/ban_sao_luu_zimbra"
+mkdir -p "$ARB_DIR"/{domains,accounts,mailboxes}
+printf 'corp.vn\n' > "$ARB_DIR/domains/domains.txt"
+printf 'vip@corp.vn\n' > "$ARB_DIR/accounts/active_accounts.txt"
+cp -- "$MOCK_DATA/normal_mail.tgz" "$ARB_DIR/mailboxes/vip@corp.vn.tgz"
+arb_cat="$("$ZB_CMD" backup list --dir "$TEST_TMP/duong_dan_tuy_chon")"
+assert_contains "$arb_cat" "legacy/ban_sao_luu_zimbra" \
+    "Tự động dò nhiều cấp từ bất kỳ đường dẫn nào người dùng cung cấp (không phụ thuộc tên /backup hay /full)"
 
 : > "$MOCK_LOG"
 "$ZB_CMD" restore --dir "$TEST_TMP/legacy_root" --from 1 --users "legacy@example.com" --yes
@@ -553,6 +590,40 @@ assert_contains "$(cat "$STATE_DIR/jobs/incr-defaults.conf")" "KEEP_COUNT=2" \
     "Job Incremental mới mặc định KEEP_COUNT=2 chuỗi (~2 tuần) khi không truyền --keep"
 assert_contains "$(cat "$STATE_DIR/jobs/incr-defaults.conf")" "PARALLEL_JOBS=4" \
     "Job Incremental mới mặc định PARALLEL_JOBS=4 luồng khi không truyền --parallel"
+
+# Test interactive 5-step Job Creation Wizard (Step 3 Backup Storage Directory + auto-mkdir + trailing slash normalization)
+TUI_CUSTOM_STORE="$TEST_TMP/tui_custom_store"
+(
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/notify.sh"
+    . "$REPO_ROOT/lib/zimbra_api.sh"
+    . "$REPO_ROOT/lib/jobs.sh"
+    . "$REPO_ROOT/lib/backup.sh"
+    . "$REPO_ROOT/lib/restore.sh"
+    . "$REPO_ROOT/lib/tui.sh"
+    zb_tui_job_create <<EOF >/dev/null
+backup-1
+1
+${TUI_CUSTOM_STORE}/
+y
+2
+6
+02:00
+1
+n
+
+EOF
+)
+assert_file_exists "$STATE_DIR/jobs/backup-1.conf" "TUI Wizard 5 bước tạo thành công file cấu hình backup-1.conf"
+assert_contains "$(cat "$STATE_DIR/jobs/backup-1.conf")" "TARGET_DIR=$TUI_CUSTOM_STORE" \
+    "TUI Wizard Bước 3 lưu đúng đường dẫn nơi lưu trữ TARGET_DIR (tự chuẩn hóa dấu '/' cuối)"
+[[ -d "$TUI_CUSTOM_STORE" ]] && pass "TUI Wizard tự động tạo thư mục lưu trữ mới khi chưa tồn tại" \
+    || fail "TUI Wizard chưa tạo thư mục $TUI_CUSTOM_STORE"
+"$ZB_CMD" job run backup-1 >/dev/null
+tui_snap="$(find "$TUI_CUSTOM_STORE/full/backup-1" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | head -n 1)"
+[[ -n "$tui_snap" ]] && pass "Job tạo từ TUI Wizard chạy lưu đúng vào $TUI_CUSTOM_STORE/full/backup-1/backup-full-*" \
+    || fail "Không tìm thấy bản backup trong $TUI_CUSTOM_STORE/full/backup-1"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

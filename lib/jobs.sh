@@ -46,27 +46,56 @@ zb_job_effective_target_dir() {
     fi
 }
 
-zb_job_storage_root() {
-    local base
-    base="$(zb_job_effective_target_dir)"
-    printf '%s/%s' "$base" "$JOB_ID"
+zb_job_category_dir() {
+    if [[ "${BACKUP_TYPE:-full}" == "incremental" ]]; then
+        printf 'incremental'
+    else
+        printf 'full'
+    fi
 }
 
-# Emit storage root `<effective_target_dir>/<job_id>` for one job ($1) or all configured jobs.
+zb_job_storage_root() {
+    local base cat_dir base_leaf
+    base="$(zb_job_effective_target_dir)"
+    cat_dir="$(zb_job_category_dir)"
+    base_leaf="${base##*/}"
+    if [[ "${base_leaf,,}" == "$cat_dir" ]]; then
+        printf '%s/%s' "$base" "$JOB_ID"
+    else
+        printf '%s/%s/%s' "$base" "$cat_dir" "$JOB_ID"
+    fi
+}
+
+# Emit storage root `<effective_target_dir>/<full|incremental>/<job_id>` for one job ($1) or all configured jobs.
+# When $2 == "1", also emits legacy `<effective_target_dir>/<job_id>` if present on disk for upgrade compatibility.
 # Runs in a subshell so `zb_job_load` does not overwrite caller's JOB_* state.
 zb_list_job_storage_roots() (
     local filter_jid="${1:-}"
+    local include_legacy="${2:-0}"
     zb_load_settings || return 1
+
+    _zb_emit_job_roots() {
+        local primary legacy
+        primary="$(zb_job_storage_root)"
+        printf '%s\n' "$primary"
+        if [[ "$include_legacy" == "1" ]]; then
+            legacy="$(zb_job_effective_target_dir)/$JOB_ID"
+            if [[ "$legacy" != "$primary" && -d "$legacy" ]]; then
+                printf '%s\n' "$legacy"
+            fi
+        fi
+    }
+
     if [[ -n "$filter_jid" ]]; then
         zb_job_load "$filter_jid" || return 1
-        printf '%s\n' "$(zb_job_storage_root)"
+        _zb_emit_job_roots
         return 0
     fi
     local jid
     while IFS= read -r jid; do
         [[ -n "$jid" ]] || continue
         if zb_job_load "$jid" >/dev/null 2>&1; then
-            printf '%s\n' "$(zb_job_storage_root)"
+            _zb_emit_job_roots
         fi
     done < <(zb_job_list_ids)
 )
@@ -389,12 +418,12 @@ zb_cli_init() {
     local create_dir="no"
     while (( $# > 0 )); do
         case "$1" in
-            --backup-dir) DEFAULT_BACKUP_DIR="${2-}"; shift 2 ;;
+            --backup-dir) DEFAULT_BACKUP_DIR="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
             --restore-dir)
                 if [[ "${2-}" == "none" || "${2-}" == "-" ]]; then
                     CUSTOM_RESTORE_DIR=""
                 else
-                    CUSTOM_RESTORE_DIR="${2-}"
+                    CUSTOM_RESTORE_DIR="$(zb_normalize_dir_input "${2-}")"
                 fi
                 shift 2
                 ;;
@@ -439,7 +468,7 @@ zb_parse_job_flags() {
                 if [[ "${2-}" == "default" || "${2-}" == "-" ]]; then
                     TARGET_DIR=""
                 else
-                    TARGET_DIR="${2-}"
+                    TARGET_DIR="$(zb_normalize_dir_input "${2-}")"
                 fi
                 shift 2
                 ;;

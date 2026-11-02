@@ -103,8 +103,9 @@ zb_tui_first_run_wizard() {
 
     while true; do
         DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "1. Default backup directory" "$DEFAULT_BACKUP_DIR")"
+        DEFAULT_BACKUP_DIR="$(zb_normalize_dir_input "$DEFAULT_BACKUP_DIR")"
         if ! zb_valid_safe_path "$DEFAULT_BACKUP_DIR"; then
-            zb_warn "Invalid path (use an absolute path like /home/backup or /backup, no spaces or trailing slash)."
+            zb_warn "Invalid path (use an absolute path like /home/backup or /backup, no spaces)."
             continue
         fi
 
@@ -294,6 +295,75 @@ zb_tui_edit_prune_timing() {
     fi
 }
 
+# Prompt and validate backup storage directory for a Job (creates folder or adjusts local mount override if needed)
+zb_tui_prompt_job_storage_dir() {
+    local allow_inherit="${1:-0}"
+    local default_shown prompt_lbl dir_in
+    default_shown="${TARGET_DIR:-$DEFAULT_BACKUP_DIR}"
+    if [[ "$allow_inherit" == "1" ]]; then
+        prompt_lbl="Backup storage directory ('default' = inherit $DEFAULT_BACKUP_DIR)"
+    else
+        prompt_lbl="Backup storage directory"
+    fi
+
+    while true; do
+        dir_in="$(zb_tui_prompt_default "$prompt_lbl" "$default_shown")"
+        dir_in="$(zb_normalize_dir_input "$dir_in")"
+        if [[ "$allow_inherit" == "1" && ( "$dir_in" == "default" || "$dir_in" == "-" ) ]]; then
+            TARGET_DIR=""
+            JOB_REQUIRE_MOUNT="inherit"
+            dir_in="$DEFAULT_BACKUP_DIR"
+        else
+            if ! zb_valid_safe_path "$dir_in"; then
+                zb_warn "Invalid path '$dir_in'. Enter an absolute path (e.g. /home/backup or /backup, no spaces)."
+                continue
+            fi
+            if ! zb_check_no_symlinks "$dir_in"; then
+                continue
+            fi
+            TARGET_DIR="$dir_in"
+        fi
+
+        zb_msg "   -> Snapshots for job '$JOB_ID' will be saved in: $(zb_job_storage_root)"
+
+        local eff_mount="$REQUIRE_MOUNTPOINT"
+        if [[ "${JOB_REQUIRE_MOUNT:-inherit}" == "yes" || "${JOB_REQUIRE_MOUNT:-inherit}" == "no" ]]; then
+            eff_mount="$JOB_REQUIRE_MOUNT"
+        fi
+
+        if [[ "$eff_mount" == "yes" ]] && ! zb_has_mounted_base "$dir_in"; then
+            local allow_local
+            allow_local="$(zb_tui_prompt_yesno "   '$dir_in' is not a mounted disk/NFS. Allow local folder for this job?" "yes")"
+            if [[ "$allow_local" == "yes" ]]; then
+                JOB_REQUIRE_MOUNT="no"
+                eff_mount="no"
+            else
+                JOB_REQUIRE_MOUNT="yes"
+                zb_warn "Note: Mount '$dir_in' before running job '$JOB_ID'."
+            fi
+        fi
+
+        if [[ ! -d "$dir_in" && "$eff_mount" == "no" ]]; then
+            local mk
+            mk="$(zb_tui_prompt_yesno "   Directory '$dir_in' does not exist. Create it now?" "yes")"
+            if [[ "$mk" == "yes" ]]; then
+                mkdir -p -m 700 -- "$dir_in" 2>/dev/null || mkdir -p -- "$dir_in" 2>/dev/null || true
+                if [[ -d "$dir_in" && -w "$dir_in" ]]; then
+                    chmod 700 "$dir_in" 2>/dev/null || true
+                    zb_info "Created directory: $dir_in"
+                else
+                    zb_warn "Could not create '$dir_in' as user '$ZB_ZIMBRA_USER'."
+                    zb_warn "Run as root first: mkdir -p $dir_in && chown zimbra:zimbra $dir_in"
+                fi
+            fi
+        elif [[ -d "$dir_in" && ! -w "$dir_in" ]]; then
+            zb_warn "User '$ZB_ZIMBRA_USER' cannot write to '$dir_in' yet."
+            zb_warn "Run as root first: chown zimbra:zimbra $dir_in"
+        fi
+        break
+    done
+}
+
 # Interactive Field-by-Field Job Editor (change any single setting & press 's' to save)
 zb_tui_job_edit_loop() {
     local mode_label="${1:-EDIT}"
@@ -326,15 +396,7 @@ zb_tui_job_edit_loop() {
             2) zb_tui_configure_schedule ;;
             3) zb_tui_edit_retention ;;
             4) zb_tui_edit_full_cycle ;;
-            5)
-                local dir_in
-                dir_in="$(zb_tui_prompt_default "Target directory ('default' = inherit $DEFAULT_BACKUP_DIR)" "${TARGET_DIR:-default}")"
-                if [[ "$dir_in" == "default" || "$dir_in" == "-" ]]; then
-                    TARGET_DIR=""
-                else
-                    TARGET_DIR="$dir_in"
-                fi
-                ;;
+            5) zb_tui_prompt_job_storage_dir 1 ;;
             6) zb_tui_edit_scope ;;
             7) zb_tui_edit_prune_timing ;;
             8) PARALLEL_JOBS="$(zb_tui_prompt_default "Parallel mailbox workers (1-16)" "$PARALLEL_JOBS")" ;;
@@ -360,7 +422,7 @@ zb_tui_job_edit_loop() {
     done
 }
 
-# Quick 4-Step Job Creation Wizard
+# Quick 5-Step Job Creation Wizard
 zb_tui_job_create() {
     zb_load_settings || return 1
     zb_job_reset_defaults
@@ -399,21 +461,26 @@ zb_tui_job_create() {
     fi
 
     zb_msg ""
-    zb_msg "3. Configure Schedule:"
+    zb_msg "3. Backup Storage Directory:"
+    zb_msg "   (Snapshots are stored under <dir>/$(zb_job_category_dir)/${JOB_ID})"
+    zb_tui_prompt_job_storage_dir 0
+
+    zb_msg ""
+    zb_msg "4. Configure Schedule:"
     zb_tui_configure_schedule
 
     zb_msg ""
     if [[ "$BACKUP_TYPE" == "incremental" ]]; then
-        zb_msg "4. Retention Policy (1 chain = 1 Full + ${FULL_CYCLE_VALUE} Incrementals):"
+        zb_msg "5. Retention Policy (1 chain = 1 Full + ${FULL_CYCLE_VALUE} Incrementals):"
         KEEP_COUNT="$(zb_tui_prompt_default "   Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
     else
-        zb_msg "4. Retention Policy:"
+        zb_msg "5. Retention Policy:"
         KEEP_COUNT="$(zb_tui_prompt_default "   Keep how many FULL snapshots?" "$KEEP_COUNT")"
     fi
 
     zb_msg ""
     local adv
-    adv="$(zb_tui_prompt_yesno "Customize advanced options (target folder, domain/account filter, full cycle, prune timing, threads)?" "no")"
+    adv="$(zb_tui_prompt_yesno "Customize advanced options (domain/account filter, full cycle, prune timing, threads)?" "no")"
     if [[ "$adv" == "yes" ]]; then
         zb_tui_job_edit_loop "REVIEW / CUSTOMIZE NEW"
         return 0
@@ -482,7 +549,7 @@ zb_tui_jobs_menu() {
         zb_tui_header "JOBS & CRONTAB SCHEDULE"
         zb_job_print_summary_table
         zb_msg ""
-        zb_msg "  1) Create new backup job (Quick 4-step wizard)"
+        zb_msg "  1) Create new backup job (Quick 5-step wizard)"
         zb_msg "  2) Edit existing job (change schedule, retention, path, scope...)"
         zb_msg "  3) View full job details"
         zb_msg "  4) Enable / Disable job cron schedule"
@@ -561,12 +628,35 @@ zb_tui_run_backup_menu() {
             fi
             ;;
         3)
-            local emails dir_override
+            local emails dir_override tip_dir
             emails="$(zb_tui_prompt_default "Account email(s) (comma-separated)" "")"
             [[ -n "$emails" ]] || return 0
-            dir_override="$(zb_tui_prompt_default "Target backup directory" "${CUSTOM_RESTORE_DIR:-$DEFAULT_BACKUP_DIR}")"
+            while true; do
+                dir_override="$(zb_tui_prompt_default "Backup storage directory (saved under <dir>/account)" "$DEFAULT_BACKUP_DIR")"
+                dir_override="$(zb_normalize_dir_input "$dir_override")"
+                if ! zb_valid_safe_path "$dir_override"; then
+                    zb_warn "Invalid path '$dir_override'. Enter an absolute path (e.g. /home/backup or /backup)."
+                    continue
+                fi
+                if [[ ! -d "$dir_override" && "$REQUIRE_MOUNTPOINT" == "no" ]]; then
+                    local mk_adhoc
+                    mk_adhoc="$(zb_tui_prompt_yesno "   Directory '$dir_override' does not exist. Create it now?" "yes")"
+                    if [[ "$mk_adhoc" == "yes" ]]; then
+                        mkdir -p -m 700 -- "$dir_override" 2>/dev/null || mkdir -p -- "$dir_override" 2>/dev/null || true
+                        if [[ -d "$dir_override" && -w "$dir_override" ]]; then
+                            chmod 700 "$dir_override" 2>/dev/null || true
+                            zb_info "Created directory: $dir_override"
+                        else
+                            zb_warn "Run as root first: mkdir -p $dir_override && chown zimbra:zimbra $dir_override"
+                        fi
+                    fi
+                fi
+                break
+            done
             zb_run_adhoc_users "$emails" "$dir_override" || true
-            zb_info "Tip: Use Menu 4 (Restore from Custom Dir -> $dir_override) to restore ad-hoc account backups."
+            tip_dir="${dir_override%/}"
+            [[ "${tip_dir##*/}" =~ ^[Aa]ccount$ ]] || tip_dir="${tip_dir}/account"
+            zb_info "Tip: Use Menu 4 (Restore from Custom Dir -> $tip_dir) to restore account backups."
             zb_pause
             ;;
         0) return 0 ;;
@@ -837,6 +927,7 @@ zb_tui_restore_custom_wizard() {
                 if [[ -z "$CUSTOM_RESTORE_DIR" ]]; then
                     local new_rdir
                     new_rdir="$(zb_tui_prompt_default "Enter Custom Restore Directory path" "/mnt/restore")"
+                    new_rdir="$(zb_normalize_dir_input "$new_rdir")"
                     [[ -n "$new_rdir" ]] || continue
                     CUSTOM_RESTORE_DIR="$new_rdir"
                     if ! zb_save_settings; then
@@ -851,6 +942,7 @@ zb_tui_restore_custom_wizard() {
             2)
                 local once_dir
                 once_dir="$(zb_tui_prompt_default "Enter one-time backup directory path" "${CUSTOM_RESTORE_DIR:-$DEFAULT_BACKUP_DIR}")"
+                once_dir="$(zb_normalize_dir_input "$once_dir")"
                 [[ -n "$once_dir" ]] || continue
                 if ! zb_valid_safe_path "$once_dir"; then
                     zb_err "Invalid directory path: $once_dir" || true
@@ -863,6 +955,7 @@ zb_tui_restore_custom_wizard() {
             3)
                 local cfg_rdir
                 cfg_rdir="$(zb_tui_prompt_default "Custom Restore Directory ('none' to clear)" "${CUSTOM_RESTORE_DIR:-/mnt/restore}")"
+                cfg_rdir="$(zb_normalize_dir_input "$cfg_rdir")"
                 if [[ "$cfg_rdir" == "none" || "$cfg_rdir" == "-" ]]; then
                     CUSTOM_RESTORE_DIR=""
                 else
@@ -894,7 +987,7 @@ zb_tui_catalog_menu() {
         if [[ -n "$view_dir" ]]; then
             zb_msg "Catalog Source: Custom Directory ($view_dir)"
         else
-            zb_msg "Catalog Source: Configured Backup Jobs (<target_dir>/<job_id>)"
+            zb_msg "Catalog Source: Configured Backup Jobs (<target_dir>/<full|incremental>/<job_id>)"
         fi
         zb_msg ""
         zb_print_backup_catalog "$view_dir"
@@ -935,6 +1028,7 @@ zb_tui_catalog_menu() {
                 else
                     local ext_dir
                     ext_dir="$(zb_tui_prompt_default "Custom directory path" "${CUSTOM_RESTORE_DIR:-$DEFAULT_BACKUP_DIR}")"
+                    ext_dir="$(zb_normalize_dir_input "$ext_dir")"
                     if [[ -n "$ext_dir" ]] && zb_valid_safe_path "$ext_dir"; then
                         view_dir="$ext_dir"
                     else
@@ -971,6 +1065,7 @@ zb_tui_settings_menu() {
         case "$(zb_trim "$c")" in
             1)
                 DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "Default job backup directory" "$DEFAULT_BACKUP_DIR")"
+                DEFAULT_BACKUP_DIR="$(zb_normalize_dir_input "$DEFAULT_BACKUP_DIR")"
                 if [[ ! -d "$DEFAULT_BACKUP_DIR" && "$REQUIRE_MOUNTPOINT" == "no" ]]; then
                     local mk
                     mk="$(zb_tui_prompt_yesno "Directory does not exist. Create '$DEFAULT_BACKUP_DIR' now?" "yes")"
@@ -982,6 +1077,7 @@ zb_tui_settings_menu() {
             2)
                 local rdir_in
                 rdir_in="$(zb_tui_prompt_default "Custom restore directory ('none' to clear)" "${CUSTOM_RESTORE_DIR:-/mnt/restore}")"
+                rdir_in="$(zb_normalize_dir_input "$rdir_in")"
                 if [[ "$rdir_in" == "none" || "$rdir_in" == "-" ]]; then
                     CUSTOM_RESTORE_DIR=""
                 else

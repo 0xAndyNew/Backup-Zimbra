@@ -129,9 +129,18 @@ zb_ensure_state_dirs() {
     }
 }
 
+zb_normalize_dir_input() {
+    local p
+    p="$(zb_trim "${1:-}")"
+    while [[ "$p" != "/" && "$p" == */ ]]; do
+        p="${p%/}"
+    done
+    printf '%s' "$p"
+}
+
 zb_valid_safe_path() {
     local p="${1-}"
-    [[ -n "$p" && "$p" =~ ^/[A-Za-z0-9._/-]+$ && "$p" != "/" && "$p" != *//* && "$p" != */ && "$p" != *..* ]]
+    [[ -n "$p" && "$p" =~ ^/[A-Za-z0-9._@+/-]+$ && "$p" != "/" && "$p" != *//* && "$p" != */ && "$p" != *..* ]]
 }
 
 zb_valid_slug() {

@@ -141,39 +141,70 @@ zb_write_manifest() {
     chmod 600 "$mf"
 }
 
-# List valid completed full snapshot directories for a `full` job (oldest -> newest)
+# Ensure target directory path does not collide if two runs occur within the same second
+zb_unique_path() {
+    local candidate="$1"
+    if [[ ! -e "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+    local n=2
+    while [[ -e "${candidate}_${n}" ]]; do
+        n=$((n + 1))
+    done
+    printf '%s_%d' "$candidate" "$n"
+}
+
+# List valid completed full snapshot directories for a `full` job (oldest -> newest by manifest timestamp)
 zb_list_full_job_snapshots() {
     local job_root="$1"
-    local d
-    [[ -d "$job_root/snapshots" ]] || return 0
+    local d cp_num
+    [[ -d "$job_root" ]] || return 0
     shopt -s nullglob
-    for d in "$job_root/snapshots"/full_*; do
-        [[ -d "$d" && ! -L "$d" && -f "$d/manifest" ]] && printf '%s\n' "$d"
-    done | LC_ALL=C sort
+    for d in \
+        "$job_root"/backup-full-* \
+        "$job_root"/snapshots/backup-full-* \
+        "$job_root"/snapshots/full_*; do
+        [[ -d "$d" && ! -L "$d" && -f "$d/manifest" ]] || continue
+        if zb_read_manifest_meta "$d/manifest"; then
+            cp_num="${MF_CHECKPOINT_TO:-0}"
+            [[ "$cp_num" =~ ^[0-9]+$ ]] || cp_num=0
+            printf '%012d\t%s\t%s\n' "$cp_num" "${MF_CREATED_AT:-}" "$d"
+        fi
+    done | LC_ALL=C sort | cut -f3-
     shopt -u nullglob
 }
 
-# List valid chains (those containing a completed 000_full_* base) for an `incremental` job (oldest -> newest)
+# List valid chains (those containing a completed 000_* full base) for an `incremental` job (oldest -> newest)
 zb_list_valid_chains() {
     local job_root="$1"
-    local c base_ok f
-    [[ -d "$job_root/chains" ]] || return 0
+    local c base_ok f cp_num base_created
+    [[ -d "$job_root" ]] || return 0
     shopt -s nullglob
-    for c in "$job_root/chains"/chain_*; do
+    for c in \
+        "$job_root"/chain-* \
+        "$job_root"/chain_* \
+        "$job_root"/chains/chain-* \
+        "$job_root"/chains/chain_*; do
         [[ -d "$c" && ! -L "$c" ]] || continue
         base_ok=0
-        for f in "$c"/000_full_*; do
-            if [[ -d "$f" && -f "$f/manifest" ]]; then
+        cp_num=0
+        base_created=""
+        for f in "$c"/000_backup-full-* "$c"/000_full_*; do
+            if [[ -d "$f" && -f "$f/manifest" ]] && zb_read_manifest_meta "$f/manifest"; then
                 base_ok=1
+                cp_num="${MF_CHECKPOINT_TO:-0}"
+                [[ "$cp_num" =~ ^[0-9]+$ ]] || cp_num=0
+                base_created="${MF_CREATED_AT:-}"
                 break
             fi
         done
-        (( base_ok == 1 )) && printf '%s\n' "$c"
-    done | LC_ALL=C sort
+        (( base_ok == 1 )) && printf '%012d\t%s\t%s\n' "$cp_num" "$base_created" "$c"
+    done | LC_ALL=C sort | cut -f3-
     shopt -u nullglob
 }
 
-# List valid step directories inside a chain (000_full_*, 001_incr_*, ...) sorted in order
+# List valid step directories inside a chain (000_backup-full-*, 001_backup-incremental-*, ...) sorted in order
 zb_list_chain_steps() {
     local chain_dir="$1"
     local s
@@ -238,13 +269,13 @@ zb_plan_incremental_step() {
     local stamp="$3"
 
     ZB_PLAN_STEP_TYPE="full"
-    ZB_PLAN_CHAIN_DIR="$job_root/chains/chain_${stamp}"
+    ZB_PLAN_CHAIN_DIR="$(zb_unique_path "$job_root/chain-${stamp}")"
     ZB_PLAN_SEQ=0
     ZB_PLAN_PARENT_ID="none"
     ZB_PLAN_CP_FROM=0
 
     if [[ "$force_full" == "1" ]]; then
-        zb_log "Force-full requested (--force-full): starting new chain chain_${stamp}."
+        zb_log "Force-full requested (--force-full): starting new chain ${ZB_PLAN_CHAIN_DIR##*/}."
         return 0
     fi
 
@@ -255,7 +286,7 @@ zb_plan_incremental_step() {
     done < <(zb_list_valid_chains "$job_root")
 
     if (( ${#chains[@]} == 0 )); then
-        zb_log "No existing Full base chain found: automatically starting initial Full chain (chain_${stamp})."
+        zb_log "No existing Full base chain found: automatically starting initial Full chain (${ZB_PLAN_CHAIN_DIR##*/})."
         return 0
     fi
 
@@ -609,12 +640,11 @@ zb_run_job() (
     job_root="$(zb_job_storage_root)"
     mkdir -p -m 700 -- "$job_root" || return 1
 
-    local stamp cp_to final_dir backup_id step_type chain_id chain_seq parent_id cp_from
-    stamp="$(date -u '+%Y%m%d_%H%M%S')"
+    local stamp cp_to final_dir backup_id step_type chain_id chain_seq parent_id cp_from snap_leaf
+    stamp="$(date '+%d-%m-%Y_%H%M%S')"
     cp_to="$(date +%s)"
 
     if [[ "$BACKUP_TYPE" == "full" ]]; then
-        mkdir -p -m 700 -- "$job_root/snapshots"
         if [[ "$PRUNE_TIMING" == "before" ]]; then
             zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before"
         fi
@@ -623,11 +653,11 @@ zb_run_job() (
         chain_seq="0"
         parent_id="none"
         cp_from="0"
-        backup_id="${JOB_ID}/full_${stamp}"
-        final_dir="$job_root/snapshots/full_${stamp}"
-        stage_dir="$job_root/snapshots/.pending.full_${stamp}.$$"
+        final_dir="$(zb_unique_path "$job_root/backup-full-${stamp}")"
+        snap_leaf="${final_dir##*/}"
+        backup_id="full/${JOB_ID}/${snap_leaf}"
+        stage_dir="$job_root/.pending.${snap_leaf}.$$"
     else
-        mkdir -p -m 700 -- "$job_root/chains"
         zb_plan_incremental_step "$job_root" "$force_full" "$stamp"
         step_type="$ZB_PLAN_STEP_TYPE"
         if [[ "$PRUNE_TIMING" == "before" && "$step_type" == "full" ]]; then
@@ -638,11 +668,17 @@ zb_run_job() (
         chain_seq="$ZB_PLAN_SEQ"
         parent_id="$ZB_PLAN_PARENT_ID"
         cp_from="$ZB_PLAN_CP_FROM"
-        local seq_pad
+        local seq_pad step_label
         seq_pad="$(printf '%03d' "$chain_seq")"
-        backup_id="${JOB_ID}/${chain_id}/${seq_pad}_${step_type}_${stamp}"
-        final_dir="${ZB_PLAN_CHAIN_DIR}/${seq_pad}_${step_type}_${stamp}"
-        stage_dir="${ZB_PLAN_CHAIN_DIR}/.pending.${seq_pad}_${step_type}_${stamp}.$$"
+        if [[ "$step_type" == "full" ]]; then
+            step_label="backup-full"
+        else
+            step_label="backup-incremental"
+        fi
+        final_dir="$(zb_unique_path "${ZB_PLAN_CHAIN_DIR}/${seq_pad}_${step_label}-${stamp}")"
+        snap_leaf="${final_dir##*/}"
+        backup_id="incremental/${JOB_ID}/${chain_id}/${snap_leaf}"
+        stage_dir="${ZB_PLAN_CHAIN_DIR}/.pending.${snap_leaf}.$$"
     fi
 
     mkdir -p -m 700 -- "$stage_dir" || return 1
@@ -701,21 +737,40 @@ zb_run_adhoc_users() (
     zb_validate_scope_values "accounts" "$emails_csv" || return 1
 
     local base_dir="${custom_dir:-$DEFAULT_BACKUP_DIR}"
+    base_dir="${base_dir%/}"
     zb_acquire_lock || return 1
     zb_start_run_log "adhoc_user"
 
     zb_check_backup_dir "$base_dir" "$REQUIRE_MOUNTPOINT" "no" || return 1
     zb_check_disk_space "$base_dir" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB" || return 1
 
-    local adhoc_root="$base_dir/manual-accounts/snapshots"
+    local adhoc_root base_leaf="${base_dir##*/}"
+    if [[ "${base_leaf,,}" == "account" ]]; then
+        adhoc_root="$base_dir"
+    else
+        adhoc_root="$base_dir/account"
+    fi
     mkdir -p -m 700 -- "$adhoc_root" || return 1
 
-    local stamp cp_to stage_dir final_dir backup_id
-    stamp="$(date -u '+%Y%m%d_%H%M%S')"
+    local -a raw_emails=() clean_emails=()
+    local em
+    IFS=',' read -r -a raw_emails <<< "$emails_csv"
+    for em in "${raw_emails[@]}"; do
+        em="$(zb_trim "$em")"
+        [[ -n "$em" ]] && clean_emails+=("$em")
+    done
+    local acct_tag="${clean_emails[0]}"
+    if (( ${#clean_emails[@]} > 1 )); then
+        acct_tag="${clean_emails[0]}+$(( ${#clean_emails[@]} - 1 ))more"
+    fi
+
+    local stamp cp_to stage_dir final_dir backup_id snap_leaf
+    stamp="$(date '+%d-%m-%Y_%H%M%S')"
     cp_to="$(date +%s)"
-    backup_id="manual-accounts/adhoc_${stamp}"
-    final_dir="$adhoc_root/adhoc_${stamp}"
-    stage_dir="$adhoc_root/.pending.adhoc_${stamp}.$$"
+    final_dir="$(zb_unique_path "$adhoc_root/backup-${acct_tag}-${stamp}")"
+    snap_leaf="${final_dir##*/}"
+    backup_id="account/${snap_leaf}"
+    stage_dir="$adhoc_root/.pending.${snap_leaf}.$$"
 
     cleanup_adhoc() {
         local rc=$?
@@ -731,7 +786,7 @@ zb_run_adhoc_users() (
     zb_log "Starting ad-hoc Full backup for account(s): $emails_csv"
     zb_export_metadata_stage "$stage_dir" "accounts" "$emails_csv" || return 1
     zb_export_mailboxes_parallel "$stage_dir" "full" "0" "2" || return 1
-    zb_write_manifest "$stage_dir" "$backup_id" "manual-accounts" "full" "standalone" "0" "none" "0" "$cp_to"
+    zb_write_manifest "$stage_dir" "$backup_id" "account" "full" "standalone" "0" "none" "0" "$cp_to"
     zb_verify_snapshot_dir "$stage_dir" "0" || return 1
 
     mv -- "$stage_dir" "$final_dir"
@@ -753,7 +808,10 @@ zb_clean_pending_dirs() (
         local jroot
         while IFS= read -r jroot; do
             [[ -n "$jroot" ]] && roots+=("$jroot")
-        done < <(zb_list_job_storage_roots)
+        done < <(zb_list_job_storage_roots "" 1)
+        if [[ -d "$DEFAULT_BACKUP_DIR/account" ]]; then
+            roots+=("$DEFAULT_BACKUP_DIR/account")
+        fi
         if [[ -d "$DEFAULT_BACKUP_DIR/manual-accounts" ]]; then
             roots+=("$DEFAULT_BACKUP_DIR/manual-accounts")
         fi

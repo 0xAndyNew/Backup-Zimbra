@@ -2,13 +2,15 @@
 
 Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9**, trang bị **Menu tương tác TUI tiếng Anh rút gọn (100% Pure 7-bit ASCII — không bao giờ lỗi font `□` trên mọi SSH / VM Console)** cùng hệ thống **CLI tự động hóa** đầy đủ.
 
+> **Tài liệu hướng dẫn sử dụng đầy đủ (từng màn hình Menu TUI & từng lệnh CLI kèm ví dụ chi tiết)**: Xem file [`HUONG_DAN_SU_DUNG.md`](HUONG_DAN_SU_DUNG.md).
+
 ---
 
 ## Tính năng chính
 
 1. **Menu TUI tiếng Anh tinh gọn, hiển thị chuẩn trên mọi Terminal**:
    - **Thiết lập lần đầu chỉ 2 câu hỏi cốt lõi**: Thư mục lưu backup mặc định + Chế độ kiểm tra điểm mount riêng (tự động nhận diện thư mục đang mount hay ổ cục bộ và hỗ trợ tạo thư mục `0700` ngay tại chỗ); các cấu hình nâng cao (ngưỡng đĩa, Telegram, Email) được gom vào tùy chọn mở rộng không bắt buộc.
-   - **Tạo Job nhanh chỉ 4 bước**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Lịch chạy (nhập gộp Giờ:Phút dạng HH:MM)` -> `Số bản lưu giữ (mặc định 7 bản Full hoặc 2 chuỗi Incremental ~ 2 tuần)`.
+   - **Tạo Job nhanh 5 bước đầy đủ**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Đường dẫn thư mục lưu trữ Backup` -> `Lịch chạy (nhập gộp Giờ:Phút dạng HH:MM)` -> `Số bản lưu giữ (mặc định 7 bản Full hoặc 2 chuỗi Incremental ~ 2 tuần)`.
    - **Chỉnh sửa Job 1 chạm**: Menu đánh số `1..10` hiển thị trực tiếp giá trị hiện tại của từng trường — cần đổi giờ chạy, số bản lưu hay thư mục chỉ cần bấm đúng số thứ tự mục đó rồi bấm `s` để lưu.
    - Toàn bộ giao diện, CLI và log dùng bảng mã **7-bit ASCII thuần**, loại bỏ triệt để hiện tượng ô vuông `□` trên console VMware/Proxmox/PuTTY hoặc môi trường `LANG=C` của `cron`.
 2. **Quản lý Đa Job & Đồng bộ Crontab tự động theo quyền `zimbra`**:
@@ -18,14 +20,18 @@ Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collabo
    - Lịch **Hằng ngày** (`HH:MM`), **Hằng tuần** (chọn các thứ `0-6` + `HH:MM`), **Theo ngày/tháng cụ thể** (chọn ngày `1-31`, tháng `*` hoặc `1-12` + `HH:MM`), biểu thức **Cron 5 trường tùy chỉnh**, hoặc tắt lịch tự động (`off`).
 4. **Quản lý số bản lưu trữ (`KEEP_COUNT`) & Chuỗi Incremental (`zb-backup-v2`)**:
    - Cấu hình số bản Full giữ lại (cho Job `full`, mặc định `7`) hoặc số **chuỗi hoàn chỉnh** giữ lại (cho Job `incremental`, mặc định `2` chuỗi), kèm tùy chọn thời điểm xóa bản cũ **sau khi bản mới thành công (`after` — mặc định an toàn)** hoặc **trước khi chạy (`before` — tiết kiệm đĩa)**.
-   - Chuỗi Incremental gom `000_full_<stamp>` + `001_incr_<stamp>..NNN_incr_<stamp>` với mốc `checkpoint` lùi đệm 5 phút chống sót mail qua nửa đêm hoặc khi gián đoạn; tự mở chuỗi Full mới theo chu kỳ cấu hình (`max_incr`, hằng tuần, hoặc hằng tháng).
+   - Chuỗi Incremental gom `000_backup-full-<DD-MM-YYYY_HHMMSS>` + `001_backup-incremental-<DD-MM-YYYY_HHMMSS>..NNN_backup-incremental-<DD-MM-YYYY_HHMMSS>` với mốc `checkpoint` lùi đệm 5 phút chống sót mail qua nửa đêm hoặc khi gián đoạn; tự mở chuỗi Full mới theo chu kỳ cấu hình (`max_incr`, hằng tuần, hoặc hằng tháng).
+   - **Tách riêng 3 thư mục phân loại rõ ràng dưới thư mục gốc (`/home/backup`)**:
+     - `full/<job_id>/backup-full-DD-MM-YYYY_HHMMSS`
+     - `incremental/<job_id>/chain-DD-MM-YYYY_HHMMSS/000_backup-full-...` & `001_backup-incremental-...`
+     - `account/backup-<email>-DD-MM-YYYY_HHMMSS` (sao lưu lẻ từng tài khoản)
 5. **Sao lưu chuẩn xác 100% dữ liệu người dùng tiếng Việt UTF-8 & Chữ ký**:
    - Giải mã dòng gập LDIF chuẩn RFC 2849 + Base64 UTF-8, bảo toàn nguyên vẹn tên hiển thị tiếng Việt có dấu (`displayName`), mật khẩu băm (`userPassword`), hạn ngạch (`zimbraMailQuota`), Alias, thành viên Distribution List (`zmprov -l gdlm`), chữ ký HTML/text (`zmprov -l gsig`), quyền Admin và bộ lọc Sieve nhiều dòng.
    - Kiểm tra toàn vẹn từng bản sao lưu bằng `manifest` SHA-256 + `tar -tzf` (không xóa nhầm hộp thư mới tạo rỗng `<200 bytes`).
 6. **Hiển thị thông tin bản Backup & Khôi phục (Restore) tách biệt rõ ràng**:
    - **Tách riêng 2 luồng trên Main Menu & CLI**:
-     - **Restore from Backup Job (`--job <job_id>` hoặc mặc định)**: Chỉ quét đúng thư mục lưu trữ của các Job Backup đã cấu hình (`<target_dir>/<job_id>`), không quét tràn lan các thư mục lạ ngoài Job.
-     - **Restore from Custom Dir (`CUSTOM_RESTORE_DIR` / `--dir <path>`)**: Cấu hình riêng thư mục khôi phục khác (ổ NAS/USB gắn ngoài, bản sao lưu lẻ `manual-accounts`, hoặc thư mục `auto_full_backup.sh` cũ).
+     - **Restore from Backup Job (`--job <job_id>` hoặc mặc định)**: Chỉ quét đúng thư mục lưu trữ của các Job Backup đã cấu hình (`<target_dir>/full/<job_id>` và `<target_dir>/incremental/<job_id>`), không quét tràn lan các thư mục lạ ngoài Job.
+     - **Restore from Custom Dir (`CUSTOM_RESTORE_DIR` / `--dir <path>`)**: Cấu hình riêng thư mục khôi phục khác (ổ NAS/USB gắn ngoài, bản sao lưu lẻ `account/`, hoặc thư mục `auto_full_backup.sh` cũ — tự động dò đệ quy từ bất kỳ đường dẫn nào người dùng nhập vào).
    - Xem chi tiết từng bản backup, tìm kiếm tài khoản và dung lượng hộp thư bên trong, kiểm tra lại mã băm SHA-256 (`verify`).
    - Chọn bản backup bất kỳ (tự động ghép và nạp tuần tự `Full gốc -> Incr #1 -> ... -> Incr đã chọn`), chọn khôi phục **Toàn bộ máy chủ**, **Theo Domain**, hoặc **Chọn 1 / nhiều User cụ thể**; hỗ trợ khôi phục sang **tài khoản đích khác** (`--target-user`), khôi phục vào **thư mục con riêng** (`/Restore_<timestamp>`), chọn riêng **Hộp thư** hoặc **Cấu hình LDAP**, và chạy thử **`--dry-run`**.
 

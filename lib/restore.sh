@@ -14,7 +14,7 @@ ZB_CAT_FORMATS=()
 ZB_CAT_CHAINS=()
 ZB_CAT_SEQS=()
 
-zb_register_catalog_entry() {
+zb_try_register_catalog_entry() {
     local dir="$1"
     # Avoid duplicate paths
     local existing
@@ -52,7 +52,14 @@ zb_register_catalog_entry() {
         ZB_CAT_FORMATS+=("legacy-v0")
         ZB_CAT_CHAINS+=("standalone")
         ZB_CAT_SEQS+=("0")
+        return 0
     fi
+
+    return 1
+}
+
+zb_register_catalog_entry() {
+    zb_try_register_catalog_entry "$1" || true
 }
 
 zb_scan_job_storage_root() {
@@ -62,7 +69,12 @@ zb_scan_job_storage_root() {
     local p
     shopt -s nullglob
     for p in \
+        "$job_root"/backup-full-* \
+        "$job_root"/snapshots/backup-full-* \
         "$job_root"/snapshots/full_* \
+        "$job_root"/chain-*/[0-9][0-9][0-9]_* \
+        "$job_root"/chain_*/[0-9][0-9][0-9]_* \
+        "$job_root"/chains/chain-*/[0-9][0-9][0-9]_* \
         "$job_root"/chains/chain_*/[0-9][0-9][0-9]_*; do
         [[ -d "$p" && ! -L "$p" && "${p##*/}" != .pending.* ]] || continue
         zb_register_catalog_entry "$p"
@@ -70,30 +82,45 @@ zb_scan_job_storage_root() {
     shopt -u nullglob
 }
 
-zb_scan_root_for_backups() {
-    local root="$1"
-    [[ -d "$root" ]] || return 0
+# Recursively discover valid backup snapshots under ANY user-supplied directory path.
+# Stops descending as soon as a snapshot root is matched so mailboxes/accounts are never walked.
+_zb_walk_custom_dir() {
+    local cur="$1"
+    local depth="$2"
+    local max_depth="$3"
 
-    # Direct snapshot passed in --dir
-    zb_register_catalog_entry "$root"
+    [[ -d "$cur" ]] || return 0
+    if (( depth > 0 )); then
+        [[ ! -L "$cur" ]] || return 0
+        local base="${cur##*/}"
+        if [[ "$base" == .* || "$base" == "proc" || "$base" == "sys" || "$base" == "dev" || "$base" == "run" ]]; then
+            return 0
+        fi
+    fi
 
-    local p
-    shopt -s nullglob
-    # Custom/external layouts: direct snapshot, job subdirs, ad-hoc snapshots, or legacy auto_full_backup.sh dirs
-    for p in \
-        "$root"/*/snapshots/full_* \
-        "$root"/*/snapshots/adhoc_* \
-        "$root"/*/chains/chain_*/[0-9][0-9][0-9]_* \
-        "$root"/snapshots/full_* \
-        "$root"/snapshots/adhoc_* \
-        "$root"/chains/chain_*/[0-9][0-9][0-9]_* \
-        "$root"/full_* \
-        "$root"/adhoc_* \
-        "$root"/[0-9][0-9][0-9][0-9]*; do
-        [[ -d "$p" && ! -L "$p" && "${p##*/}" != .pending.* ]] || continue
-        zb_register_catalog_entry "$p"
+    if zb_try_register_catalog_entry "$cur"; then
+        return 0
+    fi
+
+    (( depth < max_depth )) || return 0
+
+    local child
+    for child in "$cur"/*; do
+        [[ -d "$child" && ! -L "$child" ]] || continue
+        _zb_walk_custom_dir "$child" "$((depth + 1))" "$max_depth"
     done
-    shopt -u nullglob
+}
+
+zb_scan_root_for_backups() {
+    local root="${1%/}"
+    [[ -n "$root" ]] || root="/"
+    [[ -d "$root" && ! -L "$root" ]] || return 0
+
+    local had_nullglob=0
+    shopt -q nullglob && had_nullglob=1
+    shopt -s nullglob
+    _zb_walk_custom_dir "$root" 0 5
+    (( had_nullglob == 1 )) || shopt -u nullglob
 }
 
 # Populate ZB_CAT_* arrays sorted newest -> oldest.
@@ -122,16 +149,14 @@ zb_discover_backups() {
     if [[ -n "$custom_dir" ]]; then
         zb_scan_root_for_backups "$custom_dir"
     else
-        local jroot
         if [[ -n "$filter_job" ]]; then
-            jroot="$(zb_list_job_storage_roots "$filter_job")" || return 1
-            [[ -n "$jroot" ]] && zb_scan_job_storage_root "$jroot"
-        else
-            while IFS= read -r jroot; do
-                [[ -n "$jroot" ]] || continue
-                zb_scan_job_storage_root "$jroot"
-            done < <(zb_list_job_storage_roots)
+            zb_job_load "$filter_job" >/dev/null || return 1
         fi
+        local jroot
+        while IFS= read -r jroot; do
+            [[ -n "$jroot" ]] || continue
+            zb_scan_job_storage_root "$jroot"
+        done < <(zb_list_job_storage_roots "$filter_job" 1)
     fi
 
     local count="${#ZB_CAT_PATHS[@]}"
@@ -644,8 +669,8 @@ zb_run_restore() (
 
     while (( $# > 0 )); do
         case "$1" in
-            --from) from_selector="${2-}"; shift 2 ;;
-            --dir) custom_dir="${2-}"; shift 2 ;;
+            --from) from_selector="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
+            --dir) custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
             --job) filter_job="${2-}"; shift 2 ;;
             --all) scope_kind="all"; scope_arg=""; shift ;;
             --domain|--domains) scope_kind="domain"; scope_arg="${2-}"; shift 2 ;;
@@ -835,7 +860,7 @@ zb_cli_backup() {
         list|ls)
             while (( $# > 0 )); do
                 case "$1" in
-                    --dir) custom_dir="${2-}"; shift 2 ;;
+                    --dir) custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
                     --job) filter_job="${2-}"; shift 2 ;;
                     *) zb_err "Unknown option: $1"; return 1 ;;
                 esac
@@ -848,7 +873,7 @@ zb_cli_backup() {
             shift
             while (( $# > 0 )); do
                 case "$1" in
-                    --dir) custom_dir="${2-}"; shift 2 ;;
+                    --dir) custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
                     --job) filter_job="${2-}"; shift 2 ;;
                     --search) search_kw="${2-}"; shift 2 ;;
                     *) zb_err "Unknown option: $1"; return 1 ;;
@@ -862,7 +887,7 @@ zb_cli_backup() {
             shift
             while (( $# > 0 )); do
                 case "$1" in
-                    --dir) custom_dir="${2-}"; shift 2 ;;
+                    --dir) custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2 ;;
                     --job) filter_job="${2-}"; shift 2 ;;
                     *) zb_err "Unknown option: $1"; return 1 ;;
                 esac
@@ -881,11 +906,11 @@ zb_cli_backup() {
             [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup user <email1,email2> [--dir <path>]"; return 1; }
             local emails="$1"
             shift
-            [[ "${1:-}" == "--dir" ]] && { custom_dir="${2-}"; shift 2; }
+            [[ "${1:-}" == "--dir" ]] && { custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2; }
             zb_run_adhoc_users "$emails" "$custom_dir"
             ;;
         clean-pending)
-            [[ "${1:-}" == "--dir" ]] && { custom_dir="${2-}"; shift 2; }
+            [[ "${1:-}" == "--dir" ]] && { custom_dir="$(zb_normalize_dir_input "${2-}")"; shift 2; }
             zb_clean_pending_dirs "$custom_dir"
             ;;
         *)
