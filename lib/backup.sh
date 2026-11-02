@@ -1,0 +1,773 @@
+#!/usr/bin/env bash
+# Backup execution engine: Standalone Full & Chain-based Incremental backups,
+# parallel mailbox workers with retry, zb-backup-v2 SHA-256 manifests, and configurable pruning.
+# Compatible with Bash 4.2+ (no wait -n, no namerefs).
+
+ZB_SNAP_FORMAT="zb-backup-v2"
+
+# Read a manifest file safely (key=value lines before `# --- sha256 ---`)
+zb_read_manifest_meta() {
+    local manifest_file="$1"
+    MF_FORMAT=""
+    MF_BACKUP_ID=""
+    MF_JOB_ID=""
+    MF_BACKUP_TYPE=""
+    MF_CHAIN_ID=""
+    MF_CHAIN_SEQ="0"
+    MF_PARENT_ID=""
+    MF_CREATED_AT=""
+    MF_CHECKPOINT_FROM="0"
+    MF_CHECKPOINT_TO="0"
+    MF_DOMAINS_COUNT="0"
+    MF_ACCOUNTS_COUNT="0"
+    MF_ARCHIVES_COUNT="0"
+    MF_EMPTY_DELTA_COUNT="0"
+    MF_TOTAL_BYTES="0"
+    MF_HOST=""
+
+    [[ -f "$manifest_file" ]] || return 1
+    local line key val
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line//$'\r'/}"
+        [[ "$line" == "# --- sha256 ---" ]] && break
+        [[ -z "$line" || "$line" == '#'* ]] && continue
+        [[ "$line" == *=* ]] || continue
+        key="${line%%=*}"
+        val="${line#*=}"
+        case "$key" in
+            format) MF_FORMAT="$val" ;;
+            backup_id) MF_BACKUP_ID="$val" ;;
+            job_id) MF_JOB_ID="$val" ;;
+            backup_type|type) MF_BACKUP_TYPE="$val" ;;
+            chain_id) MF_CHAIN_ID="$val" ;;
+            chain_seq) MF_CHAIN_SEQ="$val" ;;
+            parent_id) MF_PARENT_ID="$val" ;;
+            created_at|finished_at) MF_CREATED_AT="$val" ;;
+            checkpoint_from) MF_CHECKPOINT_FROM="$val" ;;
+            checkpoint_to) MF_CHECKPOINT_TO="$val" ;;
+            domains_count) MF_DOMAINS_COUNT="$val" ;;
+            accounts_count) MF_ACCOUNTS_COUNT="$val" ;;
+            archives_count) MF_ARCHIVES_COUNT="$val" ;;
+            empty_delta_count) MF_EMPTY_DELTA_COUNT="$val" ;;
+            total_bytes) MF_TOTAL_BYTES="$val" ;;
+            host) MF_HOST="$val" ;;
+        esac
+    done < "$manifest_file"
+    [[ "$MF_FORMAT" == "zb-backup-v2" || "$MF_FORMAT" == "zb-full-v1" ]]
+}
+
+zb_verify_snapshot_dir() {
+    local snap_dir="$1"
+    local quiet="${2:-0}"
+    local mf="$snap_dir/manifest"
+    [[ -f "$mf" ]] || { [[ "$quiet" == "1" ]] || zb_err "Manifest not found: $mf"; return 1; }
+    zb_read_manifest_meta "$mf" || { [[ "$quiet" == "1" ]] || zb_err "Unsupported or corrupted manifest header: $mf"; return 1; }
+
+    local sum_tmp
+    sum_tmp="$(mktemp "$ZB_RUN_DIR/.verify_sha.XXXXXX")" || return 1
+    awk 'found { print } /^# --- sha256 ---$/ { found = 1 }' "$mf" > "$sum_tmp"
+
+    if [[ -s "$sum_tmp" ]]; then
+        if ! (cd "$snap_dir" && sha256sum -c "$sum_tmp" >/dev/null 2>&1); then
+            rm -f -- "$sum_tmp"
+            [[ "$quiet" == "1" ]] || zb_err "SHA-256 checksum mismatch in backup: $snap_dir"
+            return 1
+        fi
+    fi
+    rm -f -- "$sum_tmp"
+    return 0
+}
+
+zb_calc_dir_bytes() {
+    local dir="$1"
+    local kb
+    kb="$(du -sk -- "$dir" 2>/dev/null | awk '{print $1}')"
+    if [[ "$kb" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$(( kb * 1024 ))"
+    else
+        printf '0'
+    fi
+}
+
+zb_write_manifest() {
+    local snap_dir="$1"
+    local backup_id="$2"
+    local job_id="$3"
+    local btype="$4"
+    local chain_id="$5"
+    local chain_seq="$6"
+    local parent_id="$7"
+    local cp_from="$8"
+    local cp_to="$9"
+
+    local dom_cnt=0 acc_cnt=0 arch_cnt=0 empty_cnt=0 total_bytes=0
+    [[ -f "$snap_dir/domains/domains.txt" ]] && dom_cnt="$(wc -l < "$snap_dir/domains/domains.txt" | awk '{print $1}')"
+    [[ -f "$snap_dir/accounts/active_accounts.txt" ]] && acc_cnt="$(wc -l < "$snap_dir/accounts/active_accounts.txt" | awk '{print $1}')"
+
+    shopt -s nullglob
+    local -a tgzs=("$snap_dir/mailboxes"/*.tgz)
+    local -a empties=("$snap_dir/mailboxes"/*.empty)
+    shopt -u nullglob
+    arch_cnt="${#tgzs[@]}"
+    empty_cnt="${#empties[@]}"
+    total_bytes="$(zb_calc_dir_bytes "$snap_dir")"
+
+    local mf="$snap_dir/manifest"
+    {
+        printf 'format=%s\n' "$ZB_SNAP_FORMAT"
+        printf 'version=%s\n' "$ZB_VERSION"
+        printf 'backup_id=%s\n' "$backup_id"
+        printf 'job_id=%s\n' "$job_id"
+        printf 'backup_type=%s\n' "$btype"
+        printf 'chain_id=%s\n' "$chain_id"
+        printf 'chain_seq=%s\n' "$chain_seq"
+        printf 'parent_id=%s\n' "$parent_id"
+        printf 'host=%s\n' "$(zb_host_label)"
+        printf 'created_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        printf 'checkpoint_from=%s\n' "$cp_from"
+        printf 'checkpoint_to=%s\n' "$cp_to"
+        printf 'domains_count=%s\n' "$dom_cnt"
+        printf 'accounts_count=%s\n' "$acc_cnt"
+        printf 'archives_count=%s\n' "$arch_cnt"
+        printf 'empty_delta_count=%s\n' "$empty_cnt"
+        printf 'total_bytes=%s\n' "$total_bytes"
+        printf '# --- sha256 ---\n'
+        (
+            cd "$snap_dir" && \
+            find domains admins dl accounts passwords attributes aliases signatures filters mailboxes \
+                -type f -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum
+        )
+    } > "$mf"
+    chmod 600 "$mf"
+}
+
+# List valid completed full snapshot directories for a `full` job (oldest -> newest)
+zb_list_full_job_snapshots() {
+    local job_root="$1"
+    local d
+    [[ -d "$job_root/snapshots" ]] || return 0
+    shopt -s nullglob
+    for d in "$job_root/snapshots"/full_*; do
+        [[ -d "$d" && ! -L "$d" && -f "$d/manifest" ]] && printf '%s\n' "$d"
+    done | LC_ALL=C sort
+    shopt -u nullglob
+}
+
+# List valid chains (those containing a completed 000_full_* base) for an `incremental` job (oldest -> newest)
+zb_list_valid_chains() {
+    local job_root="$1"
+    local c base_ok f
+    [[ -d "$job_root/chains" ]] || return 0
+    shopt -s nullglob
+    for c in "$job_root/chains"/chain_*; do
+        [[ -d "$c" && ! -L "$c" ]] || continue
+        base_ok=0
+        for f in "$c"/000_full_*; do
+            if [[ -d "$f" && -f "$f/manifest" ]]; then
+                base_ok=1
+                break
+            fi
+        done
+        (( base_ok == 1 )) && printf '%s\n' "$c"
+    done | LC_ALL=C sort
+    shopt -u nullglob
+}
+
+# List valid step directories inside a chain (000_full_*, 001_incr_*, ...) sorted in order
+zb_list_chain_steps() {
+    local chain_dir="$1"
+    local s
+    [[ -d "$chain_dir" ]] || return 0
+    shopt -s nullglob
+    for s in "$chain_dir"/[0-9][0-9][0-9]_*; do
+        [[ -d "$s" && ! -L "$s" && -f "$s/manifest" ]] && printf '%s\n' "$s"
+    done | LC_ALL=C sort
+    shopt -u nullglob
+}
+
+# Prune old snapshots/chains according to KEEP_COUNT and timing (`before` reserves 1 slot for upcoming backup)
+zb_prune_job_storage() {
+    local job_root="$1"
+    local btype="$2"
+    local keep="$3"
+    local phase="$4"   # before | after
+
+    local target_keep="$keep"
+    if [[ "$phase" == "before" ]]; then
+        # Never delete the sole remaining valid backup/chain before creating a new one!
+        if (( keep <= 1 )); then
+            zb_log "Retention note: KEEP_COUNT=$keep with PRUNE_TIMING=before -> preserving the last existing backup until the new run completes."
+            return 0
+        fi
+        target_keep=$((keep - 1))
+    fi
+
+    local -a items=()
+    local it
+    if [[ "$btype" == "full" ]]; then
+        while IFS= read -r it; do
+            [[ -n "$it" ]] && items+=("$it")
+        done < <(zb_list_full_job_snapshots "$job_root")
+    else
+        while IFS= read -r it; do
+            [[ -n "$it" ]] && items+=("$it")
+        done < <(zb_list_valid_chains "$job_root")
+    fi
+
+    local total="${#items[@]}"
+    if (( total <= target_keep )); then
+        return 0
+    fi
+
+    local remove_cnt=$((total - target_keep))
+    local idx=0
+    while (( idx < remove_cnt )); do
+        local victim="${items[$idx]}"
+        zb_log "Pruning expired backup (${phase}, keeping ${keep}): $victim"
+        rm -rf -- "$victim"
+        idx=$((idx + 1))
+    done
+    return 0
+}
+
+# Decide whether an `incremental` job should open a new Full chain or append an Incremental step.
+# Sets globals: ZB_PLAN_STEP_TYPE (full|incr), ZB_PLAN_CHAIN_DIR, ZB_PLAN_SEQ, ZB_PLAN_PARENT_ID, ZB_PLAN_CP_FROM
+zb_plan_incremental_step() {
+    local job_root="$1"
+    local force_full="${2:-0}"
+    local stamp="$3"
+
+    ZB_PLAN_STEP_TYPE="full"
+    ZB_PLAN_CHAIN_DIR="$job_root/chains/chain_${stamp}"
+    ZB_PLAN_SEQ=0
+    ZB_PLAN_PARENT_ID="none"
+    ZB_PLAN_CP_FROM=0
+
+    if [[ "$force_full" == "1" ]]; then
+        zb_log "Force-full requested (--force-full): starting new chain chain_${stamp}."
+        return 0
+    fi
+
+    local -a chains=()
+    local c
+    while IFS= read -r c; do
+        [[ -n "$c" ]] && chains+=("$c")
+    done < <(zb_list_valid_chains "$job_root")
+
+    if (( ${#chains[@]} == 0 )); then
+        zb_log "No existing Full base chain found: automatically starting initial Full chain (chain_${stamp})."
+        return 0
+    fi
+
+    local latest_chain="${chains[$((${#chains[@]} - 1))]}"
+    local -a steps=()
+    local s
+    while IFS= read -r s; do
+        [[ -n "$s" ]] && steps+=("$s")
+    done < <(zb_list_chain_steps "$latest_chain")
+
+    if (( ${#steps[@]} == 0 )); then
+        return 0
+    fi
+
+    local base_step="${steps[0]}"
+    local last_step="${steps[$((${#steps[@]} - 1))]}"
+    local incr_count=$(( ${#steps[@]} - 1 ))
+
+    zb_read_manifest_meta "$last_step/manifest" || return 0
+    local last_cp_to="$MF_CHECKPOINT_TO"
+    local last_id="$MF_BACKUP_ID"
+
+    zb_read_manifest_meta "$base_step/manifest" || return 0
+    local base_date_ymd="${MF_CREATED_AT%%T*}"
+    local today_ymd today_dow today_dom
+    today_ymd="$(date -u '+%Y-%m-%d')"
+    today_dow="$(date '+%w')"
+    today_dom="$(date '+%-d')"
+
+    local need_new_full=0
+    case "$FULL_CYCLE_MODE" in
+        max_incr)
+            if (( incr_count >= FULL_CYCLE_VALUE )); then
+                zb_log "Reached FULL_CYCLE_VALUE=$FULL_CYCLE_VALUE incrementals in current chain -> starting new Full chain."
+                need_new_full=1
+            fi
+            ;;
+        weekly)
+            if [[ "$today_dow" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
+                zb_log "Scheduled weekly Full day (DOW=$today_dow) reached -> starting new Full chain."
+                need_new_full=1
+            fi
+            ;;
+        monthly)
+            if [[ "$today_dom" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
+                zb_log "Scheduled monthly Full day (DOM=$today_dom) reached -> starting new Full chain."
+                need_new_full=1
+            fi
+            ;;
+    esac
+
+    if (( need_new_full == 1 )); then
+        return 0
+    fi
+
+    ZB_PLAN_STEP_TYPE="incr"
+    ZB_PLAN_CHAIN_DIR="$latest_chain"
+    ZB_PLAN_SEQ="${#steps[@]}"
+    ZB_PLAN_PARENT_ID="$last_id"
+    # Overlap buffer of 300 seconds (5 minutes) prevents boundary mail loss across midnight/clock drift
+    if [[ "$last_cp_to" =~ ^[0-9]+$ ]] && (( last_cp_to > 300 )); then
+        ZB_PLAN_CP_FROM=$((last_cp_to - 300))
+    else
+        ZB_PLAN_CP_FROM="$last_cp_to"
+    fi
+    return 0
+}
+
+# Filter active accounts according to SCOPE_MODE / SCOPE_VALUES
+zb_filter_accounts_by_scope() {
+    local all_file="$1"
+    local out_file="$2"
+    local scope_mode="$3"
+    local scope_values="$4"
+
+    if [[ "$scope_mode" == "all" ]]; then
+        cp -f -- "$all_file" "$out_file"
+        return 0
+    fi
+
+    : > "$out_file"
+    local -a targets=()
+    local item
+    IFS=',' read -r -a targets <<< "$scope_values"
+    for item in "${targets[@]}"; do
+        item="$(zb_trim "$item")"
+        [[ -n "$item" ]] || continue
+        if [[ "$scope_mode" == "domains" ]]; then
+            awk -v dom="@${item}" '
+                length($0) > length(dom) && substr($0, length($0) - length(dom) + 1) == dom { print }
+            ' "$all_file" >> "$out_file"
+        elif [[ "$scope_mode" == "accounts" ]]; then
+            if grep -Fxq -- "$item" "$all_file"; then
+                printf '%s\n' "$item" >> "$out_file"
+            else
+                # Check if account exists even if non-active
+                if zmprov -l ga "$item" zimbraId >/dev/null 2>&1; then
+                    printf '%s\n' "$item" >> "$out_file"
+                else
+                    zb_log "WARNING: Scoped account not found on Zimbra server: $item"
+                fi
+            fi
+        fi
+    done
+    LC_ALL=C sort -u -o "$out_file" "$out_file"
+}
+
+# Export global & per-account LDAP metadata into staging snapshot directory
+zb_export_metadata_stage() {
+    local stage_dir="$1"
+    local scope_mode="$2"
+    local scope_values="$3"
+
+    mkdir -p -m 700 -- \
+        "$stage_dir/domains" \
+        "$stage_dir/admins" \
+        "$stage_dir/dl" \
+        "$stage_dir/accounts" \
+        "$stage_dir/passwords" \
+        "$stage_dir/attributes" \
+        "$stage_dir/aliases" \
+        "$stage_dir/signatures" \
+        "$stage_dir/filters" \
+        "$stage_dir/mailboxes"
+
+    zb_log "Exporting domains, administrators, and distribution lists..."
+    local all_doms
+    all_doms="$(mktemp "$ZB_RUN_DIR/.doms.XXXXXX")" || return 1
+    zmprov -l gad 2>/dev/null | tr -d '\r' | LC_ALL=C sort -u > "$all_doms"
+
+    if [[ "$scope_mode" == "domains" ]]; then
+        : > "$stage_dir/domains/domains.txt"
+        local -a dlist=()
+        local d
+        IFS=',' read -r -a dlist <<< "$scope_values"
+        for d in "${dlist[@]}"; do
+            d="$(zb_trim "$d")"
+            grep -Fxq -- "$d" "$all_doms" && printf '%s\n' "$d" >> "$stage_dir/domains/domains.txt"
+        done
+    else
+        cp -f -- "$all_doms" "$stage_dir/domains/domains.txt"
+    fi
+    rm -f -- "$all_doms"
+
+    local dom
+    while IFS= read -r dom <&3; do
+        [[ -n "$dom" ]] || continue
+        zmprov -l gd "$dom" > "$stage_dir/domains/${dom}.ldif" 2>/dev/null || return 1
+    done 3< "$stage_dir/domains/domains.txt"
+
+    zmprov -l gaaa 2>/dev/null | tr -d '\r' | LC_ALL=C sort -u > "$stage_dir/admins/admins.txt" || true
+
+    local all_dls
+    all_dls="$(mktemp "$ZB_RUN_DIR/.dls.XXXXXX")" || return 1
+    zmprov -l gadl 2>/dev/null | tr -d '\r' | LC_ALL=C sort -u > "$all_dls" || true
+    : > "$stage_dir/dl/distribution_lists.txt"
+    local dl
+    while IFS= read -r dl <&3; do
+        [[ -n "$dl" ]] || continue
+        if [[ "$scope_mode" == "domains" ]]; then
+            local dl_dom="${dl#*@}"
+            grep -Fxq -- "$dl_dom" "$stage_dir/domains/domains.txt" || continue
+        fi
+        printf '%s\n' "$dl" >> "$stage_dir/dl/distribution_lists.txt"
+        # Export DL members via gdlm so membership is cleanly restorable
+        zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '/@/' > "$stage_dir/dl/${dl}.members" || true
+        zmprov -l gdl "$dl" > "$stage_dir/dl/${dl}.ldif" 2>/dev/null || true
+    done 3< "$all_dls"
+    rm -f -- "$all_dls"
+
+    local all_acc
+    all_acc="$(mktemp "$ZB_RUN_DIR/.all_acc.XXXXXX")" || return 1
+    zb_list_active_accounts "$all_acc" || { rm -f -- "$all_acc"; return 1; }
+    zb_filter_accounts_by_scope "$all_acc" "$stage_dir/accounts/active_accounts.txt" "$scope_mode" "$scope_values"
+    rm -f -- "$all_acc"
+
+    if [[ ! -s "$stage_dir/accounts/active_accounts.txt" ]]; then
+        zb_err "No active accounts matched backup scope ($scope_mode ${scope_values})."
+        return 1
+    fi
+
+    local total_acc idx=0 email
+    total_acc="$(wc -l < "$stage_dir/accounts/active_accounts.txt" | awk '{print $1}')"
+    zb_log "Exporting LDAP metadata, password hashes, signatures, and Sieve filters for $total_acc account(s)..."
+
+    while IFS= read -r email <&3; do
+        [[ -n "$email" ]] || continue
+        idx=$((idx + 1))
+        local ldif_path="$stage_dir/accounts/${email}.ldif"
+        zmprov -l ga "$email" > "$ldif_path" 2>/dev/null || {
+            zb_err "Failed to export LDAP record (zmprov ga) for account: $email"
+            return 1
+        }
+        zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email" || return 1
+        zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+    done 3< "$stage_dir/accounts/active_accounts.txt"
+
+    return 0
+}
+
+# Single account worker invoked in background for parallel mailbox export
+zb_backup_mailbox_worker() {
+    local idx="$1"
+    local total="$2"
+    local email="$3"
+    local stage_dir="$4"
+    local step_type="$5"
+    local cp_from="$6"
+    local auth_cfg="$7"
+    local fail_dir="$8"
+
+    local out_tgz="$stage_dir/mailboxes/${email}.tgz"
+    if zb_export_mailbox_archive "$email" "$out_tgz" "$step_type" "$cp_from" "$auth_cfg"; then
+        if [[ -f "$out_tgz" ]]; then
+            local sz
+            sz="$(wc -c < "$out_tgz" | awk '{print $1}')"
+            zb_log "  [OK] ($idx/$total) $email ($(zb_human_bytes "$sz"))"
+        else
+            zb_log "  [OK] ($idx/$total) $email (incremental: no new items)"
+        fi
+    else
+        zb_log "  [FAIL] ($idx/$total) $email - mailbox export failed after 3 attempts"
+        printf '%s\n' "$email" > "$fail_dir/${idx}.fail"
+    fi
+}
+
+zb_export_mailboxes_parallel() {
+    local stage_dir="$1"
+    local step_type="$2"
+    local cp_from="$3"
+    local parallel_limit="$4"
+
+    local acc_file="$stage_dir/accounts/active_accounts.txt"
+    local total
+    total="$(wc -l < "$acc_file" | awk '{print $1}')"
+
+    # Prepare shared admin auth config (refreshed per batch)
+    zb_ensure_auth_cfg 1 || zb_log "WARNING: Could not acquire ZM_ADMIN_AUTH_TOKEN; falling back to zmmailbox CLI."
+
+    local fail_dir
+    fail_dir="$(mktemp -d "$ZB_RUN_DIR/.workers_fail.XXXXXX")" || return 1
+
+    zb_log "Exporting mailboxes ($step_type) for $total account(s) with $parallel_limit parallel worker(s)..."
+
+    local -a pids=()
+    local idx=0 email batch_counter=0
+    while IFS= read -r email <&3; do
+        [[ -n "$email" ]] || continue
+        idx=$((idx + 1))
+        batch_counter=$((batch_counter + 1))
+
+        # Refresh admin auth token periodically before launching new workers
+        if (( batch_counter >= 40 )); then
+            local p
+            for p in "${pids[@]+"${pids[@]}"}"; do
+                wait "$p" || true
+            done
+            pids=()
+            batch_counter=0
+            zb_ensure_auth_cfg 1 || true
+        fi
+
+        zb_backup_mailbox_worker "$idx" "$total" "$email" "$stage_dir" "$step_type" "$cp_from" "${ZB_AUTH_CFG_FILE:-}" "$fail_dir" &
+        pids+=("$!")
+
+        if (( ${#pids[@]} >= parallel_limit )); then
+            wait "${pids[0]}" || true
+            pids=("${pids[@]:1}")
+        fi
+    done 3< "$acc_file"
+
+    local rem_pid
+    for rem_pid in "${pids[@]+"${pids[@]}"}"; do
+        wait "$rem_pid" || true
+    done
+
+    shopt -s nullglob
+    local -a fails=("$fail_dir"/*.fail)
+    shopt -u nullglob
+    local fail_cnt="${#fails[@]}"
+    if (( fail_cnt > 0 )); then
+        local failed_emails
+        failed_emails="$(cat "$fail_dir"/*.fail | tr '\n' ' ')"
+        rm -rf -- "$fail_dir"
+        zb_err "Mailbox export failed for ${fail_cnt}/${total} account(s): ${failed_emails}"
+        return 1
+    fi
+
+    rm -rf -- "$fail_dir"
+    return 0
+}
+
+# Run a configured job in an isolated subshell so lock FD & tee stdout close cleanly when returning to TUI.
+zb_run_job() (
+    local job_id="$1"
+    shift || true
+    local from_cron=0
+    local force_full=0
+
+    while (( $# > 0 )); do
+        case "$1" in
+            --cron) from_cron=1; shift ;;
+            --force-full) force_full=1; shift ;;
+            *) zb_err "Unknown 'job run' option: $1"; return 1 ;;
+        esac
+    done
+
+    zb_load_settings || return 1
+    zb_job_load "$job_id" || return 1
+    zb_require_zimbra_cli || return 1
+
+    zb_acquire_lock || {
+        (( from_cron == 1 )) && zb_notify "warn" "Job '$JOB_ID' skipped" "Another backup or restore process is currently holding the lock."
+        return 1
+    }
+    zb_start_run_log "job_${JOB_ID}"
+
+    local start_epoch end_epoch duration_sec
+    start_epoch="$(date +%s)"
+    local stage_dir=""
+
+    cleanup_job_run() {
+        local rc=$?
+        zb_cleanup_auth_token
+        if [[ -n "${stage_dir:-}" && -d "$stage_dir" ]]; then
+            zb_log "Cleaning up incomplete staging directory: $stage_dir"
+            rm -rf -- "$stage_dir"
+        fi
+        return "$rc"
+    }
+    trap cleanup_job_run EXIT
+
+    zb_log "============================================================"
+    zb_log "STARTING BACKUP JOB: $JOB_ID ($JOB_NAME) | mode=$BACKUP_TYPE"
+    zb_log "============================================================"
+
+    local target_base job_root eff_req_mount="$REQUIRE_MOUNTPOINT"
+    if [[ "${JOB_REQUIRE_MOUNT:-inherit}" == "yes" || "${JOB_REQUIRE_MOUNT:-inherit}" == "no" ]]; then
+        eff_req_mount="$JOB_REQUIRE_MOUNT"
+    fi
+    target_base="$(zb_job_effective_target_dir)"
+    if ! zb_check_backup_dir "$target_base" "$eff_req_mount" "no"; then
+        zb_notify "error" "Backup Job '$JOB_ID' failed" "Target storage check failed: $target_base. Log: $ZB_CURRENT_LOG"
+        return 1
+    fi
+    if ! zb_check_disk_space "$target_base" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB"; then
+        zb_notify "error" "Backup Job '$JOB_ID' aborted (low disk space)" "Path: $target_base. Log: $ZB_CURRENT_LOG"
+        return 1
+    fi
+
+    job_root="$(zb_job_storage_root)"
+    mkdir -p -m 700 -- "$job_root" || return 1
+
+    local stamp cp_to final_dir backup_id step_type chain_id chain_seq parent_id cp_from
+    stamp="$(date -u '+%Y%m%d_%H%M%S')"
+    cp_to="$(date +%s)"
+
+    if [[ "$BACKUP_TYPE" == "full" ]]; then
+        mkdir -p -m 700 -- "$job_root/snapshots"
+        if [[ "$PRUNE_TIMING" == "before" ]]; then
+            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before"
+        fi
+        step_type="full"
+        chain_id="standalone"
+        chain_seq="0"
+        parent_id="none"
+        cp_from="0"
+        backup_id="${JOB_ID}/full_${stamp}"
+        final_dir="$job_root/snapshots/full_${stamp}"
+        stage_dir="$job_root/snapshots/.pending.full_${stamp}.$$"
+    else
+        mkdir -p -m 700 -- "$job_root/chains"
+        zb_plan_incremental_step "$job_root" "$force_full" "$stamp"
+        step_type="$ZB_PLAN_STEP_TYPE"
+        if [[ "$PRUNE_TIMING" == "before" && "$step_type" == "full" ]]; then
+            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before"
+        fi
+        mkdir -p -m 700 -- "$ZB_PLAN_CHAIN_DIR"
+        chain_id="${ZB_PLAN_CHAIN_DIR##*/}"
+        chain_seq="$ZB_PLAN_SEQ"
+        parent_id="$ZB_PLAN_PARENT_ID"
+        cp_from="$ZB_PLAN_CP_FROM"
+        local seq_pad
+        seq_pad="$(printf '%03d' "$chain_seq")"
+        backup_id="${JOB_ID}/${chain_id}/${seq_pad}_${step_type}_${stamp}"
+        final_dir="${ZB_PLAN_CHAIN_DIR}/${seq_pad}_${step_type}_${stamp}"
+        stage_dir="${ZB_PLAN_CHAIN_DIR}/.pending.${seq_pad}_${step_type}_${stamp}.$$"
+    fi
+
+    mkdir -p -m 700 -- "$stage_dir" || return 1
+
+    local fail_reason=""
+    if ! zb_export_metadata_stage "$stage_dir" "$SCOPE_MODE" "$SCOPE_VALUES"; then
+        fail_reason="LDAP metadata / account export failed"
+    elif ! zb_export_mailboxes_parallel "$stage_dir" "$step_type" "$cp_from" "$PARALLEL_JOBS"; then
+        fail_reason="One or more mailbox exports failed"
+    else
+        zb_write_manifest "$stage_dir" "$backup_id" "$JOB_ID" "$step_type" "$chain_id" "$chain_seq" "$parent_id" "$cp_from" "$cp_to"
+        if ! zb_verify_snapshot_dir "$stage_dir" "0"; then
+            fail_reason="Manifest SHA-256 verification failed"
+        fi
+    fi
+
+    if [[ -n "$fail_reason" ]]; then
+        zb_log "ERROR: Backup Job '$JOB_ID' failed: $fail_reason"
+        zb_notify "error" "Backup Job '$JOB_ID' FAILED" "Reason: ${fail_reason}
+Log: ${ZB_CURRENT_LOG}"
+        return 1
+    fi
+
+    mv -- "$stage_dir" "$final_dir"
+    stage_dir="" # committed; prevent cleanup_job_run from deleting
+
+    zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "after"
+
+    end_epoch="$(date +%s)"
+    duration_sec=$((end_epoch - start_epoch))
+    zb_read_manifest_meta "$final_dir/manifest" || true
+
+    local human_sz
+    human_sz="$(zb_human_bytes "${MF_TOTAL_BYTES:-0}")"
+    zb_log "============================================================"
+    zb_log "COMPLETED JOB '$JOB_ID' (${step_type^^}) | Accounts: ${MF_ACCOUNTS_COUNT} | Size: ${human_sz} | Duration: ${duration_sec}s"
+    zb_log "Location: $final_dir"
+    zb_log "============================================================"
+
+    zb_notify "ok" "Backup Job '$JOB_ID' (${step_type^^}) succeeded" \
+"Backup ID: ${backup_id}
+Accounts: ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT}, unchanged: ${MF_EMPTY_DELTA_COUNT})
+Size: ${human_sz}
+Duration: ${duration_sec}s
+Path: ${final_dir}"
+    return 0
+)
+
+# Ad-hoc single/multi-account Full backup (used from TUI or `zimbra-backup backup user <emails> [--dir <dir>]`)
+zb_run_adhoc_users() (
+    local emails_csv="$1"
+    local custom_dir="${2:-}"
+
+    zb_load_settings || return 1
+    zb_require_zimbra_cli || return 1
+    zb_validate_scope_values "accounts" "$emails_csv" || return 1
+
+    local base_dir="${custom_dir:-$DEFAULT_BACKUP_DIR}"
+    zb_acquire_lock || return 1
+    zb_start_run_log "adhoc_user"
+
+    zb_check_backup_dir "$base_dir" "$REQUIRE_MOUNTPOINT" "no" || return 1
+    zb_check_disk_space "$base_dir" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB" || return 1
+
+    local adhoc_root="$base_dir/manual-accounts/snapshots"
+    mkdir -p -m 700 -- "$adhoc_root" || return 1
+
+    local stamp cp_to stage_dir final_dir backup_id
+    stamp="$(date -u '+%Y%m%d_%H%M%S')"
+    cp_to="$(date +%s)"
+    backup_id="manual-accounts/adhoc_${stamp}"
+    final_dir="$adhoc_root/adhoc_${stamp}"
+    stage_dir="$adhoc_root/.pending.adhoc_${stamp}.$$"
+
+    cleanup_adhoc() {
+        local rc=$?
+        zb_cleanup_auth_token
+        if [[ -n "${stage_dir:-}" && -d "$stage_dir" ]]; then
+            rm -rf -- "$stage_dir"
+        fi
+        return "$rc"
+    }
+    trap cleanup_adhoc EXIT
+
+    mkdir -p -m 700 -- "$stage_dir"
+    zb_log "Starting ad-hoc Full backup for account(s): $emails_csv"
+    zb_export_metadata_stage "$stage_dir" "accounts" "$emails_csv" || return 1
+    zb_export_mailboxes_parallel "$stage_dir" "full" "0" "2" || return 1
+    zb_write_manifest "$stage_dir" "$backup_id" "manual-accounts" "full" "standalone" "0" "none" "0" "$cp_to"
+    zb_verify_snapshot_dir "$stage_dir" "0" || return 1
+
+    mv -- "$stage_dir" "$final_dir"
+    stage_dir=""
+    zb_log "Completed ad-hoc account backup at: $final_dir"
+    return 0
+)
+
+# Scan and optionally remove leftover `.pending.*` directories when no backup lock is active
+zb_clean_pending_dirs() (
+    local scan_dir="${1:-}"
+    zb_load_settings || return 1
+    zb_acquire_lock || return 1
+
+    local -a roots=()
+    if [[ -n "$scan_dir" ]]; then
+        roots+=("$scan_dir")
+    else
+        roots+=("$DEFAULT_BACKUP_DIR")
+        local jid
+        while IFS= read -r jid; do
+            [[ -n "$jid" ]] || continue
+            if zb_job_load "$jid" >/dev/null 2>&1 && [[ -n "$TARGET_DIR" ]]; then
+                roots+=("$TARGET_DIR")
+            fi
+        done < <(zb_job_list_ids)
+    fi
+
+    local r p count=0
+    for r in "${roots[@]}"; do
+        [[ -d "$r" ]] || continue
+        while IFS= read -r -d '' p; do
+            zb_info "Removing incomplete staging directory: $p"
+            rm -rf -- "$p"
+            count=$((count + 1))
+        done < <(find "$r" -maxdepth 4 -type d -name '.pending.*' -print0 2>/dev/null)
+    done
+    zb_info "Cleaned $count incomplete '.pending.*' staging director(ies)."
+)

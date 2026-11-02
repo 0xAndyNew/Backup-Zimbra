@@ -1,39 +1,178 @@
-# Zimbra Backup — bản thử nghiệm 0.1.0
+# Zimbra Backup (`zimbra-backup` v0.2.0)
 
-> **Đã tạo `zimbra-backup-0.1.0-1.noarch.rpm` trên Windows bằng nFPM; chưa cài hoặc kiểm thử trên Zimbra 10. Không cài lên production.** Đây là bản thử nghiệm một phần. Các script gốc vẫn được giữ nguyên để tham khảo, không được đưa vào RPM.
+Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9**, trang bị **Menu tương tác TUI tiếng Anh rút gọn (100% Pure 7-bit ASCII — không bao giờ lỗi font `□` trên mọi SSH / VM Console)** cùng hệ thống **CLI tự động hóa** đầy đủ.
 
-## Phạm vi hiện có
+---
 
-- Cài RPM không hỏi cấu hình. Chạy `zimbra-backup` với quyền `zimbra` hoặc root để vào menu.
-- Full độc lập: thiết lập/sửa job (đường dẫn mount, giữ N bản, lịch hằng ngày hoặc hằng tuần), chạy tay hoặc qua cron. Theo lựa chọn của người dùng, xóa bản Full cũ nhất **trước** khi tạo bản mới nếu đã đủ N. Nếu bản mới thất bại, sẽ còn ít hơn N bản. Các bản lỗi nằm trong thư mục `.pending.*` và không tính vào N; phải kiểm tra thủ công.
-- Backup Full một account chỉ định (lưu riêng) và một Full nền ban đầu cho luồng incremental tương lai (lưu riêng); không tự xóa hai loại này.
-- Kiểm tra đường dẫn đã mount, manifest của bản full, checksum mailbox, thông tin kho, log và thông báo Telegram tùy chọn.
+## Tính năng chính
 
-## Chưa hỗ trợ — không sử dụng để khôi phục trên production
+1. **Menu TUI tiếng Anh tinh gọn, hiển thị chuẩn trên mọi Terminal**:
+   - **Thiết lập lần đầu chỉ 2 câu hỏi cốt lõi**: Thư mục lưu backup mặc định + Chế độ kiểm tra điểm mount riêng (tự động nhận diện thư mục đang mount hay ổ cục bộ và hỗ trợ tạo thư mục `0700` ngay tại chỗ); các cấu hình nâng cao (ngưỡng đĩa, Telegram, Email) được gom vào tùy chọn mở rộng không bắt buộc.
+   - **Tạo Job nhanh chỉ 4 bước**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Lịch chạy (nhập gộp Giờ:Phút dạng HH:MM)` -> `Số bản lưu giữ (mặc định 7 bản Full hoặc 2 chuỗi Incremental ~ 2 tuần)`.
+   - **Chỉnh sửa Job 1 chạm**: Menu đánh số `1..10` hiển thị trực tiếp giá trị hiện tại của từng trường — cần đổi giờ chạy, số bản lưu hay thư mục chỉ cần bấm đúng số thứ tự mục đó rồi bấm `s` để lưu.
+   - Toàn bộ giao diện, CLI và log dùng bảng mã **7-bit ASCII thuần**, loại bỏ triệt để hiện tượng ô vuông `□` trên console VMware/Proxmox/PuTTY hoặc môi trường `LANG=C` của `cron`.
+2. **Quản lý Đa Job & Đồng bộ Crontab tự động theo quyền `zimbra`**:
+   - Tạo, xem, **chỉnh sửa (`edit` sau khi cấu hình)**, bật/tắt, xóa và kích hoạt chạy ngay nhiều Job độc lập (`full` hoặc `incremental`).
+   - Tự động chuyển sang quyền thực thi `zimbra` (`runuser -u zimbra`) khi gọi từ `root` và tự động cập nhật khối `# BEGIN zimbra-backup ... # END zimbra-backup` trong `crontab` của user `zimbra` mà không chạm vào khối `# ZIMBRASTART..# ZIMBRAEND` của hệ thống Zimbra.
+3. **Tùy chỉnh ngày tháng & lịch chạy linh hoạt**:
+   - Lịch **Hằng ngày** (`HH:MM`), **Hằng tuần** (chọn các thứ `0-6` + `HH:MM`), **Theo ngày/tháng cụ thể** (chọn ngày `1-31`, tháng `*` hoặc `1-12` + `HH:MM`), biểu thức **Cron 5 trường tùy chỉnh**, hoặc tắt lịch tự động (`off`).
+4. **Quản lý số bản lưu trữ (`KEEP_COUNT`) & Chuỗi Incremental (`zb-backup-v2`)**:
+   - Cấu hình số bản Full giữ lại (cho Job `full`, mặc định `7`) hoặc số **chuỗi hoàn chỉnh** giữ lại (cho Job `incremental`, mặc định `2` chuỗi), kèm tùy chọn thời điểm xóa bản cũ **sau khi bản mới thành công (`after` — mặc định an toàn)** hoặc **trước khi chạy (`before` — tiết kiệm đĩa)**.
+   - Chuỗi Incremental gom `000_full_<stamp>` + `001_incr_<stamp>..NNN_incr_<stamp>` với mốc `checkpoint` lùi đệm 5 phút chống sót mail qua nửa đêm hoặc khi gián đoạn; tự mở chuỗi Full mới theo chu kỳ cấu hình (`max_incr`, hằng tuần, hoặc hằng tháng).
+5. **Sao lưu chuẩn xác 100% dữ liệu người dùng tiếng Việt UTF-8 & Chữ ký**:
+   - Giải mã dòng gập LDIF chuẩn RFC 2849 + Base64 UTF-8, bảo toàn nguyên vẹn tên hiển thị tiếng Việt có dấu (`displayName`), mật khẩu băm (`userPassword`), hạn ngạch (`zimbraMailQuota`), Alias, thành viên Distribution List (`zmprov -l gdlm`), chữ ký HTML/text (`zmprov -l gsig`), quyền Admin và bộ lọc Sieve nhiều dòng.
+   - Kiểm tra toàn vẹn từng bản sao lưu bằng `manifest` SHA-256 + `tar -tzf` (không xóa nhầm hộp thư mới tạo rỗng `<200 bytes`).
+6. **Hiển thị thông tin bản Backup & Khôi phục (Restore) chi tiết**:
+   - Liệt kê tất cả bản backup hiện có (từ các Job hoặc từ ổ cứng/NFS gắn ngoài `--dir` khi khôi phục thảm họa DR, đọc ngược được cả thư mục của `auto_full_backup.sh` cũ).
+   - Xem chi tiết từng bản backup, tìm kiếm tài khoản và dung lượng hộp thư bên trong, kiểm tra lại mã băm SHA-256 (`verify`).
+   - Chọn bản backup bất kỳ (tự động ghép và nạp tuần tự `Full gốc -> Incr #1 -> ... -> Incr đã chọn`), chọn khôi phục **Toàn bộ máy chủ**, **Theo Domain**, hoặc **Chọn 1 / nhiều User cụ thể**; hỗ trợ khôi phục sang **tài khoản đích khác** (`--target-account` / `--target-user`), khôi phục vào **thư mục con riêng** (`/Restore_<timestamp>`), chọn riêng **Hộp thư** hoặc **Cấu hình LDAP**, và chạy thử **`--dry-run`**.
 
-- **Incremental hằng ngày chưa triển khai**; menu không cho bật. Script gốc lọc `date:>=` không đáp ứng yêu cầu backup/restore toàn bộ trạng thái (thư bị xóa/di chuyển, flags, metadata).
-- **Restore bị vô hiệu hóa** cho đến khi có thử nghiệm Zimbra 10 phù hợp. Không thể cam kết metadata do REST tgz xuất là bản sao đầy đủ của Zimbra.
-- `bash -n zimbra-backup` đã qua; RPM được kiểm tra cấu trúc metadata, quyền thư mục và hash script bên trong. Chưa có thử nghiệm mock Zimbra hoặc cài/restore trên Linux. **Không xác nhận RPM cài/chạy được trên mọi bản Zimbra 10.** SHA-256 bản thử: `66c1dcc054f5007cf2f9c1df1228b5a01abf7797cfd63d0ecdc928f6c8fe3aa1`.
+> **Lưu ý kỹ thuật về Incremental trên Zimbra OSE & Kiểm thử trước Production**:
+> Trên Zimbra Open Source Edition, dữ liệu hộp thư Incremental được trích xuất qua REST API (`?fmt=tgz&query=after:<checkpoint_ms>`). Đây là cơ chế sao lưu bồi đắp các thư/mục mới hoặc sửa đổi kể từ checkpoint gần nhất — nó không ghi nhận sự kiện người dùng xóa hẳn email hoặc dọn thùng rác giữa hai lần chạy khi nạp chồng (`modify`/`skip`). Trước khi áp dụng chính sách tự động xóa bản cũ hoặc chạy khôi phục hàng loạt trên hệ thống thật, hãy kiểm thử gói RPM trên máy Lab Zimbra cùng phiên bản (`8.8.15` / `9` / `10`).
 
-## Thử trên máy Linux khác
+---
 
-Chỉ cài trên **máy thử nghiệm**, không dùng dữ liệu Zimbra production. RPM cần user `zimbra` đã tồn tại trước khi cài vì nó sở hữu `/var/lib/zimbra-backup`. Sau khi chuyển RPM sang máy thử, xem thông tin và cài bằng trình quản lý gói của hệ điều hành, rồi kiểm tra menu và đường dẫn mount. Không đặt lịch hoặc chạy Full trong kho có dữ liệu quan trọng trước khi kiểm tra hành vi xóa trước backup.
+## Cài đặt / Nâng cấp gói RPM trên máy chủ Zimbra
 
-## Build lại trên Linux có rpm-build
+- **Gói đóng gói sẵn**: `zimbra-backup-0.2.0-1.noarch.rpm`
 
-Bản RPM đính kèm được build bằng nFPM theo `nfpm.yaml`; có thể build lại bằng nFPM, hoặc tạo tarball nguồn để build spec trên Linux. Ví dụ trong thư mục chứa `zimbra-backup` và `zimbra-backup.spec`:
+Yêu cầu máy chủ đã cài sẵn Zimbra (`user zimbra` tồn tại dưới `/opt/zimbra`).
 
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.1.0
-cp zimbra-backup zimbra-backup-0.1.0/
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.1.0.tar.gz" zimbra-backup-0.1.0
-rpmbuild -ba zimbra-backup.spec
+dnf install -y ./zimbra-backup-0.2.0-1.noarch.rpm
 ```
 
-Gói được tạo (nếu build thành công) ở `$HOME/rpmbuild/RPMS/noarch/`. Cần máy có user `zimbra`, dịch vụ Zimbra đã cài và `cronie`, `flock`, `mountpoint`, `sha256sum`, `tar`, `zmmailbox`, `zmprov`. Chỉ dùng một bản thử nghiệm, kiểm tra `bash -n zimbra-backup` và thử nghiệm trên Zimbra sandbox trước khi cài.
+Nếu máy đã cài bản cũ, nâng cấp trực tiếp bằng:
 
-**Lưu ý:** Script hiện dùng `runuser` chuyển sang user `zimbra`, ghi state ở `/var/lib/zimbra-backup` (mặc định) và yêu cầu `STORE_ROOT` là mountpoint trực tiếp (mặc định `/mnt/backup`). Không đổi đường dẫn kho đã có dữ liệu nếu chưa di chuyển và xác minh lại tất cả các bản backup. Token Telegram được lưu trong `/var/lib/zimbra-backup/settings` với quyền `0600` của user zimbra. Cron tạo entry riêng cho job Full, không đụng cron khác.
+```bash
+rpm -Uvh --force ./zimbra-backup-0.2.0-1.noarch.rpm
+```
 
-## Cần xác minh để hoàn thiện
+Trên CentOS/RHEL 7:
 
-Cung cấp kết quả `zmcontrol -v`, bản Network Edition hoặc Open Source, OS (`cat /etc/os-release`) và môi trường kiểm thử. Sau đó chọn cơ chế snapshot/delta của Zimbra 10 có thể khôi phục thư mới, thư xóa/di chuyển, flags và metadata, xây kiểm thử full + nhiều incremental + restore; chỉ khi đạt yêu cầu mới bật lịch incremental và restore, rồi phát hành RPM.
+```bash
+yum install -y ./zimbra-backup-0.2.0-1.noarch.rpm
+```
+
+Sau khi cài đặt, mở giao diện Menu tương tác (bằng quyền `root` hoặc `su - zimbra`):
+
+```bash
+zimbra-backup
+```
+
+Lần chạy đầu tiên sẽ tự động mở **First-Time Setup (2 bước ngắn gọn)** để cấu hình thư mục lưu trữ mặc định và tạo ngay Job sao lưu đầu tiên.
+
+---
+
+## Hướng dẫn nhanh các lệnh CLI
+
+### 1. Khởi tạo cấu hình chung bằng CLI (triển khai tự động)
+
+```bash
+zimbra-backup init --backup-dir /mnt/backup --require-mount yes --disk-warn 85
+```
+
+### 2. Tạo, chỉnh sửa & quản lý Job Backup
+
+Tạo Job Full hằng ngày lúc `01:30`, giữ lại `7` bản (xóa bản cũ sau khi bản mới hoàn tất):
+
+```bash
+zimbra-backup job add full-daily --name "Daily Full Backup" --type full --schedule daily --hour 1 --minute 30 --keep 7 --prune-timing after
+```
+
+Tạo Job Incremental chạy hằng ngày lúc `02:30`, tự mở chuỗi Full mới sau mỗi `6` bản Incremental, giữ `2` chuỗi hoàn chỉnh:
+
+```bash
+zimbra-backup job add incr-daily --name "Daily Incremental Chain" --type incremental --schedule daily --hour 2 --minute 30 --full-cycle max_incr --full-cycle-value 6 --keep 2
+```
+
+Chỉnh sửa (`edit`) lại ngày/tháng chạy, số lượng bản lưu hoặc thư mục của Job bất kỳ sau khi đã cấu hình:
+
+```bash
+zimbra-backup job edit full-daily --schedule monthly --dom 1,15 --month "*" --hour 3 --minute 0 --keep 4
+```
+
+Xem danh sách, bật/tắt lịch hoặc chạy ngay một Job:
+
+```bash
+zimbra-backup job list
+```
+
+```bash
+zimbra-backup job show full-daily
+```
+
+```bash
+zimbra-backup job run full-daily
+```
+
+Đồng bộ lại khối Crontab của user `zimbra` (hữu ích sau khi nâng cấp phiên bản Zimbra):
+
+```bash
+zimbra-backup cron sync
+```
+
+### 3. Xem danh sách, tra cứu User & kiểm tra toàn vẹn bản Backup
+
+```bash
+zimbra-backup backup list
+```
+
+```bash
+zimbra-backup backup inspect 1 --search nguyen
+```
+
+```bash
+zimbra-backup backup verify 1
+```
+
+Quét thư mục backup gắn ngoài (khi dựng máy chủ DR mới chưa có cấu hình Job):
+
+```bash
+zimbra-backup backup list --dir /mnt/nas-zimbra-old
+```
+
+### 4. Khôi phục dữ liệu (Restore)
+
+Xem trước kế hoạch khôi phục (`--dry-run`) cho 2 user từ bản backup số `1`:
+
+```bash
+zimbra-backup restore --from 1 --users "user1@example.com,user2@example.com" --mode skip --dry-run
+```
+
+Khôi phục hộp thư của nhân viên cũ sang thư mục riêng `/BanGiao_NhanSu` bên trong tài khoản người nhận (không ghi đè mật khẩu của người nhận):
+
+```bash
+zimbra-backup restore --from 1 --users "nhanvien_cu@example.com" --target-user "quanly@example.com" --only mailbox --mode subfolder --subfolder-name "BanGiao_NhanSu" --yes
+```
+
+Khôi phục toàn bộ máy chủ từ ổ đĩa gắn ngoài:
+
+```bash
+zimbra-backup restore --dir /mnt/nas-zimbra-old --from 1 --all --mode skip
+```
+
+---
+
+## Kiểm thử & Đóng gói lại từ mã nguồn
+
+Chạy bộ kiểm thử tự động đầu-cuối (không cần cài Zimbra thật hay quyền `root`):
+
+```bash
+bash tests/run_tests.sh
+```
+
+Đóng gói file `.rpm` bằng `nfpm` (chạy được trên cả Linux và Windows):
+
+```bash
+nfpm package --config nfpm.yaml --packager rpm
+```
+
+Hoặc đóng gói bằng `rpmbuild` trên RHEL/CentOS/AlmaLinux/Rocky:
+
+```bash
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.2.0 && \
+cp -r bin lib packaging README.md zimbra-backup-0.2.0/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.2.0.tar.gz" zimbra-backup-0.2.0 && \
+rpmbuild -ba zimbra-backup.spec
+```

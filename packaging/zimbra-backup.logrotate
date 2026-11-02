@@ -1,0 +1,10 @@
+/var/lib/zimbra-backup/logs/*.log {
+    weekly
+    rotate 12
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0600 zimbra zimbra
+    su zimbra zimbra
+}

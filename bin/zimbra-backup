@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Main CLI & Interactive Entrypoint for zimbra-backup RPM package.
+# Supports Zimbra 8.8.15, 9, and 10 OSE on CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9.
+
+set -Eeuo pipefail
+umask 077
+
+# Resolve library path (supports env override, git repo checkout, and installed RPM path)
+resolve_zb_lib_dir() {
+    if [[ -n "${ZB_LIB_DIR:-}" && -f "${ZB_LIB_DIR}/common.sh" ]]; then
+        printf '%s' "$ZB_LIB_DIR"
+        return 0
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "${self_dir}/../lib/common.sh" ]]; then
+        (cd "${self_dir}/../lib" && pwd)
+        return 0
+    fi
+    if [[ -f "${self_dir}/lib/common.sh" ]]; then
+        (cd "${self_dir}/lib" && pwd)
+        return 0
+    fi
+    if [[ -f "/usr/libexec/zimbra-backup/common.sh" ]]; then
+        printf '/usr/libexec/zimbra-backup'
+        return 0
+    fi
+    printf 'FATAL: Cannot locate zimbra-backup library directory (/usr/libexec/zimbra-backup).\n' >&2
+    return 1
+}
+
+ZB_LIB_DIR="$(resolve_zb_lib_dir)"
+export ZB_LIB_DIR
+
+# shellcheck source=../lib/common.sh
+. "${ZB_LIB_DIR}/common.sh"
+# shellcheck source=../lib/notify.sh
+. "${ZB_LIB_DIR}/notify.sh"
+# shellcheck source=../lib/zimbra_api.sh
+. "${ZB_LIB_DIR}/zimbra_api.sh"
+# shellcheck source=../lib/jobs.sh
+. "${ZB_LIB_DIR}/jobs.sh"
+# shellcheck source=../lib/backup.sh
+. "${ZB_LIB_DIR}/backup.sh"
+# shellcheck source=../lib/restore.sh
+. "${ZB_LIB_DIR}/restore.sh"
+# shellcheck source=../lib/tui.sh
+. "${ZB_LIB_DIR}/tui.sh"
+
+zb_print_help() {
+    cat <<EOF
+zimbra-backup v${ZB_VERSION} - Unified Backup & Restore Manager for Zimbra Collaboration OSE
+
+USAGE:
+  zimbra-backup
+      Open the interactive English TUI menu (launches Quick Setup on first run).
+
+  1. Initialize global configuration (after RPM install or automated provisioning):
+     zimbra-backup init --backup-dir /mnt/backup [--require-mount yes|no] [--disk-warn 85]
+                        [--disk-min-mb 1024] [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
+
+  2. Manage Multi-Job Backups & Automatic Crontab:
+     zimbra-backup job list
+     zimbra-backup job show <job_id>
+     zimbra-backup job add <job_id> --type full|incremental [--target-dir /mnt/backup]
+         [--scope all|domains|accounts] [--scope-values d1.com,d2.com]
+         [--schedule daily|weekly|monthly|off] [--hour 2 --minute 0] [--dow 0] [--dom 1,15 --month *]
+         [--cron-expr "0 2 * * *"] [--full-cycle max_incr|weekly|monthly --full-cycle-value 6]
+         [--keep 7] [--prune-timing after|before] [--parallel 2]
+     zimbra-backup job edit <job_id> [options to update...]
+     zimbra-backup job enable <job_id> | disable <job_id>
+     zimbra-backup job delete <job_id> [--yes]
+     zimbra-backup job run <job_id> [--cron] [--force-full]
+     zimbra-backup cron sync | cron show
+
+  3. Inspect Backups, Verify Checksums & Ad-hoc Account Backup:
+     zimbra-backup backup list [--dir /external/backup/path]
+     zimbra-backup backup inspect <index|backup_id|path> [--dir /path] [--search keyword]
+     zimbra-backup backup verify <index|backup_id|path> [--dir /path]
+     zimbra-backup backup user <email1,email2> [--dir /path]
+     zimbra-backup backup clean-pending [--dir /path]
+
+  4. Granular Restore:
+     zimbra-backup restore --from <index|backup_id|path> [--dir /path]
+         (--all | --domain <d1,d2> | --users <u1,u2>)
+         [--target-user <dest_email>]
+         [--only all|mailbox|ldap]
+         [--mode skip|subfolder|modify|reset] [--subfolder-name Restore_2026]
+         [--dry-run] [--yes]
+
+  5. Status & Logs:
+     zimbra-backup status
+     zimbra-backup logs [list | latest [lines]]
+EOF
+}
+
+zb_print_status() {
+    zb_load_settings || true
+    zb_msg "============================================================"
+    zb_msg "ZIMBRA-BACKUP SYSTEM STATUS (v${ZB_VERSION})"
+    zb_msg "============================================================"
+    zb_msg "  Host Label           : $(zb_host_label)"
+    zb_msg "  Running User         : $(id -un)"
+    zb_msg "  Initialized          : $(zb_is_initialized && printf 'yes (%s)' "$ZB_SETTINGS_FILE" || printf 'no')"
+    zb_msg "  Default Backup Dir   : $DEFAULT_BACKUP_DIR (require mountpoint: $REQUIRE_MOUNTPOINT)"
+    zb_msg "  Telegram Alerts      : $TELEGRAM_ENABLED"
+    zb_msg "  Email Alerts         : $EMAIL_ALERT_ENABLED"
+    zb_msg ""
+    zb_msg "--- Configured Backup Jobs ---"
+    zb_job_print_summary_table
+    zb_msg ""
+    zb_msg "--- Available Backups ---"
+    zb_print_backup_catalog ""
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help|help)
+            zb_print_help
+            return 0
+            ;;
+        -v|--version|version)
+            printf 'zimbra-backup %s\n' "$ZB_VERSION"
+            return 0
+            ;;
+    esac
+
+    # Enforce execution as 'zimbra' user (switches automatically via runuser if invoked by root)
+    zb_require_zimbra "$@"
+
+    local cmd="${1:-}"
+    if [[ -z "$cmd" || "$cmd" == "menu" || "$cmd" == "tui" ]]; then
+        [[ -t 0 ]] || { zb_err "No interactive TTY detected. Run 'zimbra-backup --help' for CLI usage."; return 1; }
+        zb_tui_main
+        return 0
+    fi
+    shift
+
+    case "$cmd" in
+        init)
+            zb_cli_init "$@"
+            ;;
+        job|jobs)
+            zb_cli_job "$@"
+            ;;
+        cron)
+            local sub="${1:-sync}"
+            case "$sub" in
+                sync) zb_load_settings && zb_cron_sync && zb_info "Synchronized crontab for user '$ZB_ZIMBRA_USER'." ;;
+                show) zb_cron_print_managed ;;
+                *) zb_err "Usage: zimbra-backup cron [sync|show]"; return 1 ;;
+            esac
+            ;;
+        backup|backups)
+            zb_cli_backup "$@"
+            ;;
+        restore)
+            zb_run_restore "$@"
+            ;;
+        status)
+            zb_print_status
+            ;;
+        logs|log)
+            zb_cli_logs "$@"
+            ;;
+        run-account)
+            zb_run_adhoc_users "${1:-}" "${2:-}"
+            ;;
+        *)
+            zb_err "Unknown command: '$cmd'. Run 'zimbra-backup --help' for usage."
+            return 1
+            ;;
+    esac
+}
+
+main "$@"

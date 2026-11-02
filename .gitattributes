@@ -1,5 +1,9 @@
 *.sh text eol=lf
 zimbra-backup text eol=lf
+bin/* text eol=lf
+lib/* text eol=lf
+packaging/* text eol=lf
+tests/* text eol=lf
 *.spec text eol=lf
 *.yaml text eol=lf
 *.md text eol=lf

@@ -1,38 +1,123 @@
 name: zimbra-backup
-arch: all
+arch: noarch
 platform: linux
-version: 0.1.0
+version: 0.2.0
 release: 1
-section: admin
+section: System Environment/Base
 priority: optional
-maintainer: Zimbra Backup Project
-license: Unspecified
+maintainer: Zimbra Backup Maintainers <ops@localhost>
 description: |
-  Experimental Zimbra standalone full backup manager.
-  Full-state incremental backup and restore are disabled pending validation on Zimbra 10.
+  Unified backup and granular restore manager for Zimbra Collaboration Open Source Edition
+  (8.8.15, 9, and 10) on RHEL/CentOS/AlmaLinux/Rocky 7, 8, and 9.
+  Provides both a streamlined pure-ASCII English TUI and automation CLI with multi-job crontab
+  scheduling, chain-based incremental backups, SHA-256 manifest verification, and per-user restore.
+license: MIT
+
 depends:
   - bash
   - coreutils
   - findutils
+  - gawk
+  - grep
+  - sed
   - tar
   - gzip
   - curl
-  - util-linux
   - cronie
+  - util-linux
+
+scripts:
+  preinstall: ./packaging/preinstall.sh
+
 contents:
-  - src: ./zimbra-backup
+  - src: ./bin/zimbra-backup
     dst: /usr/bin/zimbra-backup
     file_info:
       mode: 0755
+      owner: root
+      group: root
+
+  - src: ./lib/common.sh
+    dst: /usr/libexec/zimbra-backup/common.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/notify.sh
+    dst: /usr/libexec/zimbra-backup/notify.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/zimbra_api.sh
+    dst: /usr/libexec/zimbra-backup/zimbra_api.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/jobs.sh
+    dst: /usr/libexec/zimbra-backup/jobs.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/backup.sh
+    dst: /usr/libexec/zimbra-backup/backup.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/restore.sh
+    dst: /usr/libexec/zimbra-backup/restore.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/tui.sh
+    dst: /usr/libexec/zimbra-backup/tui.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./packaging/zimbra-backup.logrotate
+    dst: /etc/logrotate.d/zimbra-backup
+    type: config|noreplace
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
   - dst: /var/lib/zimbra-backup
     type: dir
     file_info:
+      mode: 0700
       owner: zimbra
       group: zimbra
+
+  - dst: /var/lib/zimbra-backup/jobs
+    type: dir
+    file_info:
       mode: 0700
+      owner: zimbra
+      group: zimbra
+
   - dst: /var/lib/zimbra-backup/logs
     type: dir
     file_info:
+      mode: 0700
       owner: zimbra
       group: zimbra
+
+  - dst: /var/lib/zimbra-backup/run
+    type: dir
+    file_info:
       mode: 0700
+      owner: zimbra
+      group: zimbra

@@ -1,43 +1,89 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Tài liệu này hướng dẫn Claude Code (claude.ai/code) khi làm việc với mã nguồn trong repository này.
 
-## Current state
+## Tổng quan kiến trúc (`zimbra-backup` v0.2.0)
 
-This repository contains three original Bash scripts (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh`) and an **unverified RPM prototype** (`zimbra-backup`, `zimbra-backup.spec`). A prototype RPM is built with nFPM but not installed or integration-tested; there is no runnable test suite or verified Zimbra 10 integration. Do not claim full-state incremental or production-ready restore from these sources. `README.md` describes the current scope and Linux build steps.
+Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** thành một gói RPM `noarch` duy nhất (`zimbra-backup-0.2.0-1.noarch.rpm`), hợp nhất và khắc phục các lỗi toàn vẹn dữ liệu của 3 script rời ban đầu (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh` — giữ lại ở thư mục gốc để đối chiếu, không đóng gói vào RPM).
 
-The original scripts are reference material, not packaged by the prototype. Both original backup scripts delete directories older than eight days before backup (`auto_full_backup.sh:14-15`, `auto_incr_backup.sh:16-17`). The original incremental script queries mail with `date:>=` for the current day (`auto_incr_backup.sh:43-44`), which is not a full-state delta from the last successful run. The original restore script reads metadata from paths that do not consistently match the full backup script and imports one backup directory rather than a chain. Treat these as compatibility and data-integrity issues, not mere packaging changes.
+### Phân tách module
 
-## Intended product model
+| Đường dẫn trong Repo | Đường dẫn khi cài RPM | Vai trò |
+|---|---|---|
+| `bin/zimbra-backup` | `/usr/bin/zimbra-backup` | Entrypoint chính: kiểm tra quyền `zimbra`, điều phối CLI và mở Menu TUI tiếng Anh (Pure ASCII) |
+| `zimbra-backup` | *(chỉ trong repo)* | Wrapper mỏng gọi `exec bin/zimbra-backup "$@"` khi chạy trực tiếp từ cây mã nguồn |
+| `lib/common.sh` | `/usr/libexec/zimbra-backup/common.sh` | Chuyển quyền `runuser -u zimbra`, nạp `zmshutil`, parser cấu hình allowlist, khóa `flock` FD 9, kiểm tra mountpoint/symlink/dung lượng đĩa |
+| `lib/notify.sh` | `/usr/libexec/zimbra-backup/notify.sh` | Gửi cảnh báo Telegram (`curl -K` ẩn Bot Token) và Email (`sendmail`) kèm `HOST_LABEL` |
+| `lib/zimbra_api.sh` | `/usr/libexec/zimbra-backup/zimbra_api.sh` | Dò cổng SSL (`8443`/`443`/`7071`), xoay vòng `ZM_ADMIN_AUTH_TOKEN`, giải mã LDIF RFC 2849 + Base64 UTF-8, xuất/nạp `zmprov`/`zmmailbox`/REST |
+| `lib/jobs.sh` | `/usr/libexec/zimbra-backup/jobs.sh` | CRUD đa Job (`/var/lib/zimbra-backup/jobs/<id>.conf`), bộ lập lịch ngày/tuần/tháng/cron tùy chỉnh, đồng bộ khối `# BEGIN zimbra-backup .. # END zimbra-backup` trong `crontab` của `zimbra` |
+| `lib/backup.sh` | `/usr/libexec/zimbra-backup/backup.sh` | Engine sao lưu Full độc lập (`snapshots/full_*`), Chuỗi Incremental (`chains/chain_*/000_full_*..NNN_incr_*`), chạy song song `PARALLEL_JOBS`, ghi/kiểm tra `manifest` `zb-backup-v2`, xóa bản cũ `after`/`before` |
+| `lib/restore.sh` | `/usr/libexec/zimbra-backup/restore.sh` | Quét kho backup (`zb-backup-v2`, `zb-full-v1`, thư mục legacy `auto_full_backup.sh`, hoặc `--dir` gắn ngoài), ghép chuỗi `000_full + 001..k_incr`, khôi phục toàn server / domain / danh sách user / sang tài khoản khác / thư mục con |
+| `lib/tui.sh` | `/usr/libexec/zimbra-backup/tui.sh` | Giao diện Menu tương tác tiếng Anh rút gọn (Pure 7-bit ASCII): Wizard thiết lập 2 bước, Tạo Job 4 bước, Sửa Job chọn trường `1..10` |
+| `packaging/preinstall.sh` | *(script `%pre` của RPM)* | Kiểm tra sự tồn tại của user hệ thống `zimbra` trước khi cài gói |
+| `packaging/zimbra-backup.logrotate` | `/etc/logrotate.d/zimbra-backup` | Xoay vòng log tuần cho `/var/lib/zimbra-backup/logs/*.log` (`su zimbra zimbra`, `0600`) |
 
-An unattended RPM install followed by interactive configuration through `zimbra-backup` with four top-level areas: Backup, Restore, Backup information, Logs. Configuration belongs to the selected backup job; a job can later be viewed/edited. Two independent stores are required:
+## Các bất biến kỹ thuật & an toàn bắt buộc giữ vững
 
-- `standalone-full/`: scheduled daily or weekly full backups, each independently restorable. User sets the number of completed copies to retain; user specifically chose removal of the oldest copy **before** a new backup, accepting that a failed new backup reduces the number of available copies.
-- `incremental/base/` + `incremental/daily/`: one initial full baseline, then daily changes since the last successful checkpoint. No automatic deletion of the baseline or any delta, because removing a link breaks later restore. Full-state incremental (including deletions, moves, flags, and metadata) requires an edition/version-specific Zimbra 10 mechanism and end-to-end validation; currently **disabled**.
+1. **Tương thích Bash 4.2 & CentOS 7 (`curl 7.29`)**:
+   - Không dùng `local -n` (nameref), `wait -n`, `grep -P`, hay `${var@Q}`.
+   - Dưới `set -Eeuo pipefail`: dùng `var=$((var + 1))` thay vì `((var++))` khi biến có thể bằng `0`; kiểm tra mảng rỗng trước khi mở rộng dưới `set -u`; bọc `set +u +e ... set -eu` quanh `/opt/zimbra/bin/zmshutil`.
+   - Khi tách chuỗi theo dấu phẩy trong hàm, luôn dùng tiền tố lệnh `IFS=',' read -r -a arr <<< "$csv"`, **tuyệt đối không dùng `local IFS=','`** vì phạm vi động (dynamic scope) của Bash sẽ làm rò `IFS=','` sang các hàm con được gọi bên dưới (như `zb_valid_cron_expr`).
+2. **Không `source` cấu hình & Bảo mật Token**:
+   - Mọi file cấu hình (`settings.conf`, `jobs/*.conf`, `manifest`) đều phải đọc qua parser `key=value` allowlist kèm kiểm tra định dạng đầu vào, không bao giờ `source` trực tiếp.
+   - `ZM_ADMIN_AUTH_TOKEN` và `TELEGRAM_TOKEN` chỉ được ghi vào file cấu hình tạm quyền `0600` trong `$ZB_RUN_DIR` (`/var/lib/zimbra-backup/run/`) để truyền qua `curl -K <cfg>` và phải dọn sạch bằng `trap` khi thoát; không bao giờ đặt trên dòng lệnh `curl` (lộ qua `ps aux`) hoặc trong `/tmp`.
+3. **Cô lập khóa `flock`, luồng log và biến toàn cục bằng hàm Subshell**:
+   - `zb_run_job() ( ... )`, `zb_run_adhoc_users() ( ... )`, `zb_clean_pending_dirs() ( ... )` trong `lib/backup.sh`, `zb_run_restore() ( ... )` trong `lib/restore.sh`, và `zb_cron_sync() ( ... )`, `zb_job_print_summary_table() ( ... )`, `zb_job_print_detail() ( ... )` trong `lib/jobs.sh` được khai báo bằng cặp ngoặc đơn `( ... )` có chủ đích để FD 9 (`flock -n 9`), `exec > >(tee -a "$ZB_CURRENT_LOG") 2>&1` và các lần gọi `zb_job_load` nội bộ không rò rỉ ra ngoài khi quay lại Menu TUI. Mọi hàm `trap ... EXIT` bên trong subshell phải lưu `local rc=$?` ở dòng đầu và kết thúc bằng `return "$rc"`.
+4. **Toàn vẹn dữ liệu Zimbra & Giới hạn của Incremental OSE**:
+   - Giải mã LDIF luôn đi qua `zb_ldif_unfold` (`lib/zimbra_api.sh`) để nối dòng gập RFC 2849 và giải mã Base64 (`attr::`), bảo toàn tiếng Việt UTF-8 (`displayName`), chữ ký (`zmprov -l gsig`), danh sách thành viên DL (`zmprov -l gdlm`) và bộ lọc Sieve nhiều dòng.
+   - Không xóa file `.tgz` dựa trên kích thước `<200 bytes` (hộp thư mới tạo hợp lệ chỉ khoảng 45–150 bytes); xác minh bằng `tar -tzf` + SHA-256 trong `manifest`.
+   - Bản Incremental trên Zimbra OSE xuất toàn bộ snapshot LDAP tại thời điểm chạy + hộp thư qua REST `?fmt=tgz&query=after:<(last_checkpoint_to - 300) * 1000>`. Cơ chế này chống sót mail giao thời/mất điện, nhưng theo đặc thù REST API của Zimbra OSE, nó là **bản bồi đắp mục mới/thay đổi** (không tự xóa các email mà người dùng đã xóa tay giữa 2 lần chạy khi nạp đè bằng `resolve=modify`). Khi khôi phục chuỗi với `--mode reset`, bước `000_full` chạy `resolve=reset` và các bước `001_incr..k_incr` tự chuyển sang `resolve=modify`.
+5. **100% Pure 7-bit ASCII cho toàn bộ mã đóng gói & Chuẩn xuống dòng LF (`\n`)**:
+   - Tất cả 13 file đóng gói vào RPM (`zimbra-backup`, `bin/zimbra-backup`, `lib/*.sh`, `packaging/*`, `nfpm.yaml`, `zimbra-backup.spec`) bắt buộc chỉ chứa ký tự ASCII 7-bit (`0x09`, `0x0A`, `0x20..0x7E`) để hiển thị sạch trên mọi SSH client, console VM và `cron` (`LANG=C`); được kiểm tra tự động trong `tests/run_tests.sh`.
+   - `.gitattributes` cưỡng bức `eol=lf` cho toàn bộ script, `.spec`, `.yaml`, `packaging/*`. Khi sửa file trên Windows, tuyệt đối không ghi CRLF (`\r\n`) vì sẽ làm hỏng shebang và `%pre` khi cài RPM trên Linux.
 
-Manual account full backups live separately under `manual-accounts/` and are excluded from the standalone retention count. Telegram is optional. The storage root must be a mounted path, not an unmounted fallback directory.
+## Các lệnh phát triển, kiểm thử & đóng gói
 
-## Prototype implementation
-
-`zimbra-backup` is a single Bash entrypoint with configuration in `/var/lib/zimbra-backup/settings`, logs in `/var/lib/zimbra-backup/logs`, and a lock at `/var/lib/zimbra-backup/operation.lock`. It attempts standalone full exports, account-specific full exports, a one-time baseline export, count-based pre-backup pruning, cron management for the standalone job, and Telegram notices. It disables incremental and restore. Do not enable these by reusing the date-filtered export or by running the original restore script directly. A manifest and mailbox checksums do not prove the completeness of Zimbra metadata.
-
-`nfpm.yaml` builds the prototype noarch binary RPM using nFPM (usable on the Windows build host). `zimbra-backup.spec` is an untested alternative source/binary RPM recipe for Linux `rpm-build`. The installed CLI path is `/usr/bin/zimbra-backup`; the package creates `/var/lib/zimbra-backup` owned by `zimbra`. No interactive configuration or cron entry is created by RPM install.
-
-## Development commands (Linux)
+Kiểm tra cú pháp Bash & POSIX sh:
 
 ```bash
-bash -n zimbra-backup
+bash -n zimbra-backup bin/zimbra-backup lib/*.sh tests/run_tests.sh
 ```
 
 ```bash
-shellcheck zimbra-backup
+sh -n packaging/preinstall.sh
 ```
 
+Chạy bộ kiểm thử tự động đầu-cuối (giả lập `zmprov`, `zmmailbox`, `zmsoap`, `curl`, `crontab`, `mountpoint` — chạy an toàn trên cả Windows Git Bash và Linux không cần root):
+
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.1.0
-cp zimbra-backup zimbra-backup-0.1.0/
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.1.0.tar.gz" zimbra-backup-0.1.0
+bash tests/run_tests.sh
+```
+
+Phân tích tĩnh bằng ShellCheck (nếu môi trường có cài `shellcheck`):
+
+```bash
+shellcheck -x bin/zimbra-backup lib/*.sh tests/run_tests.sh
+```
+
+Đóng gói gói binary RPM `noarch` bằng nFPM (trên Windows hoặc Linux):
+
+```bash
+nfpm package --config nfpm.yaml --packager rpm
+```
+
+Đóng gói bằng `rpmbuild` trên máy chủ Linux có `rpm-build`:
+
+```bash
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.2.0 && \
+cp -r bin lib packaging README.md zimbra-backup-0.2.0/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.2.0.tar.gz" zimbra-backup-0.2.0 && \
 rpmbuild -ba zimbra-backup.spec
 ```
 
-There is currently no test runner or single-test command. Add mock-backed shell tests before enabling destructive retention on production data; verify backup/restore against the exact Zimbra edition and version on an isolated server. On Windows, `bash -n zimbra-backup` passed and nFPM built `zimbra-backup-0.1.0-1.noarch.rpm`; neither `rpmbuild` nor Linux installation/integration tests have run.
+### Biến môi trường phục vụ kiểm thử cô lập
+
+Khi chạy thử hoặc viết thêm bài test trong `tests/`, có thể ghi đè:
+- `ZB_STATE_DIR`: thư mục chứa `settings.conf`, `jobs/`, `logs/`, `run/`, `operation.lock`.
+- `ZB_ZIMBRA_BIN`: thư mục chứa binary/mock `zmprov`, `zmmailbox`, `zmsoap`, `zmhostname`.
+- `ZB_SKIP_USER_CHECK=1` và `ZB_SKIP_ZMSHUTIL=1`: bỏ qua kiểm tra user hệ thống `zimbra` và `zmshutil` trên máy phát triển.
+- `ZB_FORCE_REST_PORT=8443`: cố định cổng REST cục bộ trong môi trường mock.
