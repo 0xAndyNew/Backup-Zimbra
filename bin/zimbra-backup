@@ -56,8 +56,9 @@ USAGE:
       Open the interactive English TUI menu (launches Quick Setup on first run).
 
   1. Initialize global configuration (after RPM install or automated provisioning):
-     zimbra-backup init --backup-dir /mnt/backup [--require-mount yes|no] [--disk-warn 85]
-                        [--disk-min-mb 1024] [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
+     zimbra-backup init --backup-dir /mnt/backup [--restore-dir /mnt/restore|none]
+                        [--require-mount yes|no] [--disk-warn 85] [--disk-min-mb 1024]
+                        [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
 
   2. Manage Multi-Job Backups & Automatic Crontab:
      zimbra-backup job list
@@ -74,14 +75,14 @@ USAGE:
      zimbra-backup cron sync | cron show
 
   3. Inspect Backups, Verify Checksums & Ad-hoc Account Backup:
-     zimbra-backup backup list [--dir /external/backup/path]
-     zimbra-backup backup inspect <index|backup_id|path> [--dir /path] [--search keyword]
-     zimbra-backup backup verify <index|backup_id|path> [--dir /path]
+     zimbra-backup backup list [--job <job_id> | --dir /custom/backup/path]
+     zimbra-backup backup inspect <index|backup_id|path> [--job <id> | --dir /path] [--search keyword]
+     zimbra-backup backup verify <index|backup_id|path> [--job <id> | --dir /path]
      zimbra-backup backup user <email1,email2> [--dir /path]
      zimbra-backup backup clean-pending [--dir /path]
 
   4. Granular Restore:
-     zimbra-backup restore --from <index|backup_id|path> [--dir /path]
+     zimbra-backup restore --from <index|backup_id|path> [--job <job_id> | --dir /custom/path]
          (--all | --domain <d1,d2> | --users <u1,u2>)
          [--target-user <dest_email>]
          [--only all|mailbox|ldap]
@@ -103,6 +104,7 @@ zb_print_status() {
     zb_msg "  Running User         : $(id -un)"
     zb_msg "  Initialized          : $(zb_is_initialized && printf 'yes (%s)' "$ZB_SETTINGS_FILE" || printf 'no')"
     zb_msg "  Default Backup Dir   : $DEFAULT_BACKUP_DIR (require mountpoint: $REQUIRE_MOUNTPOINT)"
+    zb_msg "  Custom Restore Dir   : ${CUSTOM_RESTORE_DIR:-(not set)}"
     zb_msg "  Telegram Alerts      : $TELEGRAM_ENABLED"
     zb_msg "  Email Alerts         : $EMAIL_ALERT_ENABLED"
     zb_msg ""

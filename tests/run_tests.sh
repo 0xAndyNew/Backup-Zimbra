@@ -490,25 +490,48 @@ chains_remaining="$(find "$ALT_STORE_DIR/incr-main/chains" -mindepth 1 -maxdepth
 [[ "$chains_remaining" == "1" ]] && pass "Chu kỳ tạo chuỗi Full mới + xóa chuỗi cũ theo KEEP_COUNT=1 (before) hoạt động chính xác" \
     || fail "Số chuỗi còn lại ($chains_remaining) khác 1"
 
-# Ad-hoc user backup + pending cleanup + legacy directory restore
-printf '\n=== 7. Kiểm tra Backup lẻ, Dọn .pending.* và Đọc ngược bản Backup cũ (Legacy) ===\n'
+# Ad-hoc user backup + pending cleanup + job-only discovery isolation + legacy directory restore
+printf '\n=== 7. Kiểm tra Cô lập thư mục theo Job, Backup lẻ, Dọn .pending.* & Thư mục Restore riêng ===\n'
 "$ZB_CMD" backup user "user1@example.com,empty@example.com"
 adhoc_count="$(find "$STORE_DIR/manual-accounts/snapshots" -mindepth 1 -maxdepth 1 -type d -name 'adhoc_*' | wc -l | tr -d '[:space:]')"
 [[ "$adhoc_count" == "1" ]] && pass "Sao lưu nhanh tài khoản lẻ (manual-accounts) độc lập với giới hạn của Job" \
     || fail "Không tìm thấy bản sao lưu lẻ"
+
+# Create a stray unconfigured backup folder inside STORE_DIR to verify default discovery ignores non-job dirs
+STRAY_SNAP="$STORE_DIR/unconfigured-folder/snapshots/full_20990101_000000"
+mkdir -p "$STRAY_SNAP"/{accounts,mailboxes}
+printf 'user1@example.com\n' > "$STRAY_SNAP/accounts/active_accounts.txt"
+cp -- "$MOCK_DATA/normal_mail.tgz" "$STRAY_SNAP/mailboxes/user1@example.com.tgz"
+
+default_cat="$("$ZB_CMD" backup list)"
+assert_contains "$default_cat" "full-daily" "Danh sách mặc định lấy đúng thư mục của Job full-daily"
+assert_contains "$default_cat" "incr-main" "Danh sách mặc định lấy đúng thư mục của Job incr-main"
+assert_not_contains "$default_cat" "manual-accounts" "Danh sách Job mặc định KHÔNG quét lẫn thư mục sao lưu lẻ manual-accounts"
+assert_not_contains "$default_cat" "20990101_000000" "Danh sách Job mặc định KHÔNG quét tràn lan thư mục lạ ngoài Job trên cùng ổ đĩa"
+
+single_job_cat="$("$ZB_CMD" backup list --job full-daily)"
+assert_contains "$single_job_cat" "full-daily" "Lọc theo --job full-daily hiển thị đúng các bản sao lưu của Job đó"
+assert_not_contains "$single_job_cat" "incr-main" "Lọc theo --job full-daily không lẫn bản sao lưu của Job khác"
+
+adhoc_cat="$("$ZB_CMD" backup list --dir "$STORE_DIR/manual-accounts")"
+assert_contains "$adhoc_cat" "manual-accounts" "Quét riêng --dir nhận diện đúng bản sao lưu lẻ (manual-accounts)"
 
 mkdir -p "$STORE_DIR/full-daily/snapshots/.pending.99999"
 "$ZB_CMD" backup clean-pending >/dev/null
 [[ ! -d "$STORE_DIR/full-daily/snapshots/.pending.99999" ]] && pass "Dọn sạch thư mục tạm .pending.* bị dở dang" \
     || fail "Chưa xóa được thư mục .pending.99999"
 
-# Legacy auto_full_backup.sh layout compatibility
+# Legacy auto_full_backup.sh layout compatibility & separate CUSTOM_RESTORE_DIR setting
 LEGACY_DIR="$TEST_TMP/legacy_root/20260101_020000"
 mkdir -p "$LEGACY_DIR"/{domains,accounts,userpass,alias,signatures,filter,mailboxes}
 printf 'example.com\n' > "$LEGACY_DIR/domains/domains.txt"
 printf 'legacy@example.com\n' > "$LEGACY_DIR/accounts/active_accounts.txt"
 printf 'userPassword: {SSHA}legacyHash\n' > "$LEGACY_DIR/userpass/legacy@example.com.shadow"
 cp -- "$MOCK_DATA/normal_mail.tgz" "$LEGACY_DIR/mailboxes/legacy@example.com.tgz"
+
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --restore-dir "$TEST_TMP/legacy_root" --require-mount no >/dev/null
+assert_contains "$(cat "$STATE_DIR/settings.conf")" "CUSTOM_RESTORE_DIR=$TEST_TMP/legacy_root" \
+    "Lưu cấu hình thư mục Restore riêng (CUSTOM_RESTORE_DIR) độc lập với DEFAULT_BACKUP_DIR"
 
 cat_out="$("$ZB_CMD" backup list --dir "$TEST_TMP/legacy_root")"
 assert_contains "$cat_out" "legacy-full" "Nhận diện và hiển thị được thư mục backup định dạng cũ (auto_full_backup.sh)"

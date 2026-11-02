@@ -564,8 +564,9 @@ zb_tui_run_backup_menu() {
             local emails dir_override
             emails="$(zb_tui_prompt_default "Account email(s) (comma-separated)" "")"
             [[ -n "$emails" ]] || return 0
-            dir_override="$(zb_tui_prompt_default "Target backup directory" "$DEFAULT_BACKUP_DIR")"
+            dir_override="$(zb_tui_prompt_default "Target backup directory" "${CUSTOM_RESTORE_DIR:-$DEFAULT_BACKUP_DIR}")"
             zb_run_adhoc_users "$emails" "$dir_override" || true
+            zb_info "Tip: Use Menu 4 (Restore from Custom Dir -> $dir_override) to restore ad-hoc account backups."
             zb_pause
             ;;
         0) return 0 ;;
@@ -640,21 +641,12 @@ zb_tui_select_users_from_snapshot() {
     return 0
 }
 
-zb_tui_restore_wizard() {
-    zb_load_settings || true
-    zb_tui_header "RESTORE WIZARD"
-
-    zb_msg "Backup Source:"
-    zb_msg "  1) Configured job storage directories ($DEFAULT_BACKUP_DIR)"
-    zb_msg "  2) External / custom directory path (e.g. mounted DR NAS/USB disk)"
-    local src_c custom_dir=""
-    src_c="$(zb_tui_prompt_default "Select source (1/2)" "1")"
-    if [[ "$src_c" == "2" ]]; then
-        custom_dir="$(zb_tui_prompt_default "Enter backup directory path" "/mnt/backup")"
-    fi
+zb_tui_restore_from_catalog() {
+    local custom_dir="${1:-}"
+    local filter_job="${2:-}"
 
     zb_msg ""
-    zb_print_backup_catalog "$custom_dir"
+    zb_print_backup_catalog "$custom_dir" "$filter_job" || { zb_pause; return 1; }
     if (( ${#ZB_CAT_PATHS[@]} == 0 )); then
         zb_pause
         return 0
@@ -665,7 +657,7 @@ zb_tui_restore_wizard() {
     sel="$(zb_tui_prompt_default "Step 1 - Select backup number [NO.] to restore (0 to cancel)" "0")"
     [[ "$sel" == "0" || -z "$sel" ]] && return 0
 
-    zb_resolve_backup_selector "$sel" "$custom_dir" || { zb_pause; return 1; }
+    zb_resolve_backup_selector "$sel" "$custom_dir" "$filter_job" || { zb_pause; return 1; }
     local chosen_snap="$ZB_SELECTED_DIR"
 
     zb_msg ""
@@ -678,6 +670,7 @@ zb_tui_restore_wizard() {
 
     local -a restore_args=(--from "$chosen_snap")
     [[ -n "$custom_dir" ]] && restore_args+=(--dir "$custom_dir")
+    [[ -n "$filter_job" ]] && restore_args+=(--job "$filter_job")
 
     local single_user_selected=0
     case "$sc_c" in
@@ -761,20 +754,158 @@ zb_tui_restore_wizard() {
     zb_pause
 }
 
+zb_tui_restore_job_wizard() {
+    zb_load_settings || true
+    zb_tui_header "RESTORE FROM BACKUP JOB"
+
+    local -a job_ids=()
+    local jid
+    while IFS= read -r jid; do
+        [[ -n "$jid" ]] && job_ids+=("$jid")
+    done < <(zb_job_list_ids)
+
+    if (( ${#job_ids[@]} == 0 )); then
+        zb_warn "No backup jobs configured yet. Create a job in Menu 1, or use Menu 4 (Restore from Custom Dir)."
+        zb_pause
+        return 0
+    fi
+
+    zb_msg "Configured Backup Jobs (scans ONLY job storage directories):"
+    local idx=0
+    while (( idx < ${#job_ids[@]} )); do
+        (
+            if zb_job_load "${job_ids[$idx]}" >/dev/null 2>&1; then
+                printf '  %2d) %-20s [%-11s | %s]\n' "$((idx + 1))" "$JOB_ID" "$BACKUP_TYPE" "$(zb_job_storage_root)"
+            fi
+        )
+        idx=$((idx + 1))
+    done
+    if (( ${#job_ids[@]} > 1 )); then
+        zb_msg "   a) All configured backup jobs"
+    fi
+    zb_msg "   0) Back to main menu"
+    zb_msg ""
+
+    local def_pick="1"
+    (( ${#job_ids[@]} > 1 )) && def_pick="a"
+    local jpick filter_job=""
+    jpick="$(zb_tui_prompt_default "Select job to restore from" "$def_pick")"
+    case "$jpick" in
+        0|"")
+            return 0
+            ;;
+        a|A|all|ALL)
+            filter_job=""
+            ;;
+        *)
+            if [[ "$jpick" =~ ^[0-9]+$ ]] && (( jpick >= 1 && jpick <= ${#job_ids[@]} )); then
+                filter_job="${job_ids[$((jpick - 1))]}"
+            elif zb_valid_slug "$jpick" && [[ -f "$(zb_job_file "$jpick")" ]]; then
+                filter_job="$jpick"
+            else
+                zb_warn "Invalid job selection: $jpick"
+                zb_pause
+                return 0
+            fi
+            ;;
+    esac
+
+    zb_tui_restore_from_catalog "" "$filter_job"
+}
+
+zb_tui_restore_custom_wizard() {
+    while true; do
+        zb_load_settings || true
+        zb_tui_header "RESTORE FROM CUSTOM DIRECTORY"
+        zb_msg "  Configured Custom Restore Dir : ${CUSTOM_RESTORE_DIR:-(not set)}"
+        zb_msg "  (Separate from Backup Jobs - supports external NAS/USB, ad-hoc & legacy dirs)"
+        zb_msg "------------------------------------------------------------"
+        if [[ -n "$CUSTOM_RESTORE_DIR" ]]; then
+            zb_msg "  1) Restore from configured Custom Restore Dir ($CUSTOM_RESTORE_DIR)"
+        else
+            zb_msg "  1) Configure Custom Restore Dir & start restore"
+        fi
+        zb_msg "  2) Restore from a one-time directory path (do not overwrite config)"
+        zb_msg "  3) Set / Change configured Custom Restore Dir"
+        zb_msg "  0) Back to main menu"
+        zb_msg ""
+
+        local c=""
+        read -r -p "Select [0-3]: " c || return 0
+        case "$(zb_trim "$c")" in
+            1)
+                if [[ -z "$CUSTOM_RESTORE_DIR" ]]; then
+                    local new_rdir
+                    new_rdir="$(zb_tui_prompt_default "Enter Custom Restore Directory path" "/mnt/restore")"
+                    [[ -n "$new_rdir" ]] || continue
+                    CUSTOM_RESTORE_DIR="$new_rdir"
+                    if ! zb_save_settings; then
+                        zb_pause
+                        continue
+                    fi
+                    zb_info "Saved Custom Restore Dir: $CUSTOM_RESTORE_DIR"
+                fi
+                zb_tui_restore_from_catalog "$CUSTOM_RESTORE_DIR" ""
+                return 0
+                ;;
+            2)
+                local once_dir
+                once_dir="$(zb_tui_prompt_default "Enter one-time backup directory path" "${CUSTOM_RESTORE_DIR:-/mnt/backup}")"
+                [[ -n "$once_dir" ]] || continue
+                if ! zb_valid_safe_path "$once_dir"; then
+                    zb_err "Invalid directory path: $once_dir" || true
+                    zb_pause
+                    continue
+                fi
+                zb_tui_restore_from_catalog "$once_dir" ""
+                return 0
+                ;;
+            3)
+                local cfg_rdir
+                cfg_rdir="$(zb_tui_prompt_default "Custom Restore Directory ('none' to clear)" "${CUSTOM_RESTORE_DIR:-/mnt/restore}")"
+                if [[ "$cfg_rdir" == "none" || "$cfg_rdir" == "-" ]]; then
+                    CUSTOM_RESTORE_DIR=""
+                else
+                    CUSTOM_RESTORE_DIR="$cfg_rdir"
+                fi
+                if zb_save_settings; then
+                    zb_info "Saved Custom Restore Dir: ${CUSTOM_RESTORE_DIR:-(not set)}"
+                fi
+                zb_pause
+                ;;
+            0)
+                return 0
+                ;;
+        esac
+    done
+}
+
 zb_tui_catalog_menu() {
+    local view_dir=""
     while true; do
         zb_load_settings || true
         zb_tui_header "BACKUP CATALOG & INTEGRITY CHECK"
-        if [[ -d "$DEFAULT_BACKUP_DIR" ]]; then
-            zb_msg "Filesystem usage ($DEFAULT_BACKUP_DIR):"
-            df -h -- "$DEFAULT_BACKUP_DIR" 2>/dev/null | sed 's/^/  /' || true
+        local fs_check_dir="${view_dir:-$DEFAULT_BACKUP_DIR}"
+        if [[ -d "$fs_check_dir" ]]; then
+            zb_msg "Filesystem usage ($fs_check_dir):"
+            df -h -- "$fs_check_dir" 2>/dev/null | sed 's/^/  /' || true
             zb_msg ""
         fi
-        zb_print_backup_catalog ""
+        if [[ -n "$view_dir" ]]; then
+            zb_msg "Catalog Source: Custom Directory ($view_dir)"
+        else
+            zb_msg "Catalog Source: Configured Backup Jobs (<target_dir>/<job_id>)"
+        fi
+        zb_msg ""
+        zb_print_backup_catalog "$view_dir"
         zb_msg ""
         zb_msg "  1) Inspect snapshot details & search accounts inside backup"
         zb_msg "  2) Verify SHA-256 checksums of a backup / chain"
-        zb_msg "  3) Scan an external backup directory"
+        if [[ -n "$view_dir" ]]; then
+            zb_msg "  3) Switch back to Configured Backup Jobs catalog"
+        else
+            zb_msg "  3) Switch catalog view to a Custom Directory"
+        fi
         zb_msg "  4) Clean leftover '.pending.*' staging directories"
         zb_msg "  0) Back to main menu"
         zb_msg ""
@@ -785,23 +916,35 @@ zb_tui_catalog_menu() {
                 local idx kw
                 idx="$(zb_tui_prompt_default "Enter backup number [NO.]" "1")"
                 kw="$(zb_tui_prompt_default "Search account keyword (Enter = show all)" "")"
-                zb_inspect_snapshot "$idx" "" "$kw" || true
+                zb_inspect_snapshot "$idx" "$view_dir" "$kw" || true
                 zb_pause
                 ;;
             2)
                 local v_idx
                 v_idx="$(zb_tui_prompt_default "Enter backup number [NO.] to verify" "1")"
-                zb_cli_backup verify "$v_idx" || true
+                if [[ -n "$view_dir" ]]; then
+                    zb_cli_backup verify "$v_idx" --dir "$view_dir" || true
+                else
+                    zb_cli_backup verify "$v_idx" || true
+                fi
                 zb_pause
                 ;;
             3)
-                local ext_dir
-                ext_dir="$(zb_tui_prompt_default "External directory path" "/mnt/backup")"
-                zb_print_backup_catalog "$ext_dir"
-                zb_pause
+                if [[ -n "$view_dir" ]]; then
+                    view_dir=""
+                else
+                    local ext_dir
+                    ext_dir="$(zb_tui_prompt_default "Custom directory path" "${CUSTOM_RESTORE_DIR:-$DEFAULT_BACKUP_DIR}")"
+                    if [[ -n "$ext_dir" ]] && zb_valid_safe_path "$ext_dir"; then
+                        view_dir="$ext_dir"
+                    else
+                        zb_err "Invalid directory path: $ext_dir" || true
+                        zb_pause
+                    fi
+                fi
                 ;;
             4)
-                zb_clean_pending_dirs "" || true
+                zb_clean_pending_dirs "$view_dir" || true
                 zb_pause
                 ;;
             0) return 0 ;;
@@ -813,20 +956,21 @@ zb_tui_settings_menu() {
     while true; do
         zb_load_settings || true
         zb_tui_header "GLOBAL SETTINGS & ALERTS"
-        zb_msg "  1) Default backup directory : $DEFAULT_BACKUP_DIR"
-        zb_msg "  2) Require mountpoint       : $REQUIRE_MOUNTPOINT"
-        zb_msg "  3) Disk warning / Min free  : ${DISK_WARN_PERCENT}% / ${DISK_MIN_FREE_MB} MB"
-        zb_msg "  4) Server label (alerts)    : ${HOST_LABEL:-(auto: $(zb_host_label))}"
-        zb_msg "  5) Telegram Bot alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
-        zb_msg "  6) Email failure alerts     : $EMAIL_ALERT_ENABLED ${EMAIL_ALERT_TO:+($EMAIL_ALERT_TO)}"
-        zb_msg "  7) Send test Telegram alert"
+        zb_msg "  1) Default job backup dir   : $DEFAULT_BACKUP_DIR"
+        zb_msg "  2) Custom restore directory : ${CUSTOM_RESTORE_DIR:-(not set)}"
+        zb_msg "  3) Require mountpoint       : $REQUIRE_MOUNTPOINT"
+        zb_msg "  4) Disk warning / Min free  : ${DISK_WARN_PERCENT}% / ${DISK_MIN_FREE_MB} MB"
+        zb_msg "  5) Server label (alerts)    : ${HOST_LABEL:-(auto: $(zb_host_label))}"
+        zb_msg "  6) Telegram Bot alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
+        zb_msg "  7) Email failure alerts     : $EMAIL_ALERT_ENABLED ${EMAIL_ALERT_TO:+($EMAIL_ALERT_TO)}"
+        zb_msg "  8) Send test Telegram alert"
         zb_msg "  0) Back to main menu"
         zb_msg ""
         local c=""
-        read -r -p "Select [0-7]: " c || return 0
+        read -r -p "Select [0-8]: " c || return 0
         case "$(zb_trim "$c")" in
             1)
-                DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "Default backup directory" "$DEFAULT_BACKUP_DIR")"
+                DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "Default job backup directory" "$DEFAULT_BACKUP_DIR")"
                 if [[ ! -d "$DEFAULT_BACKUP_DIR" && "$REQUIRE_MOUNTPOINT" == "no" ]]; then
                     local mk
                     mk="$(zb_tui_prompt_yesno "Directory does not exist. Create '$DEFAULT_BACKUP_DIR' now?" "yes")"
@@ -836,22 +980,33 @@ zb_tui_settings_menu() {
                 zb_pause
                 ;;
             2)
-                REQUIRE_MOUNTPOINT="$(zb_tui_prompt_yesno "Require dedicated mounted disk/NFS?" "$REQUIRE_MOUNTPOINT")"
+                local rdir_in
+                rdir_in="$(zb_tui_prompt_default "Custom restore directory ('none' to clear)" "${CUSTOM_RESTORE_DIR:-/mnt/restore}")"
+                if [[ "$rdir_in" == "none" || "$rdir_in" == "-" ]]; then
+                    CUSTOM_RESTORE_DIR=""
+                else
+                    CUSTOM_RESTORE_DIR="$rdir_in"
+                fi
                 zb_save_settings && zb_info "Saved."
                 zb_pause
                 ;;
             3)
+                REQUIRE_MOUNTPOINT="$(zb_tui_prompt_yesno "Require dedicated mounted disk/NFS?" "$REQUIRE_MOUNTPOINT")"
+                zb_save_settings && zb_info "Saved."
+                zb_pause
+                ;;
+            4)
                 DISK_WARN_PERCENT="$(zb_tui_prompt_default "Disk usage warning threshold (%)" "$DISK_WARN_PERCENT")"
                 DISK_MIN_FREE_MB="$(zb_tui_prompt_default "Minimum free disk space (MB)" "$DISK_MIN_FREE_MB")"
                 zb_save_settings && zb_info "Saved."
                 zb_pause
                 ;;
-            4)
+            5)
                 HOST_LABEL="$(zb_tui_prompt_default "Server label (blank = hostname)" "$HOST_LABEL")"
                 zb_save_settings && zb_info "Saved."
                 zb_pause
                 ;;
-            5)
+            6)
                 TELEGRAM_ENABLED="$(zb_tui_prompt_yesno "Enable Telegram Bot alerts?" "$TELEGRAM_ENABLED")"
                 if [[ "$TELEGRAM_ENABLED" == "yes" ]]; then
                     TELEGRAM_TOKEN="$(zb_tui_prompt_default "Telegram Bot Token" "$TELEGRAM_TOKEN")"
@@ -861,7 +1016,7 @@ zb_tui_settings_menu() {
                 zb_save_settings && zb_info "Saved."
                 zb_pause
                 ;;
-            6)
+            7)
                 EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts on failure?" "$EMAIL_ALERT_ENABLED")"
                 if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
                     EMAIL_ALERT_TO="$(zb_tui_prompt_default "Recipient email address" "$EMAIL_ALERT_TO")"
@@ -869,7 +1024,7 @@ zb_tui_settings_menu() {
                 zb_save_settings && zb_info "Saved."
                 zb_pause
                 ;;
-            7)
+            8)
                 if zb_send_telegram "[OK] [$(zb_host_label)] Test notification from zimbra-backup v${ZB_VERSION}"; then
                     zb_info "Test Telegram message sent."
                 else
@@ -959,25 +1114,27 @@ zb_tui_main() {
         local job_cnt=0
         job_cnt="$(zb_job_list_ids | wc -l | awk '{print $1}')"
         zb_tui_header "MAIN MENU"
-        zb_msg "  Storage Dir : $DEFAULT_BACKUP_DIR (require mountpoint: $REQUIRE_MOUNTPOINT) | Jobs: $job_cnt"
+        zb_msg "  Job Storage : $DEFAULT_BACKUP_DIR (mount: $REQUIRE_MOUNTPOINT) | Jobs: $job_cnt | Custom Restore: ${CUSTOM_RESTORE_DIR:-(not set)}"
         zb_msg "------------------------------------------------------------"
         zb_msg "  1) Jobs & Crontab Schedule   (Create, Edit, Enable/Disable, Delete)"
         zb_msg "  2) Run Backup Now            (Run Job, Force Full, Single Account)"
-        zb_msg "  3) Restore Data              (Select Snapshot -> Server / Domain / User)"
-        zb_msg "  4) Backup Catalog & Verify   (List Snapshots, Search Users, SHA-256)"
-        zb_msg "  5) Global Settings & Alerts  (Storage Path, Disk Limits, Telegram)"
-        zb_msg "  6) View Logs"
+        zb_msg "  3) Restore from Backup Job   (Select Configured Job -> Snapshot)"
+        zb_msg "  4) Restore from Custom Dir   (Configure / Scan Other Directory)"
+        zb_msg "  5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)"
+        zb_msg "  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram)"
+        zb_msg "  7) View Logs"
         zb_msg "  0) Exit"
         zb_msg "============================================================"
         local ch=""
-        read -r -p "Select [0-6]: " ch || return 0
+        read -r -p "Select [0-7]: " ch || return 0
         case "$(zb_trim "$ch")" in
             1) zb_tui_jobs_menu ;;
             2) zb_tui_run_backup_menu ;;
-            3) zb_tui_restore_wizard ;;
-            4) zb_tui_catalog_menu ;;
-            5) zb_tui_settings_menu ;;
-            6) zb_tui_logs_menu ;;
+            3) zb_tui_restore_job_wizard ;;
+            4) zb_tui_restore_custom_wizard ;;
+            5) zb_tui_catalog_menu ;;
+            6) zb_tui_settings_menu ;;
+            7) zb_tui_logs_menu ;;
             0|q|exit) return 0 ;;
         esac
     done

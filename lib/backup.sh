@@ -750,18 +750,17 @@ zb_clean_pending_dirs() (
     if [[ -n "$scan_dir" ]]; then
         roots+=("$scan_dir")
     else
-        roots+=("$DEFAULT_BACKUP_DIR")
-        local jid
-        while IFS= read -r jid; do
-            [[ -n "$jid" ]] || continue
-            if zb_job_load "$jid" >/dev/null 2>&1 && [[ -n "$TARGET_DIR" ]]; then
-                roots+=("$TARGET_DIR")
-            fi
-        done < <(zb_job_list_ids)
+        local jroot
+        while IFS= read -r jroot; do
+            [[ -n "$jroot" ]] && roots+=("$jroot")
+        done < <(zb_list_job_storage_roots)
+        if [[ -d "$DEFAULT_BACKUP_DIR/manual-accounts" ]]; then
+            roots+=("$DEFAULT_BACKUP_DIR/manual-accounts")
+        fi
     fi
 
     local r p count=0
-    for r in "${roots[@]}"; do
+    for r in "${roots[@]+"${roots[@]}"}"; do
         [[ -d "$r" ]] || continue
         while IFS= read -r -d '' p; do
             zb_info "Removing incomplete staging directory: $p"

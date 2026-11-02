@@ -52,6 +52,25 @@ zb_job_storage_root() {
     printf '%s/%s' "$base" "$JOB_ID"
 }
 
+# Emit storage root `<effective_target_dir>/<job_id>` for one job ($1) or all configured jobs.
+# Runs in a subshell so `zb_job_load` does not overwrite caller's JOB_* state.
+zb_list_job_storage_roots() (
+    local filter_jid="${1:-}"
+    zb_load_settings || return 1
+    if [[ -n "$filter_jid" ]]; then
+        zb_job_load "$filter_jid" || return 1
+        printf '%s\n' "$(zb_job_storage_root)"
+        return 0
+    fi
+    local jid
+    while IFS= read -r jid; do
+        [[ -n "$jid" ]] || continue
+        if zb_job_load "$jid" >/dev/null 2>&1; then
+            printf '%s\n' "$(zb_job_storage_root)"
+        fi
+    done < <(zb_job_list_ids)
+)
+
 zb_job_build_cron_expr() {
     case "$SCHEDULE_KIND" in
         off)
@@ -371,6 +390,14 @@ zb_cli_init() {
     while (( $# > 0 )); do
         case "$1" in
             --backup-dir) DEFAULT_BACKUP_DIR="${2-}"; shift 2 ;;
+            --restore-dir)
+                if [[ "${2-}" == "none" || "${2-}" == "-" ]]; then
+                    CUSTOM_RESTORE_DIR=""
+                else
+                    CUSTOM_RESTORE_DIR="${2-}"
+                fi
+                shift 2
+                ;;
             --require-mount) REQUIRE_MOUNTPOINT="${2-}"; shift 2 ;;
             --disk-warn) DISK_WARN_PERCENT="${2-}"; shift 2 ;;
             --disk-min-mb) DISK_MIN_FREE_MB="${2-}"; shift 2 ;;

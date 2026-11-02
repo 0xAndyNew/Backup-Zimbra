@@ -55,6 +55,21 @@ zb_register_catalog_entry() {
     fi
 }
 
+zb_scan_job_storage_root() {
+    local job_root="$1"
+    [[ -d "$job_root" && ! -L "$job_root" ]] || return 0
+
+    local p
+    shopt -s nullglob
+    for p in \
+        "$job_root"/snapshots/full_* \
+        "$job_root"/chains/chain_*/[0-9][0-9][0-9]_*; do
+        [[ -d "$p" && ! -L "$p" && "${p##*/}" != .pending.* ]] || continue
+        zb_register_catalog_entry "$p"
+    done
+    shopt -u nullglob
+}
+
 zb_scan_root_for_backups() {
     local root="$1"
     [[ -d "$root" ]] || return 0
@@ -64,7 +79,7 @@ zb_scan_root_for_backups() {
 
     local p
     shopt -s nullglob
-    # Standard job layouts: <root>/<job>/snapshots/full_* and <root>/<job>/chains/chain_*/NNN_*
+    # Custom/external layouts: direct snapshot, job subdirs, ad-hoc snapshots, or legacy auto_full_backup.sh dirs
     for p in \
         "$root"/*/snapshots/full_* \
         "$root"/*/snapshots/adhoc_* \
@@ -81,9 +96,11 @@ zb_scan_root_for_backups() {
     shopt -u nullglob
 }
 
-# Populate ZB_CAT_* arrays sorted newest -> oldest
+# Populate ZB_CAT_* arrays sorted newest -> oldest.
+# When custom_dir is empty, scans ONLY configured backup jobs' storage roots (<target_dir>/<job_id>).
 zb_discover_backups() {
     local custom_dir="${1:-}"
+    local filter_job="${2:-}"
     ZB_CAT_PATHS=()
     ZB_CAT_IDS=()
     ZB_CAT_JOBS=()
@@ -97,17 +114,24 @@ zb_discover_backups() {
 
     zb_load_settings || true
 
+    if [[ -n "$custom_dir" && -n "$filter_job" ]]; then
+        zb_err "Cannot combine --dir and --job; choose either a backup job or a custom directory."
+        return 1
+    fi
+
     if [[ -n "$custom_dir" ]]; then
         zb_scan_root_for_backups "$custom_dir"
     else
-        zb_scan_root_for_backups "$DEFAULT_BACKUP_DIR"
-        local jid
-        while IFS= read -r jid; do
-            [[ -n "$jid" ]] || continue
-            if zb_job_load "$jid" >/dev/null 2>&1 && [[ -n "$TARGET_DIR" ]]; then
-                zb_scan_root_for_backups "$TARGET_DIR"
-            fi
-        done < <(zb_job_list_ids)
+        local jroot
+        if [[ -n "$filter_job" ]]; then
+            jroot="$(zb_list_job_storage_roots "$filter_job")" || return 1
+            [[ -n "$jroot" ]] && zb_scan_job_storage_root "$jroot"
+        else
+            while IFS= read -r jroot; do
+                [[ -n "$jroot" ]] || continue
+                zb_scan_job_storage_root "$jroot"
+            done < <(zb_list_job_storage_roots)
+        fi
     fi
 
     local count="${#ZB_CAT_PATHS[@]}"
@@ -152,10 +176,21 @@ zb_discover_backups() {
 
 zb_print_backup_catalog() {
     local custom_dir="${1:-}"
-    zb_discover_backups "$custom_dir"
+    local filter_job="${2:-}"
+    zb_discover_backups "$custom_dir" "$filter_job" || return 1
     local total="${#ZB_CAT_PATHS[@]}"
     if (( total == 0 )); then
-        zb_msg "No backups found in ${custom_dir:-configured storage directories ($DEFAULT_BACKUP_DIR)}."
+        if [[ -n "$custom_dir" ]]; then
+            zb_msg "No backups found in custom directory: $custom_dir"
+        elif [[ -n "$filter_job" ]]; then
+            local jroot
+            jroot="$(zb_list_job_storage_roots "$filter_job" 2>/dev/null || printf '')"
+            zb_msg "No backups found for job '$filter_job' (${jroot:-unknown path})."
+        elif [[ -z "$(zb_job_list_ids)" ]]; then
+            zb_msg "No backup jobs configured yet (create a job first, or use --dir <path> / Menu 4 for custom directories)."
+        else
+            zb_msg "No backups found in configured backup job directories."
+        fi
         return 0
     fi
 
@@ -184,10 +219,11 @@ zb_print_backup_catalog() {
 zb_resolve_backup_selector() {
     local selector="$1"
     local custom_dir="${2:-}"
+    local filter_job="${3:-}"
     ZB_SELECTED_IDX=-1
     ZB_SELECTED_DIR=""
 
-    if [[ -d "$selector" ]]; then
+    if [[ -z "$custom_dir" && -z "$filter_job" && -d "$selector" ]]; then
         zb_discover_backups "$selector"
         if (( ${#ZB_CAT_PATHS[@]} == 1 )); then
             ZB_SELECTED_IDX=0
@@ -196,7 +232,7 @@ zb_resolve_backup_selector() {
         fi
     fi
 
-    zb_discover_backups "$custom_dir"
+    zb_discover_backups "$custom_dir" "$filter_job" || return 1
     local total="${#ZB_CAT_PATHS[@]}"
     (( total > 0 )) || { zb_err "No backups available to select."; return 1; }
 
@@ -264,8 +300,9 @@ zb_inspect_snapshot() {
     local selector="$1"
     local custom_dir="${2:-}"
     local search_kw="${3:-}"
+    local filter_job="${4:-}"
 
-    zb_resolve_backup_selector "$selector" "$custom_dir" || return 1
+    zb_resolve_backup_selector "$selector" "$custom_dir" "$filter_job" || return 1
     local i="$ZB_SELECTED_IDX"
     local dir="$ZB_SELECTED_DIR"
 
@@ -595,6 +632,7 @@ zb_restore_ldap_metadata() {
 zb_run_restore() (
     local from_selector=""
     local custom_dir=""
+    local filter_job=""
     local scope_kind=""
     local scope_arg=""
     local target_user=""
@@ -608,6 +646,7 @@ zb_run_restore() (
         case "$1" in
             --from) from_selector="${2-}"; shift 2 ;;
             --dir) custom_dir="${2-}"; shift 2 ;;
+            --job) filter_job="${2-}"; shift 2 ;;
             --all) scope_kind="all"; scope_arg=""; shift ;;
             --domain|--domains) scope_kind="domain"; scope_arg="${2-}"; shift 2 ;;
             --users|--user) scope_kind="users"; scope_arg="${2-}"; shift 2 ;;
@@ -634,7 +673,7 @@ zb_run_restore() (
 
     zb_load_settings || true
     zb_ensure_state_dirs || return 1
-    zb_resolve_backup_selector "$from_selector" "$custom_dir" || return 1
+    zb_resolve_backup_selector "$from_selector" "$custom_dir" "$filter_job" || return 1
     local target_snap="$ZB_SELECTED_DIR"
 
     zb_resolve_restore_chain "$target_snap" || return 1
@@ -790,37 +829,46 @@ zb_cli_backup() {
     local sub="${1:-list}"
     shift || true
     local custom_dir=""
+    local filter_job=""
 
     case "$sub" in
         list|ls)
             while (( $# > 0 )); do
                 case "$1" in
                     --dir) custom_dir="${2-}"; shift 2 ;;
+                    --job) filter_job="${2-}"; shift 2 ;;
                     *) zb_err "Unknown option: $1"; return 1 ;;
                 esac
             done
-            zb_print_backup_catalog "$custom_dir"
+            zb_print_backup_catalog "$custom_dir" "$filter_job"
             ;;
         inspect|show)
-            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup inspect <index|backup_id|path> [--dir <path>] [--search <kw>]"; return 1; }
+            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup inspect <index|backup_id|path> [--job <id>|--dir <path>] [--search <kw>]"; return 1; }
             local sel="$1" search_kw=""
             shift
             while (( $# > 0 )); do
                 case "$1" in
                     --dir) custom_dir="${2-}"; shift 2 ;;
+                    --job) filter_job="${2-}"; shift 2 ;;
                     --search) search_kw="${2-}"; shift 2 ;;
                     *) zb_err "Unknown option: $1"; return 1 ;;
                 esac
             done
-            zb_inspect_snapshot "$sel" "$custom_dir" "$search_kw"
+            zb_inspect_snapshot "$sel" "$custom_dir" "$search_kw" "$filter_job"
             ;;
         verify)
-            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup verify <index|backup_id|path> [--dir <path>]"; return 1; }
+            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup backup verify <index|backup_id|path> [--job <id>|--dir <path>]"; return 1; }
             local vsel="$1"
             shift
-            [[ "${1:-}" == "--dir" ]] && { custom_dir="${2-}"; shift 2; }
+            while (( $# > 0 )); do
+                case "$1" in
+                    --dir) custom_dir="${2-}"; shift 2 ;;
+                    --job) filter_job="${2-}"; shift 2 ;;
+                    *) zb_err "Unknown option: $1"; return 1 ;;
+                esac
+            done
             zb_ensure_state_dirs || return 1
-            zb_resolve_backup_selector "$vsel" "$custom_dir" || return 1
+            zb_resolve_backup_selector "$vsel" "$custom_dir" "$filter_job" || return 1
             zb_resolve_restore_chain "$ZB_SELECTED_DIR" || return 1
             local s
             for s in "${ZB_RESTORE_CHAIN_DIRS[@]}"; do

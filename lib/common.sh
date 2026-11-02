@@ -19,6 +19,7 @@ ZB_BIN_PATH="${ZB_BIN_PATH:-/usr/bin/zimbra-backup}"
 
 # Global settings defaults
 DEFAULT_BACKUP_DIR="/mnt/backup"
+CUSTOM_RESTORE_DIR=""
 REQUIRE_MOUNTPOINT="yes"
 DISK_WARN_PERCENT="85"
 DISK_MIN_FREE_MB="1024"
@@ -198,6 +199,7 @@ zb_is_initialized() {
 
 zb_reset_settings_defaults() {
     DEFAULT_BACKUP_DIR="/mnt/backup"
+    CUSTOM_RESTORE_DIR=""
     REQUIRE_MOUNTPOINT="yes"
     DISK_WARN_PERCENT="85"
     DISK_MIN_FREE_MB="1024"
@@ -212,6 +214,9 @@ zb_reset_settings_defaults() {
 
 zb_validate_settings() {
     zb_valid_safe_path "$DEFAULT_BACKUP_DIR" || { zb_err "Invalid default backup directory path: $DEFAULT_BACKUP_DIR"; return 1; }
+    if [[ -n "$CUSTOM_RESTORE_DIR" ]]; then
+        zb_valid_safe_path "$CUSTOM_RESTORE_DIR" || { zb_err "Invalid custom restore directory path: $CUSTOM_RESTORE_DIR"; return 1; }
+    fi
     [[ "$REQUIRE_MOUNTPOINT" == "yes" || "$REQUIRE_MOUNTPOINT" == "no" ]] || { zb_err "REQUIRE_MOUNTPOINT must be yes or no"; return 1; }
     [[ "$DISK_WARN_PERCENT" =~ ^([1-9]|[1-9][0-9])$ ]] || { zb_err "DISK_WARN_PERCENT must be between 1 and 99"; return 1; }
     [[ "$DISK_MIN_FREE_MB" =~ ^[0-9]{1,8}$ ]] || { zb_err "Invalid DISK_MIN_FREE_MB value"; return 1; }
@@ -246,7 +251,7 @@ zb_load_settings() {
         case "$key" in
             DEFAULT_BACKUP_DIR) DEFAULT_BACKUP_DIR="$value" ;;
             STORE_ROOT) DEFAULT_BACKUP_DIR="$value" ;; # legacy key alias
-            REQUIRE_MOUNTPOINT|DISK_WARN_PERCENT|DISK_MIN_FREE_MB|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|EMAIL_ALERT_ENABLED|EMAIL_ALERT_TO|HOST_LABEL)
+            CUSTOM_RESTORE_DIR|REQUIRE_MOUNTPOINT|DISK_WARN_PERCENT|DISK_MIN_FREE_MB|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|EMAIL_ALERT_ENABLED|EMAIL_ALERT_TO|HOST_LABEL)
                 printf -v "$key" '%s' "$value"
                 ;;
             KEEP_FULL_COUNT|FULL_SCHEDULE|FULL_DAY|FULL_HOUR|FULL_MINUTE)
@@ -269,6 +274,7 @@ zb_save_settings() {
     {
         printf '# Zimbra Backup Global Configuration\n'
         printf 'DEFAULT_BACKUP_DIR=%s\n' "$DEFAULT_BACKUP_DIR"
+        printf 'CUSTOM_RESTORE_DIR=%s\n' "$CUSTOM_RESTORE_DIR"
         printf 'REQUIRE_MOUNTPOINT=%s\n' "$REQUIRE_MOUNTPOINT"
         printf 'DISK_WARN_PERCENT=%s\n' "$DISK_WARN_PERCENT"
         printf 'DISK_MIN_FREE_MB=%s\n' "$DISK_MIN_FREE_MB"

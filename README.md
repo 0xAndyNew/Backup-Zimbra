@@ -22,10 +22,12 @@ Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collabo
 5. **Sao lưu chuẩn xác 100% dữ liệu người dùng tiếng Việt UTF-8 & Chữ ký**:
    - Giải mã dòng gập LDIF chuẩn RFC 2849 + Base64 UTF-8, bảo toàn nguyên vẹn tên hiển thị tiếng Việt có dấu (`displayName`), mật khẩu băm (`userPassword`), hạn ngạch (`zimbraMailQuota`), Alias, thành viên Distribution List (`zmprov -l gdlm`), chữ ký HTML/text (`zmprov -l gsig`), quyền Admin và bộ lọc Sieve nhiều dòng.
    - Kiểm tra toàn vẹn từng bản sao lưu bằng `manifest` SHA-256 + `tar -tzf` (không xóa nhầm hộp thư mới tạo rỗng `<200 bytes`).
-6. **Hiển thị thông tin bản Backup & Khôi phục (Restore) chi tiết**:
-   - Liệt kê tất cả bản backup hiện có (từ các Job hoặc từ ổ cứng/NFS gắn ngoài `--dir` khi khôi phục thảm họa DR, đọc ngược được cả thư mục của `auto_full_backup.sh` cũ).
+6. **Hiển thị thông tin bản Backup & Khôi phục (Restore) tách biệt rõ ràng**:
+   - **Tách riêng 2 luồng trên Main Menu & CLI**:
+     - **Restore from Backup Job (`--job <job_id>` hoặc mặc định)**: Chỉ quét đúng thư mục lưu trữ của các Job Backup đã cấu hình (`<target_dir>/<job_id>`), không quét tràn lan các thư mục lạ ngoài Job.
+     - **Restore from Custom Dir (`CUSTOM_RESTORE_DIR` / `--dir <path>`)**: Cấu hình riêng thư mục khôi phục khác (ổ NAS/USB gắn ngoài, bản sao lưu lẻ `manual-accounts`, hoặc thư mục `auto_full_backup.sh` cũ).
    - Xem chi tiết từng bản backup, tìm kiếm tài khoản và dung lượng hộp thư bên trong, kiểm tra lại mã băm SHA-256 (`verify`).
-   - Chọn bản backup bất kỳ (tự động ghép và nạp tuần tự `Full gốc -> Incr #1 -> ... -> Incr đã chọn`), chọn khôi phục **Toàn bộ máy chủ**, **Theo Domain**, hoặc **Chọn 1 / nhiều User cụ thể**; hỗ trợ khôi phục sang **tài khoản đích khác** (`--target-account` / `--target-user`), khôi phục vào **thư mục con riêng** (`/Restore_<timestamp>`), chọn riêng **Hộp thư** hoặc **Cấu hình LDAP**, và chạy thử **`--dry-run`**.
+   - Chọn bản backup bất kỳ (tự động ghép và nạp tuần tự `Full gốc -> Incr #1 -> ... -> Incr đã chọn`), chọn khôi phục **Toàn bộ máy chủ**, **Theo Domain**, hoặc **Chọn 1 / nhiều User cụ thể**; hỗ trợ khôi phục sang **tài khoản đích khác** (`--target-user`), khôi phục vào **thư mục con riêng** (`/Restore_<timestamp>`), chọn riêng **Hộp thư** hoặc **Cấu hình LDAP**, và chạy thử **`--dry-run`**.
 
 > **Lưu ý kỹ thuật về Incremental trên Zimbra OSE & Kiểm thử trước Production**:
 > Trên Zimbra Open Source Edition, dữ liệu hộp thư Incremental được trích xuất qua REST API (`?fmt=tgz&query=after:<checkpoint_ms>`). Đây là cơ chế sao lưu bồi đắp các thư/mục mới hoặc sửa đổi kể từ checkpoint gần nhất — nó không ghi nhận sự kiện người dùng xóa hẳn email hoặc dọn thùng rác giữa hai lần chạy khi nạp chồng (`modify`/`skip`). Trước khi áp dụng chính sách tự động xóa bản cũ hoặc chạy khôi phục hàng loạt trên hệ thống thật, hãy kiểm thử gói RPM trên máy Lab Zimbra cùng phiên bản (`8.8.15` / `9` / `10`).
@@ -116,6 +118,10 @@ zimbra-backup cron sync
 
 ```bash
 zimbra-backup backup list
+```
+
+```bash
+zimbra-backup backup list --job full-daily
 ```
 
 ```bash
