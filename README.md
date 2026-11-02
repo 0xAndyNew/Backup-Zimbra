@@ -71,7 +71,7 @@ Lần chạy đầu tiên sẽ tự động mở **First-Time Setup (2 bước n
 ### 1. Khởi tạo cấu hình chung bằng CLI (triển khai tự động)
 
 ```bash
-zimbra-backup init --backup-dir /mnt/backup --require-mount yes --disk-warn 85
+zimbra-backup init --backup-dir /home/backup --require-mount yes --disk-warn 85
 ```
 
 ### 2. Tạo, chỉnh sửa & quản lý Job Backup

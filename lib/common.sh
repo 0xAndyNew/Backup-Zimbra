@@ -18,7 +18,7 @@ ZB_SKIP_ZMSHUTIL="${ZB_SKIP_ZMSHUTIL:-0}"
 ZB_BIN_PATH="${ZB_BIN_PATH:-/usr/bin/zimbra-backup}"
 
 # Global settings defaults
-DEFAULT_BACKUP_DIR="/mnt/backup"
+DEFAULT_BACKUP_DIR="/home/backup"
 CUSTOM_RESTORE_DIR=""
 REQUIRE_MOUNTPOINT="yes"
 DISK_WARN_PERCENT="85"
@@ -198,7 +198,7 @@ zb_is_initialized() {
 }
 
 zb_reset_settings_defaults() {
-    DEFAULT_BACKUP_DIR="/mnt/backup"
+    DEFAULT_BACKUP_DIR="/home/backup"
     CUSTOM_RESTORE_DIR=""
     REQUIRE_MOUNTPOINT="yes"
     DISK_WARN_PERCENT="85"

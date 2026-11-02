@@ -346,6 +346,10 @@ export ZB_FORCE_REST_PORT=8443
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
+status_before_init="$("$ZB_CMD" status)"
+assert_contains "$status_before_init" "Default Backup Dir   : /home/backup" \
+    "Thư mục sao lưu mặc định khi chưa khởi tạo là /home/backup"
+
 "$ZB_CMD" init \
     --backup-dir "$STORE_DIR" \
     --require-mount yes \

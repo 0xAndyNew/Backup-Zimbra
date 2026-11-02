@@ -104,7 +104,7 @@ zb_tui_first_run_wizard() {
     while true; do
         DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "1. Default backup directory" "$DEFAULT_BACKUP_DIR")"
         if ! zb_valid_safe_path "$DEFAULT_BACKUP_DIR"; then
-            zb_warn "Invalid path (use an absolute path like /mnt/backup or /backup, no spaces or trailing slash)."
+            zb_warn "Invalid path (use an absolute path like /home/backup or /backup, no spaces or trailing slash)."
             continue
         fi
 
@@ -850,7 +850,7 @@ zb_tui_restore_custom_wizard() {
                 ;;
             2)
                 local once_dir
-                once_dir="$(zb_tui_prompt_default "Enter one-time backup directory path" "${CUSTOM_RESTORE_DIR:-/mnt/backup}")"
+                once_dir="$(zb_tui_prompt_default "Enter one-time backup directory path" "${CUSTOM_RESTORE_DIR:-$DEFAULT_BACKUP_DIR}")"
                 [[ -n "$once_dir" ]] || continue
                 if ! zb_valid_safe_path "$once_dir"; then
                     zb_err "Invalid directory path: $once_dir" || true

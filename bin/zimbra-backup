@@ -56,14 +56,14 @@ USAGE:
       Open the interactive English TUI menu (launches Quick Setup on first run).
 
   1. Initialize global configuration (after RPM install or automated provisioning):
-     zimbra-backup init --backup-dir /mnt/backup [--restore-dir /mnt/restore|none]
+     zimbra-backup init --backup-dir /home/backup [--restore-dir /mnt/restore|none]
                         [--require-mount yes|no] [--disk-warn 85] [--disk-min-mb 1024]
                         [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
 
   2. Manage Multi-Job Backups & Automatic Crontab:
      zimbra-backup job list
      zimbra-backup job show <job_id>
-     zimbra-backup job add <job_id> --type full|incremental [--target-dir /mnt/backup]
+     zimbra-backup job add <job_id> --type full|incremental [--target-dir /home/backup]
          [--scope all|domains|accounts] [--scope-values d1.com,d2.com]
          [--schedule daily|weekly|monthly|off] [--hour 2 --minute 0] [--dow 0] [--dom 1,15 --month *]
          [--cron-expr "0 2 * * *"] [--full-cycle max_incr|weekly|monthly --full-cycle-value 6]
