@@ -24,7 +24,7 @@ assert_contains() {
     if [[ "$haystack" == *"$needle"* ]]; then
         pass "$msg"
     else
-        printf '--- Expected to find: %s\n--- Actual output:\n%s\n' "$needle" "$haystack" >&2
+        printf -- '--- Expected to find: %s\n--- Actual output:\n%s\n' "$needle" "$haystack" >&2
         fail "$msg"
     fi
 }
@@ -34,7 +34,7 @@ assert_not_contains() {
     if [[ "$haystack" != *"$needle"* ]]; then
         pass "$msg"
     else
-        printf '--- Expected NOT to find: %s\n--- Actual output:\n%s\n' "$needle" "$haystack" >&2
+        printf -- '--- Expected NOT to find: %s\n--- Actual output:\n%s\n' "$needle" "$haystack" >&2
         fail "$msg"
     fi
 }
@@ -49,6 +49,8 @@ for f in \
     "$REPO_ROOT/bin/zimbra-backup" \
     "$REPO_ROOT"/lib/*.sh \
     "$REPO_ROOT/packaging/preinstall.sh" \
+    "$REPO_ROOT/packaging/preremove.sh" \
+    "$REPO_ROOT/packaging/postremove.sh" \
     "$REPO_ROOT/packaging/zimbra-backup.logrotate" \
     "$REPO_ROOT/nfpm.yaml" \
     "$REPO_ROOT/zimbra-backup.spec" \
@@ -60,7 +62,7 @@ done
 pass "Tất cả file script và cấu hình đóng gói đều giữ chuẩn LF"
 
 bash -n "$REPO_ROOT/zimbra-backup" "$REPO_ROOT/bin/zimbra-backup" "$REPO_ROOT"/lib/*.sh "$REPO_ROOT/tests/run_tests.sh"
-sh -n "$REPO_ROOT/packaging/preinstall.sh"
+sh -n "$REPO_ROOT/packaging/preinstall.sh" "$REPO_ROOT/packaging/preremove.sh" "$REPO_ROOT/packaging/postremove.sh"
 pass "Kiểm tra cú pháp bash -n / sh -n thành công"
 
 # Setup isolated test workspace
@@ -124,6 +126,9 @@ chmod +x "$MOCK_BIN/mountpoint"
 # Mock crontab
 cat > "$MOCK_BIN/crontab" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "-u" ]]; then
+    shift 2
+fi
 if [[ "${1:-}" == "-l" ]]; then
     cat "$MOCK_CRONTAB_FILE"
     exit 0
@@ -625,6 +630,44 @@ tui_snap="$(find "$TUI_CUSTOM_STORE/full/backup-1" -mindepth 1 -maxdepth 1 -type
 [[ -n "$tui_snap" ]] && pass "Job tạo từ TUI Wizard chạy lưu đúng vào $TUI_CUSTOM_STORE/full/backup-1/backup-full-*" \
     || fail "Không tìm thấy bản backup trong $TUI_CUSTOM_STORE/full/backup-1"
 
+printf '\n=== 9. Kiểm tra gỡ cài đặt sạch tự động (preremove / postremove) & An toàn tuyệt đối cho Zimbra ===\n'
+MOCK_LOGROTATE_DIR="$TEST_TMP/logrotate.d"
+mkdir -p "$MOCK_LOGROTATE_DIR"
+printf '# modified logrotate\n' > "$MOCK_LOGROTATE_DIR/zimbra-backup.rpmsave"
+
+# 9a. Chế độ nâng cấp gói RPM ($1 = 1) -> tuyệt đối giữ nguyên cấu hình, Job và Crontab
+ZB_TEST_UNINSTALL=1 ZB_LOGROTATE_DIR="$MOCK_LOGROTATE_DIR" sh "$REPO_ROOT/packaging/preremove.sh" 1
+ZB_TEST_UNINSTALL=1 ZB_LOGROTATE_DIR="$MOCK_LOGROTATE_DIR" sh "$REPO_ROOT/packaging/postremove.sh" 1
+assert_file_exists "$STATE_DIR/settings.conf" "Khi nâng cấp RPM (\$1=1): giữ nguyên settings.conf"
+assert_file_exists "$STATE_DIR/jobs/backup-1.conf" "Khi nâng cấp RPM (\$1=1): giữ nguyên cấu hình các Job"
+assert_contains "$(cat "$MOCK_CRONTAB_FILE")" "# BEGIN zimbra-backup" "Khi nâng cấp RPM (\$1=1): giữ nguyên lịch Crontab"
+
+# 9b. Chế độ gỡ cài đặt hoàn toàn ($1 = 0) -> gỡ sạch cron zimbra-backup & state, KHÔNG chạm Zimbra & dữ liệu backup
+mock_calls_before="$(wc -l < "$MOCK_LOG" | tr -d '[:space:]')"
+ZB_TEST_UNINSTALL=1 ZB_LOGROTATE_DIR="$MOCK_LOGROTATE_DIR" sh "$REPO_ROOT/packaging/preremove.sh" 0
+ZB_TEST_UNINSTALL=1 ZB_LOGROTATE_DIR="$MOCK_LOGROTATE_DIR" sh "$REPO_ROOT/packaging/postremove.sh" 0 >/dev/null
+mock_calls_after="$(wc -l < "$MOCK_LOG" | tr -d '[:space:]')"
+
+[[ "$mock_calls_before" == "$mock_calls_after" ]] \
+    && pass "Gỡ gói hoàn toàn KHÔNG gọi bất kỳ lệnh nào tác động tới dịch vụ Zimbra (zmprov/zmmailbox/zmsoap)" \
+    || fail "Phát hiện lệnh gọi Zimbra ngoài ý muốn trong quá trình gỡ gói"
+
+cron_after_uninstall="$(cat "$MOCK_CRONTAB_FILE")"
+assert_not_contains "$cron_after_uninstall" "# BEGIN zimbra-backup" "Gỡ gói (\$1=0) xóa sạch khối # BEGIN zimbra-backup khỏi crontab"
+assert_not_contains "$cron_after_uninstall" "zimbra-backup job run" "Gỡ gói (\$1=0) xóa sạch mọi dòng lệnh lập lịch zimbra-backup"
+assert_contains "$cron_after_uninstall" "# ZIMBRASTART -- DO NOT EDIT ANYTHING BETWEEN THIS LINE AND ZIMBRAEND" \
+    "Gỡ gói (\$1=0) bảo toàn nguyên vẹn 100% khối # ZIMBRASTART của hệ thống email Zimbra"
+assert_contains "$cron_after_uninstall" "0 1 * * * /opt/zimbra/libexec/zmstatuslog > /dev/null 2>&1" \
+    "Gỡ gói (\$1=0) bảo toàn nguyên vẹn tác vụ định kỳ gốc của Zimbra (/opt/zimbra/libexec/zmstatuslog)"
+
+[[ ! -e "$STATE_DIR" ]] && pass "Gỡ gói (\$1=0) dọn sạch hoàn toàn thư mục cấu hình & log ($STATE_DIR)" \
+    || fail "Thư mục cấu hình $STATE_DIR vẫn còn sót sau khi gỡ"
+[[ ! -e "$MOCK_LOGROTATE_DIR/zimbra-backup.rpmsave" ]] && pass "Gỡ gói (\$1=0) dọn sạch file rác logrotate .rpmsave" \
+    || fail "File zimbra-backup.rpmsave vẫn còn sót"
+[[ -d "$tui_snap" && -d "$STORE_DIR/account" ]] \
+    && pass "Gỡ gói (\$1=0) giữ nguyên an toàn tuyệt đối toàn bộ dữ liệu các bản backup đã sao lưu" \
+    || fail "Dữ liệu backup bị ảnh hưởng khi gỡ gói"
+
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"
     "$REPO_ROOT/bin/zimbra-backup"
@@ -636,6 +679,8 @@ PACKAGED_FILES=(
     "$REPO_ROOT/lib/restore.sh"
     "$REPO_ROOT/lib/tui.sh"
     "$REPO_ROOT/packaging/preinstall.sh"
+    "$REPO_ROOT/packaging/preremove.sh"
+    "$REPO_ROOT/packaging/postremove.sh"
     "$REPO_ROOT/packaging/zimbra-backup.logrotate"
     "$REPO_ROOT/nfpm.yaml"
     "$REPO_ROOT/zimbra-backup.spec"
@@ -654,9 +699,9 @@ for pf in "${PACKAGED_FILES[@]}"; do
         break
     fi
 done
-[[ -z "$non_ascii_hit" ]] && pass "Toàn bộ 13 file đóng gói RPM đều đạt chuẩn 100% Pure 7-bit ASCII (không bao giờ lỗi font □)" \
+[[ -z "$non_ascii_hit" ]] && pass "Toàn bộ 15 file đóng gói RPM đều đạt chuẩn 100% Pure 7-bit ASCII (không bao giờ lỗi font □)" \
     || fail "Phát hiện ký tự ngoài bảng mã ASCII 7-bit trong: $non_ascii_hit"
-[[ -z "$crlf_hit" ]] && pass "Toàn bộ 13 file đóng gói RPM đều giữ chuẩn xuống dòng LF (\\n)" \
+[[ -z "$crlf_hit" ]] && pass "Toàn bộ 15 file đóng gói RPM đều giữ chuẩn xuống dòng LF (\\n)" \
     || fail "Phát hiện ký tự CRLF (\\r\\n) trong: $crlf_hit"
 
 printf '\n============================================================\n'

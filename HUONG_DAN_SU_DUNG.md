@@ -138,6 +138,27 @@ Kiểm tra cài đặt thành công:
 zimbra-backup --version
 ```
 
+### Gỡ cài đặt hoàn toàn chỉ với 1 lệnh (Không ảnh hưởng Server & Hệ thống Email)
+
+Khi cần gỡ bỏ công cụ `zimbra-backup`, bạn chỉ cần chạy **1 lệnh duy nhất** bằng quyền `root`:
+
+```bash
+dnf remove -y zimbra-backup
+```
+
+Hoặc trên mọi phiên bản CentOS / RHEL / AlmaLinux / Rocky 7, 8, 9:
+
+```bash
+rpm -e zimbra-backup
+```
+
+**Cơ chế tự động dọn sạch & cam kết an toàn tuyệt đối cho Zimbra:**
+- Nếu tại thời điểm gõ lệnh đang có tiến trình Backup hoặc Restore chạy dở (`operation.lock` đang giữ khóa), gói RPM sẽ **tự động chặn gỡ cài đặt** để không làm gián đoạn phiên làm việc với Zimbra.
+- Tự động gỡ riêng khối `# BEGIN zimbra-backup ... # END zimbra-backup` khỏi `crontab` của user `zimbra` sau khi đối chiếu đảm bảo **100% các dòng cron hệ thống của Zimbra (`# ZIMBRASTART .. # ZIMBRAEND`, `/opt/zimbra/...`) còn nguyên vẹn**.
+- Tự động dọn sạch toàn bộ file thực thi, cấu hình Job, Settings, Log và file `.rpmsave` trong `/var/lib/zimbra-backup` (không báo lỗi `Directory not empty`, không để lại file rác).
+- **Tuyệt đối không khởi động lại hay tác động bất kỳ dịch vụ nào của Zimbra** (`zmcontrol`, `postfix`, `mailboxd`, `ldap`...), **không chạm vào `/opt/zimbra`**, và **không xóa dữ liệu các bản backup đã sao lưu** trên ổ đĩa (`/home/backup`, `/backup`, NAS...).
+- Khi chạy nâng cấp `rpm -Uvh --force` hoặc `dnf upgrade`, gói tự động nhận biết cờ nâng cấp nên **giữ nguyên toàn bộ Job và lịch Cron hiện có**.
+
 ### Bước 3: Chạy Thiết lập lần đầu (`QUICK INITIAL SETUP`)
 
 Đứng ở tài khoản `root` (hoặc `su - zimbra`), gõ lệnh:

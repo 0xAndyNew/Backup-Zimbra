@@ -54,6 +54,64 @@ install -d -m 0700 %{buildroot}%{_sharedstatedir}/zimbra-backup/jobs
 install -d -m 0700 %{buildroot}%{_sharedstatedir}/zimbra-backup/logs
 install -d -m 0700 %{buildroot}%{_sharedstatedir}/zimbra-backup/run
 
+%preun
+if [ "${1:-0}" -eq 0 ]; then
+    STATE_DIR="%{_sharedstatedir}/zimbra-backup"
+    LOCK_FILE="${STATE_DIR}/operation.lock"
+    if [ -f "$LOCK_FILE" ] && [ ! -L "$LOCK_FILE" ] && command -v flock >/dev/null 2>&1; then
+        if ! ( exec 9>"$LOCK_FILE" && flock -n 9 ) 2>/dev/null; then
+            echo "ERROR: A zimbra-backup operation is currently running (${LOCK_FILE} is locked)." >&2
+            echo "       Wait for it to finish before removing zimbra-backup." >&2
+            exit 1
+        fi
+    fi
+    if command -v crontab >/dev/null 2>&1 && getent passwd zimbra >/dev/null 2>&1; then
+        TMP_BASE="/tmp"
+        if [ -d "${STATE_DIR}/run" ] && [ ! -L "${STATE_DIR}/run" ] && [ -w "${STATE_DIR}/run" ]; then
+            TMP_BASE="${STATE_DIR}/run"
+        fi
+        WORK_TMP="$(mktemp -d "${TMP_BASE}/.zb_uninst.XXXXXX" 2>/dev/null || mktemp -d /tmp/.zb_uninst.XXXXXX)"
+        if crontab -u zimbra -l > "${WORK_TMP}/cur.cron" 2>/dev/null; then
+            if grep -Eq '^# BEGIN zimbra-backup([[:space:]]|$)' "${WORK_TMP}/cur.cron" || grep -Fq "zimbra-backup job run " "${WORK_TMP}/cur.cron"; then
+                if grep -Eq '^# BEGIN zimbra-backup([[:space:]]|$)' "${WORK_TMP}/cur.cron" && grep -Eq '^# END zimbra-backup([[:space:]]|$)' "${WORK_TMP}/cur.cron"; then
+                    awk 'index($0, "# BEGIN zimbra-backup") == 1 { skip = 1; next } index($0, "# END zimbra-backup") == 1 { skip = 0; next } !skip { print }' "${WORK_TMP}/cur.cron" > "${WORK_TMP}/new.cron"
+                else
+                    awk 'index($0, "# BEGIN zimbra-backup") == 1 || index($0, "# END zimbra-backup") == 1 || index($0, "/zimbra-backup job run ") > 0 { next } { print }' "${WORK_TMP}/cur.cron" > "${WORK_TMP}/new.cron"
+                fi
+                grep -E 'ZIMBRASTART|ZIMBRAEND|/opt/zimbra' "${WORK_TMP}/cur.cron" > "${WORK_TMP}/orig.zm" || true
+                grep -E 'ZIMBRASTART|ZIMBRAEND|/opt/zimbra' "${WORK_TMP}/new.cron" > "${WORK_TMP}/new.zm" || true
+                if cmp -s "${WORK_TMP}/orig.zm" "${WORK_TMP}/new.zm"; then
+                    crontab -u zimbra "${WORK_TMP}/new.cron" 2>/dev/null || true
+                fi
+            fi
+        fi
+        rm -rf -- "$WORK_TMP" 2>/dev/null || true
+    fi
+    if [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
+        for sub in jobs logs run; do
+            if [ -d "${STATE_DIR}/${sub}" ] && [ ! -L "${STATE_DIR}/${sub}" ]; then
+                find "${STATE_DIR}/${sub}" -mindepth 1 -exec rm -rf -- {} + 2>/dev/null || true
+            fi
+        done
+        rm -f -- "${STATE_DIR}/settings.conf" "${STATE_DIR}/operation.lock" 2>/dev/null || true
+    fi
+fi
+
+%postun
+if [ "${1:-0}" -eq 0 ]; then
+    if [ -d "%{_sharedstatedir}/zimbra-backup" ] && [ ! -L "%{_sharedstatedir}/zimbra-backup" ]; then
+        rm -rf -- "%{_sharedstatedir}/zimbra-backup"
+    fi
+    for ext in rpmsave rpmnew; do
+        f="%{_sysconfdir}/logrotate.d/zimbra-backup.${ext}"
+        if [ -f "$f" ] && [ ! -L "$f" ]; then
+            rm -f -- "$f"
+        fi
+    done
+    echo "[zimbra-backup] Uninstalled cleanly: removed managed cron entries and %{_sharedstatedir}/zimbra-backup."
+    echo "[zimbra-backup] Zimbra mail services (/opt/zimbra) and backup data archives were NOT touched."
+fi
+
 %files
 %doc README.md
 %{_bindir}/zimbra-backup

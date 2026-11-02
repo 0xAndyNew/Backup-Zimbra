@@ -28,6 +28,8 @@ depends:
 
 scripts:
   preinstall: ./packaging/preinstall.sh
+  preremove: ./packaging/preremove.sh
+  postremove: ./packaging/postremove.sh
 
 contents:
   - src: ./bin/zimbra-backup

@@ -62,6 +62,14 @@ Trên CentOS/RHEL 7:
 yum install -y ./zimbra-backup-0.2.0-1.noarch.rpm
 ```
 
+Gỡ cài đặt sạch hoàn toàn chỉ với 1 lệnh (tự động dọn khối cron `zimbra-backup` và `/var/lib/zimbra-backup`, **không chạm tới dịch vụ Zimbra `/opt/zimbra` hay dữ liệu các bản backup đã lưu**):
+
+```bash
+dnf remove -y zimbra-backup
+```
+
+*(hoặc `rpm -e zimbra-backup` trên CentOS/RHEL 7, 8, 9).*
+
 Sau khi cài đặt, mở giao diện Menu tương tác (bằng quyền `root` hoặc `su - zimbra`):
 
 ```bash
