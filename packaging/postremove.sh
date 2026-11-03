@@ -12,7 +12,7 @@ set -eu
 
 action="${1:-0}"
 case "$action" in
-    0) ;;
+    0|remove|purge) ;;
     *) exit 0 ;;
 esac
 

@@ -40,56 +40,85 @@ Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collabo
 
 ---
 
-## Cài đặt / Nâng cấp gói RPM trên máy chủ Zimbra
+## Cài đặt / Nâng cấp trên máy chủ Zimbra
 
-- **Gói đóng gói sẵn mới nhất**: [zimbra-backup-0.3.1-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm) (mục [GitHub Releases](https://github.com/0xAndyNew/Backup-Zimbra/releases))
-- **SHA-256 Checksum**: `47a2814ac0b5c3b068d95e041282939a5ce681701ded188284d9937b2cd2fe29`
+Hỗ trợ đầy đủ **Ubuntu 18.04, 20.04, 22.04 LTS** (gói `.deb`) và **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** (gói `.rpm`).
 
-Yêu cầu máy chủ đã cài sẵn Zimbra (`user zimbra` tồn tại dưới `/opt/zimbra`).
+- **Gói cài đặt sẵn mới nhất**: mục [GitHub Releases](https://github.com/0xAndyNew/Backup-Zimbra/releases) (bản `v0.3.1`)
+  - Ubuntu / Debian: [zimbra-backup_0.3.1-1_all.deb](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup_0.3.1-1_all.deb) (SHA-256: `b68c6dc4c1debe8690bb54725074487c8be81aae9e360321da825d10a1b6138a`)
+  - RHEL / CentOS / Rocky / AlmaLinux: [zimbra-backup-0.3.1-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm) (SHA-256: `47a2814ac0b5c3b068d95e041282939a5ce681701ded188284d9937b2cd2fe29`)
 
-### 1. Tải gói RPM từ mục Releases
+Yêu cầu máy chủ đã cài sẵn Zimbra Collaboration (`user zimbra` tồn tại dưới `/opt/zimbra`).
+
+---
+
+### Cách 1: Trên Ubuntu 18.04 / 20.04 / 22.04 LTS
+
+**Tải gói `.deb`:**
+
+```bash
+curl -fSL -o zimbra-backup_0.3.1-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup_0.3.1-1_all.deb
+```
+
+**Cài đặt hoặc nâng cấp bằng `apt` (khuyến nghị, tự động nạp đủ gói phụ thuộc):**
+
+```bash
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.1-1_all.deb
+```
+
+*(Hoặc cài trực tiếp bằng `dpkg`: `sudo dpkg -i ./zimbra-backup_0.3.1-1_all.deb && sudo apt-get install -f -y`)*
+
+**Gỡ cài đặt sạch hoàn toàn trên Ubuntu:**
+
+```bash
+sudo apt remove -y zimbra-backup
+```
+
+*(hoặc `sudo dpkg -r zimbra-backup`). Quá trình gỡ cài đặt tự động dọn sạch khối cron `zimbra-backup` và `/var/lib/zimbra-backup`, **cam kết không chạm tới dịch vụ Zimbra `/opt/zimbra` hay dữ liệu backup**.*
+
+---
+
+### Cách 2: Trên Rocky Linux / AlmaLinux / RHEL / CentOS 7, 8, 9
+
+**Tải gói `.rpm`:**
 
 ```bash
 curl -fSL -o zimbra-backup-0.3.1-1.noarch.rpm \
   https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm
 ```
 
-### 2. Cài đặt / Nâng cấp
-
-Trên **Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9** (cài mới hoặc cài thẳng từ URL):
+**Cài đặt trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:**
 
 ```bash
 dnf install -y ./zimbra-backup-0.3.1-1.noarch.rpm
 ```
 
-*(Có thể cài trực tiếp không cần tải trước:*
-`dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm`*)*
-
-Nếu máy đã cài bản cũ (`0.1.0`, `0.2.0`...), nâng cấp thẳng lên bản mới (giữ nguyên toàn bộ Job và lịch Cron hiện có):
+**Nâng cấp bản mới trên RHEL/CentOS 8, 9:**
 
 ```bash
 dnf upgrade -y ./zimbra-backup-0.3.1-1.noarch.rpm
 ```
 
-Hoặc nâng cấp bằng `rpm` trên mọi phiên bản CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9:
+**Hoặc dùng lệnh `rpm` chuẩn (mọi bản RHEL/CentOS 7, 8, 9):**
 
 ```bash
 rpm -Uvh ./zimbra-backup-0.3.1-1.noarch.rpm
 ```
 
-Trên CentOS/RHEL 7 (cài mới):
+**Trên CentOS / RHEL 7 (cài mới):**
 
 ```bash
 yum install -y ./zimbra-backup-0.3.1-1.noarch.rpm
 ```
 
-Gỡ cài đặt sạch hoàn toàn chỉ với 1 lệnh (tự động dọn khối cron `zimbra-backup` và `/var/lib/zimbra-backup`, **không chạm tới dịch vụ Zimbra `/opt/zimbra` hay dữ liệu các bản backup đã lưu**):
+**Gỡ cài đặt trên CentOS / RHEL:**
 
 ```bash
 dnf remove -y zimbra-backup
 ```
 
-*(hoặc `rpm -e zimbra-backup` trên CentOS/RHEL 7, 8, 9).*
+*(hoặc `rpm -e zimbra-backup` trên CentOS/RHEL 7).*
 
 Sau khi cài đặt, mở giao diện Menu tương tác (bằng quyền `root` hoặc `su - zimbra`):
 
