@@ -21,7 +21,27 @@ ZB_ACCOUNT_ATTR_KEYS=(
     zimbraAccountStatus
     zimbraPrefFromDisplay
     zimbraPrefMailForwardingAddress
+    zimbraMailForwardingAddress
+    zimbraPrefMailLocalDeliveryDisabled
+    zimbraPrefReplyToAddress
+    zimbraPrefTimeZoneId
     zimbraNotes
+    zimbraIsAdminAccount
+    zimbraIsDelegatedAdminAccount
+    zimbraHideInGal
+    zimbraPasswordMustChange
+    zimbraPasswordLocked
+    telephoneNumber
+    mobile
+    street
+    postalCode
+    l
+    st
+    co
+    zimbraPrefOutOfOfficeReplyEnabled
+    zimbraPrefOutOfOfficeReply
+    zimbraPrefOutOfOfficeFromDate
+    zimbraPrefOutOfOfficeUntilDate
 )
 
 zb_require_zimbra_cli() {
@@ -211,7 +231,7 @@ zb_extract_account_artifacts() {
             zimbraMailOutgoingSieveScript)
                 zb_decode_field_to_stdout "$mode" "$payload" > "$out_root/filters/$email.out.sieve"
                 ;;
-            displayName|givenName|sn|initials|company|title|description|zimbraMailQuota|zimbraAccountStatus|zimbraPrefFromDisplay|zimbraPrefMailForwardingAddress|zimbraNotes)
+            displayName|givenName|sn|initials|company|title|description|zimbraMailQuota|zimbraAccountStatus|zimbraPrefFromDisplay|zimbraPrefMailForwardingAddress|zimbraMailForwardingAddress|zimbraPrefMailLocalDeliveryDisabled|zimbraPrefReplyToAddress|zimbraPrefTimeZoneId|zimbraNotes|zimbraIsAdminAccount|zimbraIsDelegatedAdminAccount|zimbraHideInGal|zimbraPasswordMustChange|zimbraPasswordLocked|telephoneNumber|mobile|street|postalCode|l|st|co|zimbraPrefOutOfOfficeReplyEnabled|zimbraPrefOutOfOfficeReply|zimbraPrefOutOfOfficeFromDate|zimbraPrefOutOfOfficeUntilDate)
                 b64_line="$(zb_decode_field_to_stdout "$mode" "$payload" | zb_encode_b64_single_line)"
                 if [[ -n "$b64_line" ]]; then
                     printf '%s\t%s\n' "$attr" "$b64_line" >> "$out_root/attributes/$email.attrs"

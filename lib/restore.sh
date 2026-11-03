@@ -571,6 +571,7 @@ zb_restore_ldap_metadata() {
     local scope_kind="$2"
     local acc_list_file="$3"
     local target_user_override="${4:-}"
+    local deferred_status_file="${5:-}"
 
     local legacy_ext_dir=""
     legacy_ext_dir="$(mktemp -d "$ZB_RUN_DIR/.legacy_ext.XXXXXX")" || return 1
@@ -643,10 +644,28 @@ zb_restore_ldap_metadata() {
             while IFS=$'\t' read -r attr val_b64 <&4; do
                 [[ -n "$attr" && -n "$val_b64" ]] || continue
                 val_decoded="$(printf '%s' "$val_b64" | base64 -d 2>/dev/null || printf '%s' "$val_b64" | base64 --decode 2>/dev/null || true)"
-                ma_args+=("$attr" "$val_decoded")
+                if [[ "$attr" == "zimbraAccountStatus" && "$val_decoded" == "closed" ]]; then
+                    # Defer setting 'closed' status until after mailbox import, because Zimbra
+                    # MailboxServlet rejects REST /service/home/ imports on closed accounts (account.ACCOUNT_INACTIVE).
+                    # Temporarily set to 'maintenance' so users cannot log in during restore.
+                    ma_args+=("zimbraAccountStatus" "maintenance")
+                    if [[ -n "$deferred_status_file" ]]; then
+                        printf '%s\t%s\n' "$dest_email" "closed" >> "$deferred_status_file"
+                    fi
+                else
+                    ma_args+=("$attr" "$val_decoded")
+                fi
             done 4< "$attrs_file"
             if (( ${#ma_args[@]} > 0 )); then
-                zmprov ma "$dest_email" "${ma_args[@]}" </dev/null >/dev/null 2>&1 || zb_warn "Warning applying attributes for $dest_email"
+                if ! zmprov ma "$dest_email" "${ma_args[@]}" </dev/null >/dev/null 2>&1; then
+                    local a_idx=0 a_key a_val
+                    while (( a_idx < ${#ma_args[@]} )); do
+                        a_key="${ma_args[$a_idx]}"
+                        a_val="${ma_args[$((a_idx + 1))]}"
+                        zmprov ma "$dest_email" "$a_key" "$a_val" </dev/null >/dev/null 2>&1 || true
+                        a_idx=$((a_idx + 2))
+                    done
+                fi
             fi
         fi
 
@@ -849,16 +868,23 @@ zb_restore_ldap_metadata() {
         fi
     done 3< "$acc_list_file"
 
-    if [[ "$scope_kind" == "all" && -s "$snap_dir/admins/admins.txt" ]]; then
+    if [[ -s "$snap_dir/admins/admins.txt" ]]; then
         zb_log "[LDAP 7/7] Restoring global administrator privileges..."
-        local adm
+        local adm restored_any_adm=0
         while IFS= read -r adm <&3; do
             adm="$(zb_trim "$adm")"
             [[ -n "$adm" ]] || continue
-            zmprov ma "$adm" zimbraIsAdminAccount TRUE </dev/null >/dev/null 2>&1 || true
+            if [[ "$scope_kind" == "all" ]] || grep -Fxq -- "$adm" "$acc_list_file" 2>/dev/null; then
+                zb_log "  + Restoring admin rights: $adm"
+                zmprov ma "$adm" zimbraIsAdminAccount TRUE </dev/null >/dev/null 2>&1 || true
+                restored_any_adm=1
+            fi
         done 3< "$snap_dir/admins/admins.txt"
+        if (( restored_any_adm == 0 )) && [[ "$scope_kind" != "all" ]]; then
+            zb_log "[LDAP 7/7] No admin accounts in selected restore scope."
+        fi
     else
-        zb_log "[LDAP 7/7] Skipping global admin role changes (non-full-server scope)."
+        zb_log "[LDAP 7/7] Skipping global admin role changes (no admin records in backup)."
     fi
 
     rm -f -- "$req_doms"
@@ -1012,9 +1038,12 @@ zb_run_restore() (
 
     zb_init_restore_ldap_cache || true
 
+    local deferred_status_file="$ZB_RUN_DIR/.deferred_status.$$.txt"
+    : > "$deferred_status_file"
+
     # Restore LDAP metadata from the target point-in-time snapshot (latest state in chain)
     if [[ "$only_part" == "all" || "$only_part" == "ldap" ]]; then
-        zb_restore_ldap_metadata "$target_snap" "$scope_kind" "$acc_list" "$target_user" || return 1
+        zb_restore_ldap_metadata "$target_snap" "$scope_kind" "$acc_list" "$target_user" "$deferred_status_file" || return 1
     fi
 
     local fail_mbox=0
@@ -1059,14 +1088,42 @@ zb_run_restore() (
                     fi
                 fi
 
+                # If only restoring mailbox (skipping LDAP) and destination account is currently closed,
+                # temporarily switch to maintenance so REST/zmmailbox can import without ACCOUNT_INACTIVE error.
+                local dest_reclose=0
+                if [[ "$only_part" == "mailbox" ]]; then
+                    local cur_st=""
+                    cur_st="$(zmprov -l ga "$dest_u" zimbraAccountStatus 2>/dev/null | awk '/^zimbraAccountStatus:/{print $2}' || true)"
+                    if [[ "$cur_st" == "closed" ]]; then
+                        zmprov ma "$dest_u" zimbraAccountStatus maintenance </dev/null >/dev/null 2>&1 || true
+                        dest_reclose=1
+                    fi
+                fi
+
                 zb_log "  ($u_idx/$acc_count) Importing ${tgz##*/} -> $dest_u ..."
                 if ! zb_import_mailbox_archive "$dest_u" "$tgz" "$step_mode" "$subfolder_name"; then
                     zb_warn "Failed importing mailbox $src_u (step $step_num)."
                     fail_mbox=$((fail_mbox + 1))
                 fi
+
+                if (( dest_reclose == 1 )); then
+                    zmprov ma "$dest_u" zimbraAccountStatus closed </dev/null >/dev/null 2>&1 || true
+                fi
             done 3< "$acc_list"
         done
     fi
+
+    # Apply final deferred account statuses (e.g. accounts backed up as closed)
+    if [[ -s "$deferred_status_file" ]]; then
+        zb_log "Restoring final deferred account statuses (closed)..."
+        local fs_email fs_val
+        while IFS=$'\t' read -r fs_email fs_val <&3; do
+            [[ -n "$fs_email" && -n "$fs_val" ]] || continue
+            zb_log "  + Setting account status: $fs_email -> $fs_val"
+            zmprov ma "$fs_email" zimbraAccountStatus "$fs_val" </dev/null >/dev/null 2>&1 || true
+        done 3< "$deferred_status_file"
+    fi
+    rm -f -- "$deferred_status_file"
 
     local elapsed=$(( $(date +%s) - start_ts ))
     if (( fail_mbox > 0 )); then

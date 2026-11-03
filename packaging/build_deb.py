@@ -15,7 +15,7 @@ import struct
 import tarfile
 import time
 
-VERSION = "0.3.3-1"
+VERSION = "0.3.4-1"
 PKG_NAME = "zimbra-backup"
 DEB_FILENAME = f"{PKG_NAME}_{VERSION}_all.deb"
 BUILD_TIME = 1730635200  # 2026-11-03 12:00:00 UTC (reproducible build)

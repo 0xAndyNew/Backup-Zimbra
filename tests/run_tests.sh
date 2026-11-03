@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.3
+# End-to-end automated test suite for zimbra-backup v0.3.4
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -257,11 +257,17 @@ displayName:: Tmd1eeG7hW4g
 zimbraAccountStatus: active
 zimbraMailQuota: 2147483648
 zimbraMailAlias: alias_${email}
+zimbraMailForwardingAddress: fwd_${email}
+zimbraHideInGal: TRUE
+zimbraPrefOutOfOfficeReplyEnabled: TRUE
 zimbraMailSieveScript: require ["fileinto"];
  if header :contains "Subject" "[SPAM]" {
    fileinto "Junk";
  }
 LDIF
+        if [[ "$email" == "admin@example.com" ]]; then
+            printf 'zimbraIsAdminAccount: TRUE\n'
+        fi
         ;;
     gsig)
         email="${1:-}"
@@ -388,7 +394,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.3" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.3"
+assert_contains "$ver_out" "zimbra-backup 0.3.4" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.4"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -883,6 +889,95 @@ exist_dl_log="$(cat "$MOCK_LOG")"
 assert_not_contains "$exist_dl_log" "ZMPROV cdl all@example.com" "Bỏ qua zmprov cdl khi Distribution List đã tồn tại sẵn trên server đích"
 assert_contains "$exist_dl_log" "ZMPROV mdl all@example.com" "Vẫn cập nhật đầy đủ thuộc tính zmprov mdl khi DL đã tồn tại"
 assert_contains "$exist_dl_log" "ZMPROV adlm all@example.com" "Vẫn cập nhật thành viên zmprov adlm khi DL đã tồn tại"
+
+printf '\n=== 12. Kiểm tra bảo toàn quyền Administrator & Thuộc tính mở rộng v0.3.4 ===\n'
+
+# 12a. Verify extended attributes in backup snapshot
+assert_file_exists "$latest_full/admins/admins.txt" "Tạo file danh sách Administrator (admins/admins.txt)"
+assert_contains "$(cat "$latest_full/admins/admins.txt")" "admin@example.com" "admins/admins.txt ghi nhận đúng admin@example.com"
+
+user1_attrs="$latest_full/attributes/user1@example.com.attrs"
+assert_file_exists "$user1_attrs" "Tạo file thuộc tính user1@example.com.attrs"
+
+decoded_fwd="$(awk -F'\t' '$1 == "zimbraMailForwardingAddress" { print $2 }' "$user1_attrs" | base64 -d 2>/dev/null || true)"
+assert_contains "$decoded_fwd" "fwd_user1@example.com" "Trích xuất và giải mã đúng thuộc tính zimbraMailForwardingAddress"
+
+decoded_gal="$(awk -F'\t' '$1 == "zimbraHideInGal" { print $2 }' "$user1_attrs" | base64 -d 2>/dev/null || true)"
+assert_contains "$decoded_gal" "TRUE" "Trích xuất và giải mã đúng thuộc tính zimbraHideInGal"
+
+decoded_ooo="$(awk -F'\t' '$1 == "zimbraPrefOutOfOfficeReplyEnabled" { print $2 }' "$user1_attrs" | base64 -d 2>/dev/null || true)"
+assert_contains "$decoded_ooo" "TRUE" "Trích xuất và giải mã đúng thuộc tính zimbraPrefOutOfOfficeReplyEnabled"
+
+# 12b. Single-user restore for Administrator preserves zimbraIsAdminAccount TRUE
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "admin@example.com" --yes >/dev/null
+admin_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$admin_rest_log" "ZMPROV ma admin@example.com zimbraIsAdminAccount TRUE" \
+    "Khôi phục tài khoản lẻ (Specific users): Tự động khôi phục quyền Administrator (zimbraIsAdminAccount TRUE) khi user là admin"
+
+# 12c. Single-user restore for regular non-admin user does NOT grant admin privileges
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "user1@example.com" --yes >/dev/null
+user1_rest_log="$(cat "$MOCK_LOG")"
+assert_not_contains "$user1_rest_log" "ZMPROV ma user1@example.com zimbraIsAdminAccount TRUE" \
+    "Khôi phục tài khoản lẻ: Không cấp quyền admin nhầm cho người dùng thông thường (user1@example.com)"
+assert_not_contains "$user1_rest_log" "ZMPROV ma admin@example.com" \
+    "Khôi phục tài khoản lẻ: Không tác động ngoài phạm vi tài khoản được chỉ định"
+assert_contains "$user1_rest_log" "ZMPROV ma user1@example.com zimbraMailSieveScript" \
+    "Khôi phục tài khoản lẻ: Khôi phục đầy đủ bộ lọc Sieve script"
+
+# 12d. Domain restore preserves admin privileges for admin accounts in that domain
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --domain "example.com" --yes >/dev/null
+dom_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$dom_rest_log" "ZMPROV ma admin@example.com zimbraIsAdminAccount TRUE" \
+    "Khôi phục theo domain: Khôi phục quyền admin cho tài khoản admin thuộc domain"
+
+printf '\n=== 13. Kiểm tra bảo toàn trạng thái tài khoản (locked, closed) & Deferred Status ===\n'
+
+# 13a. Mock account with locked status restores directly to locked
+cat > "$latest_full/attributes/locked@example.com.attrs" <<'EOF'
+displayName	TG9ja2VkIFVzZXI=
+zimbraAccountStatus	bG9ja2Vk
+EOF
+cp "$MOCK_DATA/normal_mail.tgz" "$latest_full/mailboxes/locked@example.com.tgz"
+printf 'locked@example.com\n' >> "$latest_full/accounts/active_accounts.txt"
+(
+    cd "$latest_full"
+    sed -i '/^# --- sha256 ---$/q' manifest
+    find domains admins dl accounts passwords attributes aliases signatures filters mailboxes \
+        -type f -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum >> manifest
+)
+
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "locked@example.com" --yes >/dev/null
+locked_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$locked_rest_log" "ZMPROV ma locked@example.com" "Khôi phục tài khoản locked: Gọi zmprov ma cho locked@example.com"
+assert_contains "$locked_rest_log" "zimbraAccountStatus locked" "Khôi phục tài khoản locked: Giữ nguyên trạng thái locked"
+
+# 13b. Mock account with closed status uses deferred restoration (maintenance during import -> closed at end)
+cat > "$latest_full/attributes/closed@example.com.attrs" <<'EOF'
+displayName	Q2xvc2VkIFVzZXI=
+zimbraAccountStatus	Y2xvc2Vk
+EOF
+cp "$MOCK_DATA/normal_mail.tgz" "$latest_full/mailboxes/closed@example.com.tgz"
+printf 'closed@example.com\n' >> "$latest_full/accounts/active_accounts.txt"
+(
+    cd "$latest_full"
+    sed -i '/^# --- sha256 ---$/q' manifest
+    find domains admins dl accounts passwords attributes aliases signatures filters mailboxes \
+        -type f -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum >> manifest
+)
+
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "closed@example.com" --yes >/dev/null
+closed_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$closed_rest_log" "zimbraAccountStatus maintenance" \
+    "Deferred status: Tạm thời đặt trạng thái maintenance trong khi import hộp thư"
+assert_contains "$closed_rest_log" "zimbraAccountStatus closed" \
+    "Deferred status: Tự động áp đặt lại trạng thái closed sau khi hoàn tất import"
+assert_contains "$closed_rest_log" "service/home/closed@example.com" \
+    "Deferred status: Hộp thư được import thành công qua REST mà không bị chặn"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

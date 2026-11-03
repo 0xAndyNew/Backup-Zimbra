@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.3
+Version:        0.3.4
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,13 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.4-1
+- Automatically preserve and restore administrator privileges (zimbraIsAdminAccount) across all restore scopes
+- Track and restore extended user attributes: forwarding, auto-reply, hideInGal, password flags, contact details
+- Resilient per-attribute fallback on restore if bulk zmprov ma encounters unsupported attributes
+- Deferred account status restoration for closed accounts to bypass REST ACCOUNT_INACTIVE errors while preserving locked and closed states
+- Bump package version to v0.3.4
+
 * Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.3-1
 - Eliminate blocking first-run setup wizard; initialize defaults silently in background
 - Move 'Require dedicated mounted disk/NFS' option into Job Storage Directory wizard
