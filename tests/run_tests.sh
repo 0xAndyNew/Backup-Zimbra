@@ -653,6 +653,7 @@ TUI_CUSTOM_STORE="$TEST_TMP/tui_custom_store"
 backup-1
 1
 ${TUI_CUSTOM_STORE}/
+n
 y
 2
 6
@@ -665,12 +666,31 @@ EOF
 assert_file_exists "$STATE_DIR/jobs/backup-1.conf" "TUI Wizard 5 bước tạo thành công file cấu hình backup-1.conf"
 assert_contains "$(cat "$STATE_DIR/jobs/backup-1.conf")" "TARGET_DIR=$TUI_CUSTOM_STORE" \
     "TUI Wizard Bước 3 lưu đúng đường dẫn nơi lưu trữ TARGET_DIR (tự chuẩn hóa dấu '/' cuối)"
+assert_contains "$(cat "$STATE_DIR/jobs/backup-1.conf")" "JOB_REQUIRE_MOUNT=no" \
+    "TUI Wizard Bước 3 lưu đúng cấu hình mount riêng JOB_REQUIRE_MOUNT=no"
 [[ -d "$TUI_CUSTOM_STORE" ]] && pass "TUI Wizard tự động tạo thư mục lưu trữ mới khi chưa tồn tại" \
     || fail "TUI Wizard chưa tạo thư mục $TUI_CUSTOM_STORE"
 "$ZB_CMD" job run backup-1 >/dev/null
 tui_snap="$(find "$TUI_CUSTOM_STORE/full/backup-1" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | head -n 1)"
 [[ -n "$tui_snap" ]] && pass "Job tạo từ TUI Wizard chạy lưu đúng vào $TUI_CUSTOM_STORE/full/backup-1/backup-full-*" \
     || fail "Không tìm thấy bản backup trong $TUI_CUSTOM_STORE/full/backup-1"
+
+# Test that running TUI with uninitialized state creates settings.conf and goes straight to Main Menu
+TUI_TEST_STATE="$TEST_TMP/tui_test_state"
+mkdir -p "$TUI_TEST_STATE"
+(
+    export ZB_STATE_DIR="$TUI_TEST_STATE"
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/notify.sh"
+    . "$REPO_ROOT/lib/zimbra_api.sh"
+    . "$REPO_ROOT/lib/jobs.sh"
+    . "$REPO_ROOT/lib/backup.sh"
+    . "$REPO_ROOT/lib/restore.sh"
+    . "$REPO_ROOT/lib/tui.sh"
+    zb_tui_main <<< "0" >/dev/null
+)
+assert_file_exists "$TUI_TEST_STATE/settings.conf" "TUI mở lần đầu tự động khởi tạo settings.conf và vào thẳng Main Menu"
 
 printf '\n=== 9. Kiểm tra gỡ cài đặt sạch tự động (preremove / postremove) & An toàn tuyệt đối cho Zimbra ===\n'
 MOCK_LOGROTATE_DIR="$TEST_TMP/logrotate.d"

@@ -7,7 +7,7 @@ Tài liệu này hướng dẫn **đầy đủ từng bước, từng màn hình
 ## MỤC LỤC
 
 1. [Tổng quan dữ liệu sao lưu & Cấu trúc thư mục](#1-tổng-quan-dữ-liệu-sao-lưu--cấu-trúc-thư-mục)
-2. [Cài đặt, Nâng cấp & Thiết lập lần đầu (Quick Initial Setup)](#2-cài-đặt-nâng-cấp--thiết-lập-lần-đầu-quick-initial-setup)
+2. [Cài đặt, Nâng cấp & Khởi động sử dụng](#2-cài-đặt-nâng-cấp--khởi-động-sử-dụng)
 3. [Hướng dẫn chi tiết Giao diện Menu TUI (`zimbra-backup`)](#3-hướng-dẫn-chi-tiết-giao-diện-menu-tui-zimbra-backup)
    - [Menu 1: Jobs & Crontab Schedule (Quản lý Job & Lịch tự động)](#31-menu-1--jobs--crontab-schedule-quản-lý-job--lịch-tự-động)
    - [Menu 2: Run Backup Now (Chạy sao lưu thủ công ngay lập tức)](#32-menu-2--run-backup-now-chạy-sao-lưu-thủ-công-ngay-lập-tức)
@@ -92,7 +92,7 @@ Khi cài gói RPM, hệ thống phân tách rõ **thư mục cấu hình/trạng
 
 ---
 
-## 2. Cài đặt, Nâng cấp & Thiết lập lần đầu (Quick Initial Setup)
+## 2. Cài đặt, Nâng cấp & Khởi động sử dụng
 
 ### Bước 1: Chuẩn bị thư mục lưu trữ và phân quyền cho `zimbra`
 
@@ -123,7 +123,7 @@ Tải bản phát hành mới nhất từ [GitHub Releases](https://github.com/0
    curl -fSL -o zimbra-backup_0.3.2-1_all.deb \
      https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup_0.3.2-1_all.deb
    ```
-   *(Kiểm tra SHA-256 tùy chọn: `echo "18bd4dedf63b76f437b0f81c551eec99e67d34cd87cf96df150475d153b47f03  zimbra-backup_0.3.2-1_all.deb" | sha256sum -c`).*
+   *(Kiểm tra SHA-256 tùy chọn: `echo "310899b5680fcc1444530786cec102a4927078bd86ef3467b3bfcf51e01a4b5c  zimbra-backup_0.3.2-1_all.deb" | sha256sum -c`).*
 
 2. **Cài đặt hoặc nâng cấp qua `apt` (khuyến nghị, tự động cài các gói phụ thuộc `cron`, `curl`, `gawk`...):**
    ```bash
@@ -151,7 +151,7 @@ Tải bản phát hành mới nhất từ [GitHub Releases](https://github.com/0
    curl -fSL -o zimbra-backup-0.3.2-1.noarch.rpm \
      https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm
    ```
-   *(Kiểm tra SHA-256 tùy chọn: `echo "142e51e9423258890ed010bf293fb6060191c25d4e7f5825bf1b59bbb7b8f17d  zimbra-backup-0.3.2-1.noarch.rpm" | sha256sum -c`).*
+   *(Kiểm tra SHA-256 tùy chọn: `echo "02d3e2058177b4271fd885d632f21431114290dd29450d14a19d04ab8494912c  zimbra-backup-0.3.2-1.noarch.rpm" | sha256sum -c`).*
 
 2. **Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9 (cài mới):**
    ```bash
@@ -193,7 +193,7 @@ zimbra-backup --version
 - **Tuyệt đối không khởi động lại hay tác động bất kỳ dịch vụ nào của Zimbra** (`zmcontrol`, `postfix`, `mailboxd`, `ldap`...), **không chạm vào `/opt/zimbra`**, và **không xóa dữ liệu các bản backup đã sao lưu** trên ổ đĩa (`/home/backup`, `/backup`, NAS...).
 - Khi chạy nâng cấp `rpm -Uvh --force` hoặc `dnf upgrade`, gói tự động nhận biết cờ nâng cấp nên **giữ nguyên toàn bộ Job và lịch Cron hiện có**.
 
-### Bước 3: Chạy Thiết lập lần đầu (`QUICK INITIAL SETUP`)
+### Bước 3: Khởi động sử dụng (`zimbra-backup`)
 
 Đứng ở tài khoản `root` (hoặc `su - zimbra`), gõ lệnh:
 
@@ -201,34 +201,7 @@ zimbra-backup --version
 zimbra-backup
 ```
 
-Trong lần mở đầu tiên (khi chưa có `/var/lib/zimbra-backup/settings.conf`), màn hình **QUICK INITIAL SETUP** tự động xuất hiện:
-
-```text
-============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.2) - mail.corp.vn
-  >> QUICK INITIAL SETUP
-============================================================
-Welcome! Configure your default backup storage in 2 quick steps.
-
-1. Default backup directory [/home/backup]:
-   (Tip: Choose 'yes' for external disk/NFS/SAN, or 'no' for a normal local folder)
-2. Require dedicated mounted disk/NFS? [y/N]:
-   Directory '/home/backup' does not exist. Create it now? [Y/n]:
-Configure advanced settings (disk thresholds / Telegram / Email alerts) now? [y/N]:
-Create your first scheduled backup job now? [Y/n]:
-```
-
-**Giải thích từng câu hỏi:**
-
-1. **`1. Default backup directory [/home/backup]`**:
-   - Bấm **Enter** để dùng mặc định `/home/backup`, hoặc gõ đường dẫn khác (ví dụ `/mnt/backup-nas`).
-2. **`2. Require dedicated mounted disk/NFS?`**:
-   - Chọn **`n` (`no`)** nếu `/home/backup` là thư mục nằm ngay trên ổ đĩa của máy chủ.
-   - Chọn **`y` (`yes`)** nếu đó là ổ cứng gắn ngoài / NFS / SAN / iSCSI mount riêng — khi đó nếu ổ mạng bị rớt mount, công cụ sẽ **dừng ngay và báo động**, tuyệt đối không ghi nhầm làm tràn phân vùng `/` của hệ điều hành!
-3. **`Configure advanced settings ... now? [y/N]`**:
-   - Bấm **Enter (`no`)** để hoàn tất nhanh (có thể cấu hình Telegram/Email sau ở **Menu 6**), hoặc gõ `y` nếu muốn nhập luôn Bot Token Telegram.
-4. **`Create your first scheduled backup job now? [Y/n]`**:
-   - Bấm **Enter (`yes`)** để chuyển thẳng sang màn hình tạo lịch Backup tự động đầu tiên.
+Hệ thống sẽ tự động khởi tạo cấu hình chuẩn ngầm trong nền (thư mục lưu trữ mặc định `/home/backup`, kiểm tra đĩa, logrotate) và đưa bạn **vào thẳng màn hình MAIN MENU** mà không hiển thị màn hình cài đặt chặn người dùng. Mọi thiết lập lưu trữ và tùy chọn mount riêng sẽ được hỏi một cách trực quan, rõ ràng ngay khi bạn tạo Job Backup.
 
 ---
 
@@ -279,12 +252,15 @@ Khi bấm `1` từ Main Menu, bạn sẽ thấy bảng tổng hợp các Job đa
 - **Bước 2 — `2. Select Backup Mode`**:
   - `1) full`: Mỗi lần tới giờ sẽ sao lưu **Full độc lập 100%** ra thư mục `backup-full-DD-MM-YYYY_HHMMSS` (đơn giản nhất, mỗi bản tự chứa đầy đủ mọi thứ, mặc định giữ `7` bản, `2` luồng song song).
   - `2) incremental`: Sao lưu theo **Chuỗi thông minh** (lần đầu tiên chạy `000_backup-full-DD-MM-YYYY_HHMMSS`, các ngày tiếp theo chỉ tải phần thư mới/thay đổi `001_backup-incremental-..` đến `006_backup-incremental-..`, hết chu kỳ tự tạo chuỗi Full mới; mặc định giữ `2` chuỗi hoàn chỉnh ~ 2 tuần, `4` luồng song song — tiết kiệm 70–85% dung lượng ổ cứng và thời gian chạy hằng đêm).
-- **Bước 3 — `3. Backup Storage Directory` (Cấu hình đường dẫn lưu trữ Backup)**:
+- **Bước 3 — `3. Backup Storage Directory` (Cấu hình đường dẫn lưu trữ Backup & Kiểm tra ổ mount riêng/NFS)**:
   - Nhập đường dẫn thư mục gốc nơi lưu bản sao lưu của Job này (mặc định gợi ý theo `DEFAULT_BACKUP_DIR` như `[/home/backup]`, bạn có thể bấm **Enter** để dùng mặc định hoặc nhập đường dẫn riêng như `/backup`, `/mnt/nas-zimbra`...).
   - Công cụ tự động tách nhánh theo loại sao lưu và in ngay đường dẫn đích cụ thể trên màn hình:
     - Job `full` -> `<đường_dẫn>/full/<Job_ID>`
     - Job `incremental` -> `<đường_dẫn>/incremental/<Job_ID>`
   - Nếu thư mục chưa tồn tại, công cụ hỏi tạo luôn tại chỗ (`Create it now? [Y/n]`) và kiểm tra quyền ghi của user `zimbra` (nếu thiếu quyền sẽ hiển thị sẵn lệnh `mkdir -p ... && chown zimbra:zimbra ...` để bạn phân quyền trước khi chạy).
+  - **Tùy chọn kiểm tra ổ mount / NFS riêng cho Job này (`Require dedicated mounted disk/NFS for this job? [y/N]`)**:
+    - Chọn **`n` (`no`)** (mặc định): Thích hợp cho thư mục cục bộ (như `/home/backup`, `/backup` nằm trên ổ đĩa máy chủ).
+    - Chọn **`y` (`yes`)**: Bắt buộc thư mục này phải là một điểm mount riêng (ổ cứng ngoài / NFS / SAN / iSCSI). Nếu ổ đĩa bị mất kết nối hoặc chưa mount, Job sẽ **dừng ngay và phát cảnh báo**, ngăn chặn tuyệt đối rủi ro sao lưu tràn phân vùng root `/`.
 - **Bước 4 — `4. Configure Schedule` (Chọn lịch chạy tự động)**:
   - `1) Daily`: Chạy mỗi ngày vào giờ `HH:MM` (hệ 24h, ví dụ nhập `01:30` hoặc `2` tương đương `02:00`).
   - `2) Weekly`: Chạy theo thứ trong tuần (`0`=Chủ Nhật, `1`=Thứ Hai .. `6`=Thứ Bảy; có thể nhập dãy như `1-5` cho Thứ 2 đến Thứ 6, hoặc `0,3` cho Chủ Nhật & Thứ Tư) + giờ `HH:MM`.
@@ -303,6 +279,7 @@ Khi bấm `1` từ Main Menu, bạn sẽ thấy bảng tổng hợp các Job đa
 > 2. `1. Job ID`: gõ `daily-incr` -> Enter.
 > 3. `2. Select Backup Mode`: gõ `2` (incremental) -> Enter.
 > 4. `3. Backup Storage Directory`: gõ `/backup` -> Enter (hệ thống báo `-> Snapshots for job 'daily-incr' will be saved in: /backup/incremental/daily-incr`).
+>    - `Require dedicated mounted disk/NFS for this job? [y/N]`: bấm Enter (`no` nếu là ổ cục bộ, hoặc `y` nếu là NFS/SAN mount).
 > 5. `4. Configure Schedule`: gõ `1` (Daily) -> tại `Run time HH:MM (24h)` gõ `02:00` -> Enter.
 > 6. `5. Retention Policy`: bấm Enter để giữ mặc định `2` chuỗi hoàn chỉnh (1 Full + 6 Incr mỗi chuỗi).
 > 7. `Customize advanced options?`: bấm Enter (`no`). Hệ thống tự ghi `/var/lib/zimbra-backup/jobs/daily-incr.conf` và nạp vào `crontab -l -u zimbra`.

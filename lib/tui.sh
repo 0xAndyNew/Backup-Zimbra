@@ -334,24 +334,26 @@ zb_tui_prompt_job_storage_dir() {
 
         zb_msg "   -> Snapshots for job '$JOB_ID' will be saved in: $(zb_job_storage_root)"
 
-        local eff_mount="$REQUIRE_MOUNTPOINT"
-        if [[ "${JOB_REQUIRE_MOUNT:-inherit}" == "yes" || "${JOB_REQUIRE_MOUNT:-inherit}" == "no" ]]; then
-            eff_mount="$JOB_REQUIRE_MOUNT"
+        local mount_def="no"
+        if zb_has_mounted_base "$dir_in"; then
+            mount_def="yes"
+        fi
+        if [[ "${JOB_REQUIRE_MOUNT:-}" == "yes" ]]; then
+            mount_def="yes"
+        elif [[ "${JOB_REQUIRE_MOUNT:-}" == "no" ]]; then
+            mount_def="no"
         fi
 
-        if [[ "$eff_mount" == "yes" ]] && ! zb_has_mounted_base "$dir_in"; then
-            local allow_local
-            allow_local="$(zb_tui_prompt_yesno "   '$dir_in' is not a mounted disk/NFS. Allow local folder for this job?" "yes")"
-            if [[ "$allow_local" == "yes" ]]; then
-                JOB_REQUIRE_MOUNT="no"
-                eff_mount="no"
-            else
-                JOB_REQUIRE_MOUNT="yes"
-                zb_warn "Note: Mount '$dir_in' before running job '$JOB_ID'."
-            fi
+        zb_msg "   (Tip: Choose 'yes' for external disk/NFS/SAN, or 'no' for a normal local folder)"
+        local req_ans
+        req_ans="$(zb_tui_prompt_yesno "   Require dedicated mounted disk/NFS for this job?" "$mount_def")"
+        JOB_REQUIRE_MOUNT="$req_ans"
+
+        if [[ "$JOB_REQUIRE_MOUNT" == "yes" ]] && ! zb_has_mounted_base "$dir_in"; then
+            zb_warn "Note: '$dir_in' is not currently mounted. Mount your disk before running job '$JOB_ID'."
         fi
 
-        if [[ ! -d "$dir_in" && "$eff_mount" == "no" ]]; then
+        if [[ ! -d "$dir_in" && "$JOB_REQUIRE_MOUNT" == "no" ]]; then
             local mk
             mk="$(zb_tui_prompt_yesno "   Directory '$dir_in' does not exist. Create it now?" "yes")"
             if [[ "$mk" == "yes" ]]; then
@@ -379,7 +381,8 @@ zb_tui_job_edit_loop() {
         zb_tui_header "${mode_label} JOB: $JOB_ID"
         local keep_unit="Full snapshots"
         [[ "$BACKUP_TYPE" == "incremental" ]] && keep_unit="complete chains"
-        local tgt_disp="${TARGET_DIR:-$DEFAULT_BACKUP_DIR (default)} -> $(zb_job_storage_root)"
+        local eff_mount="${JOB_REQUIRE_MOUNT:-inherit}"
+        local tgt_disp="${TARGET_DIR:-$DEFAULT_BACKUP_DIR (default)} [mount: $eff_mount] -> $(zb_job_storage_root)"
 
         zb_msg "  1) Backup Mode        : $BACKUP_TYPE"
         zb_msg "  2) Schedule (Cron)    : $(zb_job_schedule_human)"
@@ -1275,7 +1278,8 @@ zb_tui_logs_menu() {
 zb_tui_main() {
     zb_ensure_state_dirs || return 1
     if ! zb_is_initialized; then
-        zb_tui_first_run_wizard
+        zb_reset_settings_defaults
+        zb_save_settings 2>/dev/null || true
     fi
 
     while true; do
@@ -1284,6 +1288,9 @@ zb_tui_main() {
         job_cnt="$(zb_job_list_ids | wc -l | awk '{print $1}')"
         zb_tui_header "MAIN MENU"
         zb_msg "  Job Storage : $DEFAULT_BACKUP_DIR (mount: $REQUIRE_MOUNTPOINT) | Jobs: $job_cnt | Custom Restore: ${CUSTOM_RESTORE_DIR:-(not set)}"
+        if (( job_cnt == 0 )); then
+            zb_msg "  (Notice: No backup jobs configured yet. Select 1 to create your first job)"
+        fi
         zb_msg "------------------------------------------------------------"
         zb_msg "  1) Jobs & Crontab Schedule   (Create, Edit, Enable/Disable, Delete)"
         zb_msg "  2) Run Backup Now            (Run Job, Force Full, Single Account)"

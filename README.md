@@ -9,8 +9,8 @@ Công cụ đóng gói `.rpm` và `.deb` hợp nhất dành cho máy chủ **Zim
 ## Tính năng chính
 
 1. **Menu TUI tiếng Anh tinh gọn, hiển thị chuẩn trên mọi Terminal**:
-   - **Thiết lập lần đầu chỉ 2 câu hỏi cốt lõi**: Thư mục lưu backup mặc định + Chế độ kiểm tra điểm mount riêng (tự động nhận diện thư mục đang mount hay ổ cục bộ và hỗ trợ tạo thư mục `0700` ngay tại chỗ); các cấu hình nâng cao (ngưỡng đĩa, Telegram, Email) được gom vào tùy chọn mở rộng không bắt buộc.
-   - **Tạo Job nhanh 5 bước đầy đủ**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Đường dẫn thư mục lưu trữ Backup` -> `Lịch chạy (nhập gộp Giờ:Phút dạng HH:MM)` -> `Số bản lưu giữ (mặc định 7 bản Full hoặc 2 chuỗi Incremental ~ 2 tuần)`.
+   - **Vào thẳng Main Menu ngay lần chạy đầu tiên**: Tự động khởi tạo cấu hình chuẩn trong nền với thư mục lưu trữ mặc định `/home/backup`, không hiển thị màn hình cài đặt chặn người dùng.
+   - **Tạo Job nhanh 5 bước đầy đủ**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Đường dẫn thư mục lưu trữ & Kiểm tra ổ mount riêng/NFS` -> `Lịch chạy (nhập gộp Giờ:Phút dạng HH:MM)` -> `Số bản lưu giữ (mặc định 7 bản Full hoặc 2 chuỗi Incremental ~ 2 tuần)`.
    - **Chỉnh sửa Job 1 chạm**: Menu đánh số `1..10` hiển thị trực tiếp giá trị hiện tại của từng trường — cần đổi giờ chạy, số bản lưu hay thư mục chỉ cần bấm đúng số thứ tự mục đó rồi bấm `s` để lưu.
    - Toàn bộ giao diện, CLI và log dùng bảng mã **7-bit ASCII thuần**, loại bỏ triệt để hiện tượng ô vuông `□` trên console VMware/Proxmox/PuTTY hoặc môi trường `LANG=C` của `cron`.
 2. **Quản lý Đa Job & Đồng bộ Crontab tự động theo quyền `zimbra`**:
@@ -45,8 +45,8 @@ Công cụ đóng gói `.rpm` và `.deb` hợp nhất dành cho máy chủ **Zim
 Hỗ trợ đầy đủ **Ubuntu 18.04, 20.04, 22.04 LTS** (gói `.deb`) và **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** (gói `.rpm`).
 
 - **Gói cài đặt sẵn mới nhất**: mục [GitHub Releases](https://github.com/0xAndyNew/Backup-Zimbra/releases) (bản `v0.3.2`)
-  - Ubuntu / Debian: [zimbra-backup_0.3.2-1_all.deb](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup_0.3.2-1_all.deb) (SHA-256: `18bd4dedf63b76f437b0f81c551eec99e67d34cd87cf96df150475d153b47f03`)
-  - RHEL / CentOS / Rocky / AlmaLinux: [zimbra-backup-0.3.2-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm) (SHA-256: `142e51e9423258890ed010bf293fb6060191c25d4e7f5825bf1b59bbb7b8f17d`)
+  - Ubuntu / Debian: [zimbra-backup_0.3.2-1_all.deb](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup_0.3.2-1_all.deb) (SHA-256: `310899b5680fcc1444530786cec102a4927078bd86ef3467b3bfcf51e01a4b5c`)
+  - RHEL / CentOS / Rocky / AlmaLinux: [zimbra-backup-0.3.2-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm) (SHA-256: `02d3e2058177b4271fd885d632f21431114290dd29450d14a19d04ab8494912c`)
 
 Yêu cầu máy chủ đã cài sẵn Zimbra Collaboration (`user zimbra` tồn tại dưới `/opt/zimbra`).
 
@@ -126,7 +126,7 @@ Sau khi cài đặt, mở giao diện Menu tương tác (bằng quyền `root` h
 zimbra-backup
 ```
 
-Lần chạy đầu tiên sẽ tự động mở **First-Time Setup (2 bước ngắn gọn)** để cấu hình thư mục lưu trữ mặc định và tạo ngay Job sao lưu đầu tiên.
+Lần chạy đầu tiên sẽ tự động đưa bạn vào thẳng **MAIN MENU**, sẵn sàng để tạo ngay Job sao lưu đầu tiên (cấu hình thư mục lưu trữ và tùy chọn mount riêng được tích hợp trực quan ngay tại Bước 3 khi tạo Job).
 
 ---
 

@@ -252,7 +252,7 @@ zb_is_initialized() {
 zb_reset_settings_defaults() {
     DEFAULT_BACKUP_DIR="/home/backup"
     CUSTOM_RESTORE_DIR=""
-    REQUIRE_MOUNTPOINT="yes"
+    REQUIRE_MOUNTPOINT="no"
     DISK_WARN_PERCENT="85"
     DISK_MIN_FREE_MB="1024"
     TELEGRAM_ENABLED="no"
