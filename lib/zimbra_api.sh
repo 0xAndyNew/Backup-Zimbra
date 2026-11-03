@@ -229,6 +229,74 @@ zb_extract_account_artifacts() {
     return 0
 }
 
+# Parse unfolded <dl>.ldif and emit normalized restore artifacts:
+# - dl/<dl>.attrs   (each line: <attrName>\t<base64DecodedThenReencodedSingleLine>)
+# - dl/<dl>.aliases (each line: <aliasAddress>)
+# - dl/<dl>.members (each line: <memberAddress>)
+zb_extract_dl_artifacts() {
+    local ldif_file="$1" snap_dir="$2" dl="$3"
+    local out_root="${4:-$snap_dir}"
+    mkdir -p -m 700 -- "$out_root/dl" || return 1
+
+    [[ -f "$ldif_file" ]] || return 0
+
+    local unfolded
+    unfolded="$(mktemp "$ZB_RUN_DIR/.ldif_dl_unfold.XXXXXX")" || return 1
+    zb_ldif_unfold "$ldif_file" > "$unfolded"
+
+    local attr mode payload decoded b64_line
+    : > "$out_root/dl/${dl}.attrs"
+    : > "$out_root/dl/${dl}.aliases"
+
+    local extra_members_file
+    extra_members_file="$(mktemp "$ZB_RUN_DIR/.dl_mem.XXXXXX")" || { rm -f -- "$unfolded"; return 1; }
+
+    while IFS=$'\t' read -r attr mode payload <&3; do
+        [[ -n "$attr" ]] || continue
+        case "$attr" in
+            zimbraMailAlias)
+                decoded="$(zb_decode_field_to_stdout "$mode" "$payload")"
+                decoded="$(zb_trim "$decoded")"
+                if [[ -n "$decoded" && "$decoded" != "$dl" ]]; then
+                    printf '%s\n' "$decoded" >> "$out_root/dl/${dl}.aliases"
+                fi
+                ;;
+            zimbraMailForwardingAddress)
+                decoded="$(zb_decode_field_to_stdout "$mode" "$payload")"
+                decoded="$(zb_trim "$decoded")"
+                [[ -n "$decoded" ]] && printf '%s\n' "$decoded" >> "$extra_members_file"
+                ;;
+            displayName|description|zimbraNotes|zimbraMailStatus|zimbraHideInGal|zimbraDistributionListSubscriptionPolicy|zimbraDistributionListUnsubscriptionPolicy|zimbraOwner|zimbraPrefReplyToAddress)
+                b64_line="$(zb_decode_field_to_stdout "$mode" "$payload" | zb_encode_b64_single_line)"
+                if [[ -n "$b64_line" ]]; then
+                    printf '%s\t%s\n' "$attr" "$b64_line" >> "$out_root/dl/${dl}.attrs"
+                fi
+                ;;
+        esac
+    done 3< "$unfolded"
+
+    rm -f -- "$unfolded"
+
+    # Also extract members section if present at bottom of gdl output
+    awk '
+        BEGIN { in_members = 0 }
+        /^members$/ { in_members = 1; next }
+        in_members && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/ { print }
+    ' "$ldif_file" >> "$extra_members_file" || true
+
+    if [[ -s "$out_root/dl/${dl}.members" ]]; then
+        cat "$out_root/dl/${dl}.members" >> "$extra_members_file"
+    fi
+    if [[ -s "$extra_members_file" ]]; then
+        LC_ALL=C sort -u "$extra_members_file" > "$out_root/dl/${dl}.members"
+    fi
+    rm -f -- "$extra_members_file"
+
+    [[ -s "$out_root/dl/${dl}.aliases" ]] || rm -f -- "$out_root/dl/${dl}.aliases"
+    [[ -s "$out_root/dl/${dl}.attrs" ]] || rm -f -- "$out_root/dl/${dl}.attrs"
+    return 0
+}
+
 # Export account signatures using `zmprov -l gsig <email>` (NOT `gs` which is getServer!)
 # Output file format (`signatures/<email>.sigs`):
 # <b64(sigName)>\t<attr: zimbraPrefMailSignatureHTML|zimbraPrefMailSignature>\t<b64(sigContent)>
@@ -331,7 +399,7 @@ zb_list_active_accounts() {
     local out_file="$1"
     local raw
     raw="$(mktemp "$ZB_RUN_DIR/.acc_raw.XXXXXX")" || return 1
-    if ! zmprov -l sa '(&(!(zimbraIsSystemAccount=TRUE))(!(zimbraIsSystemResource=TRUE))(!(objectClass=zimbraCalendarResource)))' > "$raw" 2>/dev/null || [[ ! -s "$raw" ]]; then
+    if ! zmprov -l sa '(&(objectClass=zimbraAccount)(!(zimbraIsSystemAccount=TRUE))(!(zimbraIsSystemResource=TRUE))(!(objectClass=zimbraCalendarResource)))' > "$raw" 2>/dev/null || [[ ! -s "$raw" ]]; then
         zmprov -l gaa > "$raw" || { rm -f -- "$raw"; return 1; }
     fi
     LC_ALL=C sort -u "$raw" | tr -d '\r' | awk '

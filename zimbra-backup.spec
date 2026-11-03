@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,12 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.2-1
+- Comprehensive Distribution List (group) backup and restore: preserve displayName (UTF-8), status, hideInGal, notes, policies, owner, and reply-to attributes
+- Preserve Distribution List aliases (zmprov adla) and member forward addresses (zmprov adlm)
+- Two-pass Distribution List restoration (cdl -> mdl -> adla -> adlm) handling nested groups cleanly
+- Strictly isolate distribution lists from user mailboxes to prevent zmprov ga NO_SUCH_ACCOUNT failures
+
 * Mon Nov 02 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.1-1
 - Harden system safety: close lock/log FDs in workers, throttle fallback zmmailbox JVMs, and cache LDAP lookups on restore
 - Preserve locked/maintenance/closed user accounts while excluding system/calendar resource accounts

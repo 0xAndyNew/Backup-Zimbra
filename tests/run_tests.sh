@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.1
+# End-to-end automated test suite for zimbra-backup v0.3.2
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -188,10 +188,31 @@ case "$sub" in
         printf 'admin@example.com\n'
         ;;
     gadl)
+        if [[ -n "${MOCK_GADL_EMPTY:-}" ]]; then
+            exit 0
+        fi
         printf 'all@example.com\n'
         ;;
     gdl)
-        exit 1
+        dl="${1:-all@example.com}"
+        # Base64 for "Ban Thu ky" is "QmFuIFRodSBreQ=="
+        cat <<LDIF
+# distributionList ${dl} memberCount=2
+cn: Ban Thu ky
+displayName:: QmFuIFRodSBreQ==
+mail: ${dl}
+objectClass: zimbraDistributionList
+objectClass: zimbraMailRecipient
+zimbraMailStatus: enabled
+zimbraHideInGal: FALSE
+zimbraMailAlias: tatca@example.com
+zimbraMailForwardingAddress: user1@example.com
+zimbraMailForwardingAddress: empty@example.com
+
+members
+user1@example.com
+empty@example.com
+LDIF
         ;;
     gdlm)
         cat <<LDIF
@@ -202,7 +223,7 @@ empty@example.com
 LDIF
         ;;
     sa)
-        printf 'admin@example.com\nuser1@example.com\nempty@example.com\nsales@sub.example.com\nspam.xyz@example.com\ngalsync.sync@example.com\n'
+        printf 'admin@example.com\nuser1@example.com\nempty@example.com\nsales@sub.example.com\nspam.xyz@example.com\ngalsync.sync@example.com\nall@example.com\n'
         if [[ -n "${MOCK_SA_EXTRA:-}" ]]; then
             for extra_acc in $MOCK_SA_EXTRA; do
                 printf '%s\n' "$extra_acc"
@@ -222,6 +243,10 @@ LDIF
         ;;
     ga)
         email="${1:-user1@example.com}"
+        if [[ "$email" == "all@example.com" ]]; then
+            echo "ERROR: account.NO_SUCH_ACCOUNT (no such account: $email)" >&2
+            exit 1
+        fi
         # Base64 for "Nguyễn Văn A" is "Tmd1eeG7hW4gVsSDbiBB" (folded across 2 lines per RFC 2849!)
         # Base64 for "{SSHA}secretHash123" is "e1NTSEF9c2VjcmV0SGFzaDEyMw=="
         cat <<LDIF
@@ -363,7 +388,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.1" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.1"
+assert_contains "$ver_out" "zimbra-backup 0.3.2" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.2"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -775,6 +800,69 @@ assert_not_contains "$repaired_cron" "job run orphan" \
     "Tự dọn sạch dòng job mồ côi khi sửa lại khối crontab bị lệch thẻ đóng"
 assert_contains "$repaired_cron" "# END zimbra-backup" \
     "Tái lập đầy đủ cặp thẻ # BEGIN / # END zimbra-backup chuẩn xác"
+
+printf '\n=== 11. Sao lưu & Khôi phục toàn diện Nhóm / Distribution List (Attributes, Aliases, Members) ===\n'
+
+# 11a. Distribution List artifacts exported completely with attributes, aliases, members
+assert_file_exists "$latest_full/dl/distribution_lists.txt" "Tạo file danh sách Distribution List (dl/distribution_lists.txt)"
+assert_file_exists "$latest_full/dl/all@example.com.attrs" "Trích xuất đầy đủ thuộc tính Distribution List (displayName, status, hideInGal)"
+assert_file_exists "$latest_full/dl/all@example.com.aliases" "Trích xuất Alias của Distribution List (tatca@example.com)"
+assert_file_exists "$latest_full/dl/all@example.com.members" "Trích xuất danh sách thành viên Distribution List (user1, empty)"
+
+dl_attrs="$(cat "$latest_full/dl/all@example.com.attrs")"
+assert_contains "$dl_attrs" "displayName" "File thuộc tính DL chứa trường displayName"
+decoded_dl_dn="$(awk -F'\t' '$1 == "displayName" { print $2 }' "$latest_full/dl/all@example.com.attrs" | base64 -d)"
+assert_contains "$decoded_dl_dn" "Ban Thu ky" "Bảo toàn nguyên vẹn displayName tiếng Việt UTF-8 của Distribution List (Ban Thu ky)"
+decoded_status="$(awk -F'\t' '$1 == "zimbraMailStatus" { print $2 }' "$latest_full/dl/all@example.com.attrs" | base64 -d)"
+assert_contains "$decoded_status" "enabled" "Bảo toàn trạng thái zimbraMailStatus của DL (enabled)"
+decoded_gal="$(awk -F'\t' '$1 == "zimbraHideInGal" { print $2 }' "$latest_full/dl/all@example.com.attrs" | base64 -d)"
+assert_contains "$decoded_gal" "FALSE" "Bảo toàn thiết lập ẩn GAL zimbraHideInGal của DL (FALSE)"
+
+dl_alias="$(cat "$latest_full/dl/all@example.com.aliases")"
+assert_contains "$dl_alias" "tatca@example.com" "Bảo toàn alias tatca@example.com của Distribution List"
+
+dl_members="$(cat "$latest_full/dl/all@example.com.members")"
+assert_contains "$dl_members" "user1@example.com" "Thành viên DL chứa user1@example.com"
+assert_contains "$dl_members" "empty@example.com" "Thành viên DL chứa empty@example.com"
+
+# 11b. Distribution list strictly isolated from user accounts (never treated as mailbox)
+assert_not_contains "$(cat "$latest_full/accounts/active_accounts.txt")" "all@example.com" \
+    "Distribution List (all@example.com) được loại bỏ hoàn toàn khỏi active_accounts.txt dù LDAP trả về"
+[[ ! -f "$latest_full/mailboxes/all@example.com.tgz" ]] \
+    && pass "Không bao giờ cố xuất mailbox .tgz cho Distribution List" \
+    || fail "Đã tạo nhầm file mailbox cho Distribution List"
+manifest_txt="$(cat "$latest_full/manifest")"
+assert_contains "$manifest_txt" "dl_count=1" "Manifest ghi nhận chính xác số lượng Distribution List (dl_count=1)"
+
+# 11c. Full restore restores Distribution List with 2-pass workflow (cdl -> mdl -> adla -> adlm)
+: > "$MOCK_LOG"
+MOCK_GADL_EMPTY=1 "$ZB_CMD" restore --from "$latest_full" --all --yes >/dev/null
+full_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$full_rest_log" "ZMPROV cdl all@example.com" "Khôi phục nhóm: Tạo Distribution List bằng zmprov cdl khi chưa tồn tại"
+assert_contains "$full_rest_log" "ZMPROV mdl all@example.com" "Khôi phục nhóm: Cập nhật đầy đủ thuộc tính bằng zmprov mdl"
+assert_contains "$full_rest_log" "Ban Thu ky" "Khôi phục nhóm: Nạp đúng displayName của DL qua zmprov mdl"
+assert_contains "$full_rest_log" "ZMPROV adla all@example.com tatca@example.com" "Khôi phục nhóm: Thêm Alias cho DL bằng zmprov adla"
+assert_contains "$full_rest_log" "ZMPROV adlm all@example.com user1@example.com" "Khôi phục nhóm: Thêm thành viên #1 bằng zmprov adlm"
+assert_contains "$full_rest_log" "ZMPROV adlm all@example.com empty@example.com" "Khôi phục nhóm: Thêm thành viên #2 bằng zmprov adlm"
+assert_not_contains "$full_rest_log" "ZMPROV adlm all@example.com #" "Khôi phục nhóm: Lọc sạch dòng chú thích # không nạp nhầm vào thành viên"
+assert_not_contains "$full_rest_log" "ZMPROV ca all@example.com" "Khôi phục: Tuyệt đối không gọi zmprov ca (tạo account) cho DL"
+assert_not_contains "$full_rest_log" "all@example.com?fmt=tgz" "Khôi phục: Tuyệt đối không gọi REST import mailbox cho DL"
+
+# 11d. Selective restore for Distribution List via --users "all@example.com"
+: > "$MOCK_LOG"
+MOCK_GADL_EMPTY=1 "$ZB_CMD" restore --from "$latest_full" --users "all@example.com" --yes >/dev/null
+sel_dl_log="$(cat "$MOCK_LOG")"
+assert_contains "$sel_dl_log" "ZMPROV cdl all@example.com" "Khôi phục đích danh DL: Tạo DL bằng zmprov cdl"
+assert_contains "$sel_dl_log" "ZMPROV adlm all@example.com" "Khôi phục đích danh DL: Nạp thành viên bằng zmprov adlm"
+assert_not_contains "$sel_dl_log" "ZMPROV ca user1@example.com" "Khôi phục đích danh DL: Không khôi phục tài khoản người dùng khác"
+
+# 11e. Existing Distribution List on target skips cdl but updates attributes and members
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "all@example.com" --yes >/dev/null
+exist_dl_log="$(cat "$MOCK_LOG")"
+assert_not_contains "$exist_dl_log" "ZMPROV cdl all@example.com" "Bỏ qua zmprov cdl khi Distribution List đã tồn tại sẵn trên server đích"
+assert_contains "$exist_dl_log" "ZMPROV mdl all@example.com" "Vẫn cập nhật đầy đủ thuộc tính zmprov mdl khi DL đã tồn tại"
+assert_contains "$exist_dl_log" "ZMPROV adlm all@example.com" "Vẫn cập nhật thành viên zmprov adlm khi DL đã tồn tại"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

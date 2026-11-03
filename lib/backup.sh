@@ -32,6 +32,7 @@ zb_read_manifest_meta() {
     MF_CHECKPOINT_TO="0"
     MF_DOMAINS_COUNT="0"
     MF_ACCOUNTS_COUNT="0"
+    MF_DL_COUNT="0"
     MF_ARCHIVES_COUNT="0"
     MF_EMPTY_DELTA_COUNT="0"
     MF_TOTAL_BYTES="0"
@@ -59,6 +60,7 @@ zb_read_manifest_meta() {
             checkpoint_to) MF_CHECKPOINT_TO="$val" ;;
             domains_count) MF_DOMAINS_COUNT="$val" ;;
             accounts_count) MF_ACCOUNTS_COUNT="$val" ;;
+            dl_count) MF_DL_COUNT="$val" ;;
             archives_count) MF_ARCHIVES_COUNT="$val" ;;
             empty_delta_count) MF_EMPTY_DELTA_COUNT="$val" ;;
             total_bytes) MF_TOTAL_BYTES="$val" ;;
@@ -112,9 +114,10 @@ zb_write_manifest() {
     local cp_from="$8"
     local cp_to="$9"
 
-    local dom_cnt=0 acc_cnt=0 arch_cnt=0 empty_cnt=0 total_bytes=0
+    local dom_cnt=0 acc_cnt=0 dl_cnt=0 arch_cnt=0 empty_cnt=0 total_bytes=0
     [[ -f "$snap_dir/domains/domains.txt" ]] && dom_cnt="$(wc -l < "$snap_dir/domains/domains.txt" | awk '{print $1}')"
     [[ -f "$snap_dir/accounts/active_accounts.txt" ]] && acc_cnt="$(wc -l < "$snap_dir/accounts/active_accounts.txt" | awk '{print $1}')"
+    [[ -f "$snap_dir/dl/distribution_lists.txt" ]] && dl_cnt="$(wc -l < "$snap_dir/dl/distribution_lists.txt" | awk '{print $1}')"
 
     shopt -s nullglob
     local -a tgzs=("$snap_dir/mailboxes"/*.tgz)
@@ -140,6 +143,7 @@ zb_write_manifest() {
         printf 'checkpoint_to=%s\n' "$cp_to"
         printf 'domains_count=%s\n' "$dom_cnt"
         printf 'accounts_count=%s\n' "$acc_cnt"
+        printf 'dl_count=%s\n' "$dl_cnt"
         printf 'archives_count=%s\n' "$arch_cnt"
         printf 'empty_delta_count=%s\n' "$empty_cnt"
         printf 'total_bytes=%s\n' "$total_bytes"
@@ -466,8 +470,10 @@ zb_export_metadata_stage() {
         fi
         printf '%s\n' "$dl" >> "$stage_dir/dl/distribution_lists.txt"
         # Export DL members via gdlm so membership is cleanly restorable
-        zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '/@/' > "$stage_dir/dl/${dl}.members" || true
+        zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '!/^#/ && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/' > "$stage_dir/dl/${dl}.members" || true
         zmprov -l gdl "$dl" > "$stage_dir/dl/${dl}.ldif" 2>/dev/null || true
+        # Extract structured DL attributes, aliases, and extra members
+        zb_extract_dl_artifacts "$stage_dir/dl/${dl}.ldif" "$stage_dir" "$dl" || true
     done 3< "$all_dls"
     rm -f -- "$all_dls"
 
@@ -477,26 +483,50 @@ zb_export_metadata_stage() {
     zb_filter_accounts_by_scope "$all_acc" "$stage_dir/accounts/active_accounts.txt" "$scope_mode" "$scope_values"
     rm -f -- "$all_acc"
 
+    # Strictly exclude distribution lists / groups so they are never processed as mailbox accounts
+    if [[ -s "$stage_dir/dl/distribution_lists.txt" && -s "$stage_dir/accounts/active_accounts.txt" ]]; then
+        local filtered_acc
+        filtered_acc="$(mktemp "$ZB_RUN_DIR/.filtered_acc.XXXXXX")"
+        grep -Fvxf "$stage_dir/dl/distribution_lists.txt" "$stage_dir/accounts/active_accounts.txt" > "$filtered_acc" || true
+        mv -f -- "$filtered_acc" "$stage_dir/accounts/active_accounts.txt"
+    fi
+
     if [[ ! -s "$stage_dir/accounts/active_accounts.txt" ]]; then
         zb_err "No active accounts matched backup scope ($scope_mode ${scope_values})."
         return 1
     fi
 
-    local total_acc idx=0 email
+    local total_acc idx=0 email exported_count=0
     total_acc="$(wc -l < "$stage_dir/accounts/active_accounts.txt" | awk '{print $1}')"
     zb_log "Exporting LDAP metadata, password hashes, signatures, and Sieve filters for $total_acc account(s)..."
+
+    local valid_acc_tmp
+    valid_acc_tmp="$(mktemp "$ZB_RUN_DIR/.valid_accs.XXXXXX")" || return 1
 
     while IFS= read -r email <&3; do
         [[ -n "$email" ]] || continue
         idx=$((idx + 1))
         local ldif_path="$stage_dir/accounts/${email}.ldif"
-        zmprov -l ga "$email" > "$ldif_path" 2>/dev/null || {
-            zb_err "Failed to export LDAP record (zmprov ga) for account: $email"
-            return 1
-        }
-        zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email" || return 1
+        if ! zmprov -l ga "$email" > "$ldif_path" 2>/dev/null || [[ ! -s "$ldif_path" ]]; then
+            zb_warn "Skipping non-account address or inaccessible mailbox: $email"
+            rm -f -- "$ldif_path"
+            continue
+        fi
+        if ! zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email"; then
+            zb_warn "Warning extracting artifacts for account: $email"
+        fi
         zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+        printf '%s\n' "$email" >> "$valid_acc_tmp"
+        exported_count=$((exported_count + 1))
     done 3< "$stage_dir/accounts/active_accounts.txt"
+
+    if (( total_acc > 0 && exported_count == 0 )); then
+        rm -f -- "$valid_acc_tmp"
+        zb_err "Failed to export LDAP record for any account in scope."
+        return 1
+    fi
+
+    mv -f -- "$valid_acc_tmp" "$stage_dir/accounts/active_accounts.txt"
 
     return 0
 }

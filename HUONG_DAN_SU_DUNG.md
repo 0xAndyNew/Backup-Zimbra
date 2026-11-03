@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.1)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.2)
 
-Tài liệu này hướng dẫn **đầy đủ từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.1** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9**.
+Tài liệu này hướng dẫn **đầy đủ từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.2** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9**.
 
 ---
 
@@ -120,19 +120,19 @@ Tải bản phát hành mới nhất từ [GitHub Releases](https://github.com/0
 
 1. **Tải file `.deb`:**
    ```bash
-   curl -fSL -o zimbra-backup_0.3.1-1_all.deb \
-     https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup_0.3.1-1_all.deb
+   curl -fSL -o zimbra-backup_0.3.2-1_all.deb \
+     https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup_0.3.2-1_all.deb
    ```
-   *(Kiểm tra SHA-256 tùy chọn: `echo "b68c6dc4c1debe8690bb54725074487c8be81aae9e360321da825d10a1b6138a  zimbra-backup_0.3.1-1_all.deb" | sha256sum -c`).*
+   *(Kiểm tra SHA-256 tùy chọn: `echo "18bd4dedf63b76f437b0f81c551eec99e67d34cd87cf96df150475d153b47f03  zimbra-backup_0.3.2-1_all.deb" | sha256sum -c`).*
 
 2. **Cài đặt hoặc nâng cấp qua `apt` (khuyến nghị, tự động cài các gói phụ thuộc `cron`, `curl`, `gawk`...):**
    ```bash
-   sudo apt update && sudo apt install -y ./zimbra-backup_0.3.1-1_all.deb
+   sudo apt update && sudo apt install -y ./zimbra-backup_0.3.2-1_all.deb
    ```
 
 3. **Hoặc cài đặt qua `dpkg` truyền thống:**
    ```bash
-   sudo dpkg -i ./zimbra-backup_0.3.1-1_all.deb
+   sudo dpkg -i ./zimbra-backup_0.3.2-1_all.deb
    sudo apt-get install -f -y
    ```
 
@@ -148,26 +148,26 @@ Tải bản phát hành mới nhất từ [GitHub Releases](https://github.com/0
 
 1. **Tải file `.rpm`:**
    ```bash
-   curl -fSL -o zimbra-backup-0.3.1-1.noarch.rpm \
-     https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm
+   curl -fSL -o zimbra-backup-0.3.2-1.noarch.rpm \
+     https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm
    ```
-   *(Kiểm tra SHA-256 tùy chọn: `echo "47a2814ac0b5c3b068d95e041282939a5ce681701ded188284d9937b2cd2fe29  zimbra-backup-0.3.1-1.noarch.rpm" | sha256sum -c`).*
+   *(Kiểm tra SHA-256 tùy chọn: `echo "53e4d38958112366c26157f0329182710f358cadb62df9cb4cfb6107d748cda9  zimbra-backup-0.3.2-1.noarch.rpm" | sha256sum -c`).*
 
 2. **Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9 (cài mới):**
    ```bash
-   dnf install -y ./zimbra-backup-0.3.1-1.noarch.rpm
+   dnf install -y ./zimbra-backup-0.3.2-1.noarch.rpm
    ```
 
 3. **Trên CentOS / RHEL 7 (cài mới):**
    ```bash
-   yum install -y ./zimbra-backup-0.3.1-1.noarch.rpm
+   yum install -y ./zimbra-backup-0.3.2-1.noarch.rpm
    ```
 
 4. **Nếu máy chủ đã cài phiên bản cũ, nâng cấp trực tiếp lên bản mới:**
    ```bash
-   dnf upgrade -y ./zimbra-backup-0.3.1-1.noarch.rpm
+   dnf upgrade -y ./zimbra-backup-0.3.2-1.noarch.rpm
    # hoặc rpm chuẩn:
-   rpm -Uvh ./zimbra-backup-0.3.1-1.noarch.rpm
+   rpm -Uvh ./zimbra-backup-0.3.2-1.noarch.rpm
    ```
 
 5. **Gỡ cài đặt trên CentOS / RHEL:**
@@ -205,7 +205,7 @@ Trong lần mở đầu tiên (khi chưa có `/var/lib/zimbra-backup/settings.co
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.1) - mail.corp.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.2) - mail.corp.vn
   >> QUICK INITIAL SETUP
 ============================================================
 Welcome! Configure your default backup storage in 2 quick steps.
@@ -238,7 +238,7 @@ Mỗi khi gõ `zimbra-backup`, màn hình **MAIN MENU** gồm 7 công cụ chín
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.1) - mail
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.2) - mail
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -439,7 +439,7 @@ Giao diện Menu `4`:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.1) - mail
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.2) - mail
   >> RESTORE FROM CUSTOM DIRECTORY
 ============================================================
   Configured Custom Restore Dir : (not set)
@@ -501,7 +501,7 @@ Khi bấm `6` từ Main Menu:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.1) - mail
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.2) - mail
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup

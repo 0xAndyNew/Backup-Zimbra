@@ -415,10 +415,10 @@ zb_select_restore_accounts() {
             for u in "${usrs[@]}"; do
                 u="$(zb_trim "$u")"
                 [[ -n "$u" ]] || continue
-                if grep -Fxq -- "$u" "$src_acc" || [[ -f "$snap_dir/mailboxes/${u}.tgz" || -f "$snap_dir/accounts/${u}.ldif" ]]; then
+                if grep -Fxq -- "$u" "$src_acc" || [[ -f "$snap_dir/mailboxes/${u}.tgz" || -f "$snap_dir/accounts/${u}.ldif" ]] || { [[ -s "$snap_dir/dl/distribution_lists.txt" ]] && grep -Fxq -- "$u" "$snap_dir/dl/distribution_lists.txt"; }; then
                     printf '%s\n' "$u" >> "$out_file"
                 else
-                    zb_warn "Account '$u' not found in backup snapshot ($snap_dir)."
+                    zb_warn "Account or distribution list '$u' not found in backup snapshot ($snap_dir)."
                 fi
             done
             LC_ALL=C sort -u -o "$out_file" "$out_file"
@@ -605,6 +605,12 @@ zb_restore_ldap_metadata() {
     local src_email dest_email
     while IFS= read -r src_email <&3; do
         [[ -n "$src_email" ]] || continue
+        # Skip distribution lists / groups so they are never created as mailboxes
+        if [[ -s "$snap_dir/dl/distribution_lists.txt" ]]; then
+            if grep -Fxq -- "$src_email" "$snap_dir/dl/distribution_lists.txt"; then
+                continue
+            fi
+        fi
         dest_email="${target_user_override:-$src_email}"
 
         if ! zb_account_exists "$dest_email"; then
@@ -668,6 +674,11 @@ zb_restore_ldap_metadata() {
     zb_log "[LDAP 3/7] Restoring account aliases..."
     while IFS= read -r src_email <&3; do
         [[ -n "$src_email" ]] || continue
+        if [[ -s "$snap_dir/dl/distribution_lists.txt" ]]; then
+            if grep -Fxq -- "$src_email" "$snap_dir/dl/distribution_lists.txt"; then
+                continue
+            fi
+        fi
         local alias_file alias_addr
         alias_file="$(zb_find_alias_file "$snap_dir" "$src_email" "$legacy_ext_dir")"
         [[ -n "$alias_file" && -s "$alias_file" ]] || continue
@@ -678,35 +689,115 @@ zb_restore_ldap_metadata() {
         done 4< "$alias_file"
     done 3< "$acc_list_file"
 
+    local restore_dls=0
     if [[ "$scope_kind" == "all" || "$scope_kind" == "domain" ]]; then
-        zb_log "[LDAP 4/7] Restoring Distribution Lists and members..."
+        restore_dls=1
+    elif [[ -s "$snap_dir/dl/distribution_lists.txt" ]]; then
+        local dl_chk
+        while IFS= read -r dl_chk <&3; do
+            dl_chk="$(zb_trim "$dl_chk")"
+            if [[ -n "$dl_chk" ]] && grep -Fxq -- "$dl_chk" "$acc_list_file" 2>/dev/null; then
+                restore_dls=1
+                break
+            fi
+        done 3< "$snap_dir/dl/distribution_lists.txt"
+    fi
+
+    if (( restore_dls == 1 )); then
+        zb_log "[LDAP 4/7] Restoring Distribution Lists, attributes, aliases, and members..."
         if [[ -s "$snap_dir/dl/distribution_lists.txt" ]]; then
             local dl dl_dom member
+            local -a dls_to_restore=()
+
+            # Pass 1: Filter DLs in scope and ensure all DLs exist
             while IFS= read -r dl <&3; do
                 dl="$(zb_trim "$dl")"
                 [[ -n "$dl" ]] || continue
                 dl_dom="${dl#*@}"
-                grep -Fxq -- "$dl_dom" "$req_doms" || continue
+
+                if [[ "$scope_kind" == "all" || "$scope_kind" == "domain" ]]; then
+                    grep -Fxq -- "$dl_dom" "$req_doms" || continue
+                else
+                    grep -Fxq -- "$dl" "$acc_list_file" 2>/dev/null || continue
+                fi
+
+                dls_to_restore+=("$dl")
+
                 if ! zb_dl_exists "$dl"; then
+                    zb_log "  + Creating distribution list: $dl"
                     if zmprov cdl "$dl" </dev/null >/dev/null 2>&1; then
                         [[ -n "${ZB_EXIST_DLS_FILE:-}" && -f "$ZB_EXIST_DLS_FILE" ]] && printf '%s\n' "${dl,,}" >> "$ZB_EXIST_DLS_FILE"
+                    else
+                        zb_warn "Could not create distribution list: $dl"
                     fi
                 fi
-                if [[ -s "$snap_dir/dl/${dl}.members" ]]; then
-                    while IFS= read -r member <&4; do
-                        member="$(zb_trim "$member")"
-                        [[ -n "$member" ]] && zmprov adlm "$dl" "$member" </dev/null >/dev/null 2>&1 || true
-                    done 4< "$snap_dir/dl/${dl}.members"
-                fi
             done 3< "$snap_dir/dl/distribution_lists.txt"
+
+            # Pass 2: Restore attributes, aliases, and members for all created DLs
+            if (( ${#dls_to_restore[@]} > 0 )); then
+                for dl in "${dls_to_restore[@]}"; do
+                    [[ -n "$dl" ]] || continue
+
+                    # Restore DL attributes (displayName, description, status, hideInGal, notes, policies, owner)
+                    local dl_attrs_file="$snap_dir/dl/${dl}.attrs"
+                    if [[ ! -f "$dl_attrs_file" && -f "$snap_dir/dl/${dl}.ldif" ]]; then
+                        zb_extract_dl_artifacts "$snap_dir/dl/${dl}.ldif" "$snap_dir" "$dl" "$legacy_ext_dir" 2>/dev/null || true
+                        dl_attrs_file="$legacy_ext_dir/dl/${dl}.attrs"
+                    fi
+
+                    if [[ -s "$dl_attrs_file" ]]; then
+                        local -a mdl_args=()
+                        local attr val_b64 val_decoded
+                        while IFS=$'\t' read -r attr val_b64 <&4; do
+                            [[ -n "$attr" && -n "$val_b64" ]] || continue
+                            val_decoded="$(printf '%s' "$val_b64" | base64 -d 2>/dev/null || printf '%s' "$val_b64" | base64 --decode 2>/dev/null || true)"
+                            mdl_args+=("$attr" "$val_decoded")
+                        done 4< "$dl_attrs_file"
+                        if (( ${#mdl_args[@]} > 0 )); then
+                            zmprov mdl "$dl" "${mdl_args[@]}" </dev/null >/dev/null 2>&1 || zb_warn "Warning applying attributes for distribution list: $dl"
+                        fi
+                    fi
+
+                    # Restore DL aliases
+                    local dl_alias_file="$snap_dir/dl/${dl}.aliases"
+                    if [[ ! -f "$dl_alias_file" && -f "$snap_dir/dl/${dl}.ldif" ]]; then
+                        dl_alias_file="$legacy_ext_dir/dl/${dl}.aliases"
+                    fi
+                    if [[ -s "$dl_alias_file" ]]; then
+                        local dl_alias
+                        while IFS= read -r dl_alias <&4; do
+                            dl_alias="$(zb_trim "$dl_alias")"
+                            [[ -n "$dl_alias" && "$dl_alias" != "$dl" ]] || continue
+                            zmprov adla "$dl" "$dl_alias" </dev/null >/dev/null 2>&1 || true
+                        done 4< "$dl_alias_file"
+                    fi
+
+                    # Restore DL members
+                    local dl_members_file="$snap_dir/dl/${dl}.members"
+                    if [[ ! -f "$dl_members_file" && -f "$snap_dir/dl/${dl}.ldif" ]]; then
+                        dl_members_file="$legacy_ext_dir/dl/${dl}.members"
+                    fi
+                    if [[ -s "$dl_members_file" ]]; then
+                        while IFS= read -r member <&4; do
+                            member="$(zb_trim "$member")"
+                            [[ -n "$member" && "$member" != \#* && "$member" == *@* ]] && zmprov adlm "$dl" "$member" </dev/null >/dev/null 2>&1 || true
+                        done 4< "$dl_members_file"
+                    fi
+                done
+            fi
         fi
     else
-        zb_log "[LDAP 4/7] Skipping Distribution Lists (single-account scope)."
+        zb_log "[LDAP 4/7] Skipping Distribution Lists (no distribution lists in scope)."
     fi
 
     zb_log "[LDAP 5/7] Restoring email signatures..."
     while IFS= read -r src_email <&3; do
         [[ -n "$src_email" ]] || continue
+        if [[ -s "$snap_dir/dl/distribution_lists.txt" ]]; then
+            if grep -Fxq -- "$src_email" "$snap_dir/dl/distribution_lists.txt"; then
+                continue
+            fi
+        fi
         local sig_file="$snap_dir/signatures/${src_email}.sigs"
         if [[ -s "$sig_file" ]]; then
             local cur_name_b64="" cur_html_b64="" cur_text_b64=""
@@ -738,6 +829,11 @@ zb_restore_ldap_metadata() {
     zb_log "[LDAP 6/7] Restoring Sieve mail filters..."
     while IFS= read -r src_email <&3; do
         [[ -n "$src_email" ]] || continue
+        if [[ -s "$snap_dir/dl/distribution_lists.txt" ]]; then
+            if grep -Fxq -- "$src_email" "$snap_dir/dl/distribution_lists.txt"; then
+                continue
+            fi
+        fi
         local sieve_in sieve_out=""
         sieve_in="$(zb_find_sieve_in_file "$snap_dir" "$src_email" "$legacy_ext_dir")"
         if [[ -n "$sieve_in" && -s "$sieve_in" ]]; then
@@ -937,6 +1033,12 @@ zb_run_restore() (
             local u_idx=0 src_u dest_u
             while IFS= read -r src_u <&3; do
                 [[ -n "$src_u" ]] || continue
+                # Skip distribution lists / groups (they have no mailbox archive)
+                if [[ -s "$target_snap/dl/distribution_lists.txt" ]]; then
+                    if grep -Fxq -- "$src_u" "$target_snap/dl/distribution_lists.txt"; then
+                        continue
+                    fi
+                fi
                 u_idx=$((u_idx + 1))
                 dest_u="${target_user:-$src_u}"
                 local tgz="$step_dir/mailboxes/${src_u}.tgz"

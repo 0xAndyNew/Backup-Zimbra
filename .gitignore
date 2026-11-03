@@ -1,5 +1,6 @@
 # Compiled packages and build artifacts
 *.rpm
+*.deb
 *.tar.gz
 dist/
 rpmbuild/
