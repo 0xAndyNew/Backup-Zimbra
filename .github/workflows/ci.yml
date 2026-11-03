@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test & Build Packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Syntax & Lint Checks
+        run: |
+          bash -n zimbra-backup bin/zimbra-backup lib/*.sh tests/run_tests.sh
+          sh -n packaging/preinstall.sh packaging/preremove.sh packaging/postremove.sh
+
+      - name: Run Automated Test Suite
+        run: |
+          bash tests/run_tests.sh
+
+      - name: Build Binary Packages (.deb & .rpm)
+        run: |
+          python3 packaging/build_deb.py
+          python3 packaging/build_rpm.py
+          ls -lh *.rpm *.deb
