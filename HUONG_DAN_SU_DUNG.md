@@ -151,7 +151,7 @@ Tải bản phát hành mới nhất từ [GitHub Releases](https://github.com/0
    curl -fSL -o zimbra-backup-0.3.2-1.noarch.rpm \
      https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm
    ```
-   *(Kiểm tra SHA-256 tùy chọn: `echo "53e4d38958112366c26157f0329182710f358cadb62df9cb4cfb6107d748cda9  zimbra-backup-0.3.2-1.noarch.rpm" | sha256sum -c`).*
+   *(Kiểm tra SHA-256 tùy chọn: `echo "142e51e9423258890ed010bf293fb6060191c25d4e7f5825bf1b59bbb7b8f17d  zimbra-backup-0.3.2-1.noarch.rpm" | sha256sum -c`).*
 
 2. **Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9 (cài mới):**
    ```bash

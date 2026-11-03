@@ -54,15 +54,21 @@ def serialize_header(entries_dict, is_sig=False):
     """Serialize a list/dict of (tag, ttype, value) into RPM header binary format."""
     nindex = len(entries_dict)
 
-    # We must sort tags in ascending order per RPM spec (except immutable tag which is first)
+    # In RPM format:
+    # 1. In index table: immutable region tag (62 or 63) MUST be index 0
+    # 2. In data table: all other tags are serialized first, and the 16-byte
+    #    immutable region trailer MUST be at the very end of data_bytes
+    #    so that rdl (toff + 16) == dl (total data bytes).
     immutable_tag = 62 if is_sig else 63
     sorted_tags = sorted([t for t in entries_dict if t != immutable_tag])
-    all_tags = [immutable_tag] + sorted_tags
 
     index_records = []
     data_bytes = bytearray()
 
-    for tag in all_tags:
+    # Reserve index 0 for immutable region tag
+    index_records.append((immutable_tag, 7, 0, 16))
+
+    for tag in sorted_tags:
         ttype, val = entries_dict[tag]
 
         # Align data section if needed
@@ -78,12 +84,7 @@ def serialize_header(entries_dict, is_sig=False):
 
         offset = len(data_bytes)
 
-        if tag == immutable_tag:
-            # 16-byte immutable tag record
-            count = 16
-            record_bytes = struct.pack('>iiii', immutable_tag, 7, -(nindex * 16), 16)
-            data_bytes.extend(record_bytes)
-        elif ttype == 6: # STRING
+        if ttype == 6: # STRING
             count = 1
             data_bytes.extend(val.encode('utf-8') + b'\x00')
         elif ttype in (8, 9): # STRING_ARRAY / I18NSTRING
@@ -105,6 +106,16 @@ def serialize_header(entries_dict, is_sig=False):
             raise ValueError(f"Unsupported tag type {ttype} for tag {tag}")
 
         index_records.append((tag, ttype, offset, count))
+
+    # Place immutable region trailer at the END of data_bytes (aligned to 4 bytes)
+    pad = (4 - (len(data_bytes) % 4)) % 4
+    data_bytes.extend(b'\x00' * pad)
+    imm_offset = len(data_bytes)
+    trailer_bytes = struct.pack('>iiii', immutable_tag, 7, -(nindex * 16), 16)
+    data_bytes.extend(trailer_bytes)
+
+    # Update index 0 record with exact offset and count 16
+    index_records[0] = (immutable_tag, 7, imm_offset, 16)
 
     # Build header binary
     header_buf = bytearray()

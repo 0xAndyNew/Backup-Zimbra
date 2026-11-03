@@ -46,7 +46,7 @@ Hỗ trợ đầy đủ **Ubuntu 18.04, 20.04, 22.04 LTS** (gói `.deb`) và **C
 
 - **Gói cài đặt sẵn mới nhất**: mục [GitHub Releases](https://github.com/0xAndyNew/Backup-Zimbra/releases) (bản `v0.3.2`)
   - Ubuntu / Debian: [zimbra-backup_0.3.2-1_all.deb](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup_0.3.2-1_all.deb) (SHA-256: `18bd4dedf63b76f437b0f81c551eec99e67d34cd87cf96df150475d153b47f03`)
-  - RHEL / CentOS / Rocky / AlmaLinux: [zimbra-backup-0.3.2-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm) (SHA-256: `53e4d38958112366c26157f0329182710f358cadb62df9cb4cfb6107d748cda9`)
+  - RHEL / CentOS / Rocky / AlmaLinux: [zimbra-backup-0.3.2-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.2/zimbra-backup-0.3.2-1.noarch.rpm) (SHA-256: `142e51e9423258890ed010bf293fb6060191c25d4e7f5825bf1b59bbb7b8f17d`)
 
 Yêu cầu máy chủ đã cài sẵn Zimbra Collaboration (`user zimbra` tồn tại dưới `/opt/zimbra`).
 
