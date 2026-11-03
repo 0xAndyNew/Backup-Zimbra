@@ -4,7 +4,7 @@ Tài liệu này hướng dẫn Claude Code (claude.ai/code) khi làm việc v�
 
 ## Tổng quan kiến trúc (`zimbra-backup` v0.3.5)
 
-Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **Ubuntu 18.04, 20.04, 22.04 LTS** (gói DEB `.deb`) và **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** (gói RPM `.rpm` `noarch`), phân phối tại mục GitHub Releases, hợp nhất và khắc phục các lỗi toàn vẹn dữ liệu của 3 script rời ban đầu (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh` — giữ lại ở thư mục gốc để đối chiếu, không đóng gói).
+Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **Ubuntu 18.04, 20.04, 22.04 LTS** (gói DEB `.deb`) và **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** (gói RPM `.rpm` `noarch`), phân phối tại mục GitHub Releases, hợp nhất và khắc phục các lỗi toàn vẹn dữ liệu của 3 script rời ban đầu (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh` — được lưu trong thư mục `legacy-scripts/` để đối chiếu, không đóng gói).
 
 ### Phân tách module
 
