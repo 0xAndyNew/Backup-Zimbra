@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.4
+# End-to-end automated test suite for zimbra-backup v0.3.5
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -394,7 +394,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.4" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.4"
+assert_contains "$ver_out" "zimbra-backup 0.3.5" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.5"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -978,6 +978,38 @@ assert_contains "$closed_rest_log" "zimbraAccountStatus closed" \
     "Deferred status: Tự động áp đặt lại trạng thái closed sau khi hoàn tất import"
 assert_contains "$closed_rest_log" "service/home/closed@example.com" \
     "Deferred status: Hộp thư được import thành công qua REST mà không bị chặn"
+
+printf '\n=== 14. Kiểm tra tối ưu & An toàn v0.3.5 (Non-interactive confirmation & Multi-value attrs) ===\n'
+
+# 14a. Non-interactive restore without --yes must abort safely
+if "$ZB_CMD" restore --from "$latest_full" --users "user1@example.com" </dev/null >/dev/null 2>&1; then
+    fail "Restore không có cờ --yes trong môi trường không tương tác (non-interactive) phải từ chối chạy để đảm bảo an toàn"
+else
+    pass "Restore không có cờ --yes trong môi trường non-interactive tự động từ chối chạy để tránh phá hủy dữ liệu"
+fi
+
+# 14b. Multi-valued attribute prefixing with + (multiple zimbraMailForwardingAddress)
+cat > "$latest_full/attributes/multival@example.com.attrs" <<'EOF'
+displayName	TXVsdGkgVmFsdWVkIFVzZXI=
+zimbraMailForwardingAddress	ZndkMUBleGFtcGxlLmNvbQ==
+zimbraMailForwardingAddress	ZndkMkBleGFtcGxlLmNvbQ==
+EOF
+cp "$MOCK_DATA/normal_mail.tgz" "$latest_full/mailboxes/multival@example.com.tgz"
+printf 'multival@example.com\n' >> "$latest_full/accounts/active_accounts.txt"
+(
+    cd "$latest_full"
+    sed -i '/^# --- sha256 ---$/q' manifest
+    find domains admins dl accounts passwords attributes aliases signatures filters mailboxes \
+        -type f -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum >> manifest
+)
+
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "multival@example.com" --yes >/dev/null
+multival_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$multival_rest_log" "zimbraMailForwardingAddress fwd1@example.com" \
+    "Giá trị thuộc tính đầu tiên được nạp chuẩn xác: zimbraMailForwardingAddress fwd1@example.com"
+assert_contains "$multival_rest_log" "+zimbraMailForwardingAddress fwd2@example.com" \
+    "Thuộc tính đa trị xuất hiện từ lần 2 được tiền tố dấu +: +zimbraMailForwardingAddress fwd2@example.com"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

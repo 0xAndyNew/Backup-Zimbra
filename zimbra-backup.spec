@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.4
+Version:        0.3.5
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,15 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.5-1
+- Fix head-of-line blocking in parallel workers using non-blocking PID polling for Bash 4.2
+- Cache admin auth token across operations to eliminate repeated JVM cold-starts
+- Cache LDAP metadata (domains, accounts, DLs) during backup to avoid redundant zmprov queries
+- Restore multi-valued LDAP attributes without overwriting by prefixing with +
+- Selective integrity verification: check SHA-256 only for targeted restore accounts
+- Require explicit --yes confirmation flag for non-interactive restore execution
+- Bump package version to v0.3.5
+
 * Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.4-1
 - Automatically preserve and restore administrator privileges (zimbraIsAdminAccount) across all restore scopes
 - Track and restore extended user attributes: forwarding, auto-reply, hideInGal, password flags, contact details
