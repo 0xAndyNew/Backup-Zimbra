@@ -118,7 +118,7 @@ zb_ensure_auth_cfg() {
     local now
     now="$(date +%s)"
     if [[ "$force" != "1" && -n "$ZB_AUTH_CFG_FILE" && -f "$ZB_AUTH_CFG_FILE" ]]; then
-        if (( (now - ZB_AUTH_TOKEN_TIME) < 1500 && ZB_AUTH_TOKEN_USES < 50 )); then
+        if (( (now - ZB_AUTH_TOKEN_TIME) < 3600 )); then
             ZB_AUTH_TOKEN_USES=$((ZB_AUTH_TOKEN_USES + 1))
             return 0
         fi
@@ -232,7 +232,11 @@ zb_extract_account_artifacts() {
                 zb_decode_field_to_stdout "$mode" "$payload" > "$out_root/filters/$email.out.sieve"
                 ;;
             displayName|givenName|sn|initials|company|title|description|zimbraMailQuota|zimbraAccountStatus|zimbraPrefFromDisplay|zimbraPrefMailForwardingAddress|zimbraMailForwardingAddress|zimbraPrefMailLocalDeliveryDisabled|zimbraPrefReplyToAddress|zimbraPrefTimeZoneId|zimbraNotes|zimbraIsAdminAccount|zimbraIsDelegatedAdminAccount|zimbraHideInGal|zimbraPasswordMustChange|zimbraPasswordLocked|telephoneNumber|mobile|street|postalCode|l|st|co|zimbraPrefOutOfOfficeReplyEnabled|zimbraPrefOutOfOfficeReply|zimbraPrefOutOfOfficeFromDate|zimbraPrefOutOfOfficeUntilDate)
-                b64_line="$(zb_decode_field_to_stdout "$mode" "$payload" | zb_encode_b64_single_line)"
+                if [[ "$mode" == "b64" ]]; then
+                    b64_line="${payload//[[:space:]]/}"
+                else
+                    b64_line="$(printf '%s' "$payload" | zb_encode_b64_single_line)"
+                fi
                 if [[ -n "$b64_line" ]]; then
                     printf '%s\t%s\n' "$attr" "$b64_line" >> "$out_root/attributes/$email.attrs"
                 fi
@@ -287,7 +291,11 @@ zb_extract_dl_artifacts() {
                 [[ -n "$decoded" ]] && printf '%s\n' "$decoded" >> "$extra_members_file"
                 ;;
             displayName|description|zimbraNotes|zimbraMailStatus|zimbraHideInGal|zimbraDistributionListSubscriptionPolicy|zimbraDistributionListUnsubscriptionPolicy|zimbraOwner|zimbraPrefReplyToAddress)
-                b64_line="$(zb_decode_field_to_stdout "$mode" "$payload" | zb_encode_b64_single_line)"
+                if [[ "$mode" == "b64" ]]; then
+                    b64_line="${payload//[[:space:]]/}"
+                else
+                    b64_line="$(printf '%s' "$payload" | zb_encode_b64_single_line)"
+                fi
                 if [[ -n "$b64_line" ]]; then
                     printf '%s\t%s\n' "$attr" "$b64_line" >> "$out_root/dl/${dl}.attrs"
                 fi
@@ -397,11 +405,19 @@ zb_export_account_signatures() {
                 sig_name="$(zb_decode_field_to_stdout "$mode" "$payload")"
                 ;;
             zimbraPrefMailSignatureHTML)
-                val_b64="$(zb_decode_field_to_stdout "$mode" "$payload" | zb_encode_b64_single_line)"
+                if [[ "$mode" == "b64" ]]; then
+                    val_b64="${payload//[[:space:]]/}"
+                else
+                    val_b64="$(printf '%s' "$payload" | zb_encode_b64_single_line)"
+                fi
                 html_b64="$val_b64"
                 ;;
             zimbraPrefMailSignature)
-                val_b64="$(zb_decode_field_to_stdout "$mode" "$payload" | zb_encode_b64_single_line)"
+                if [[ "$mode" == "b64" ]]; then
+                    val_b64="${payload//[[:space:]]/}"
+                else
+                    val_b64="$(printf '%s' "$payload" | zb_encode_b64_single_line)"
+                fi
                 text_b64="$val_b64"
                 ;;
         esac
@@ -434,7 +450,7 @@ zb_list_active_accounts() {
 # so a REST outage during parallel backup cannot trigger an OOM storm on mailboxd.
 zb_run_zmmailbox_throttled() {
     if command -v flock >/dev/null 2>&1 && [[ -d "$ZB_RUN_DIR" && ! -L "$ZB_RUN_DIR" ]]; then
-        local slot=$(( $$ % 2 ))
+        local slot=$(( ${BASHPID:-$$} % 2 ))
         local slot_lock="$ZB_RUN_DIR/.jvm_slot_${slot}.lock"
         (
             exec 6>"$slot_lock" || exit 1
@@ -508,11 +524,19 @@ zb_export_mailbox_archive() {
                     ok=1
                     break
                 fi
-                if entry_cnt="$(set -o pipefail; tar -tzf "$out_tgz" 2>/dev/null | awk 'END { print NR }')"; then
-                    if [[ "$mode" == "incr" && "$entry_cnt" == "0" ]]; then
+                local sz=0
+                sz="$(wc -c < "$out_tgz" 2>/dev/null || printf '0')"
+                sz="${sz//[[:space:]]/}"
+                if [[ "$mode" == "incr" ]] && [[ "$sz" =~ ^[0-9]+$ ]] && (( sz < 1024 )); then
+                    entry_cnt="$(set -o pipefail; tar -tzf "$out_tgz" 2>/dev/null | awk 'END { print NR }')" || true
+                    if [[ "$entry_cnt" == "0" ]]; then
                         rm -f -- "$out_tgz"
                         empty_delta=1
+                        ok=1
+                        break
                     fi
+                fi
+                if gzip -t "$out_tgz" 2>/dev/null; then
                     ok=1
                     break
                 fi
@@ -528,11 +552,19 @@ zb_export_mailbox_archive() {
                 ok=1
                 break
             fi
-            if [[ -f "$out_tgz" ]] && entry_cnt="$(set -o pipefail; tar -tzf "$out_tgz" 2>/dev/null | awk 'END { print NR }')"; then
-                if [[ "$mode" == "incr" && "$entry_cnt" == "0" ]]; then
+            local sz=0
+            sz="$(wc -c < "$out_tgz" 2>/dev/null || printf '0')"
+            sz="${sz//[[:space:]]/}"
+            if [[ "$mode" == "incr" ]] && [[ "$sz" =~ ^[0-9]+$ ]] && (( sz < 1024 )); then
+                entry_cnt="$(set -o pipefail; tar -tzf "$out_tgz" 2>/dev/null | awk 'END { print NR }')" || true
+                if [[ "$entry_cnt" == "0" ]]; then
                     rm -f -- "$out_tgz"
                     empty_delta=1
+                    ok=1
+                    break
                 fi
+            fi
+            if [[ -f "$out_tgz" ]] && gzip -t "$out_tgz" 2>/dev/null; then
                 ok=1
                 break
             fi
@@ -563,7 +595,10 @@ zb_import_mailbox_archive() {
     local subfolder_name="${4:-}"
 
     [[ -f "$tgz_file" ]] || { zb_err "Mailbox archive file not found: $tgz_file"; return 1; }
-    tar -tzf "$tgz_file" >/dev/null 2>&1 || { zb_err "Corrupted mailbox archive (tar validation failed): $tgz_file"; return 1; }
+    if ! gzip -t "$tgz_file" >/dev/null 2>&1; then
+        zb_err "Corrupted mailbox archive (gzip validation failed): $tgz_file"
+        return 1
+    fi
 
     local rest_path="/?fmt=tgz&resolve=skip"
     case "$mode" in
@@ -577,7 +612,11 @@ zb_import_mailbox_archive() {
                 zb_err "Invalid subfolder name '$subfolder_name' (allowed: letters, digits, '.', '_', '-', '/'; no '..' or query characters)."
                 return 1
             }
-            zb_run_zmmailbox_throttled -z -m "$dest_email" cf "/$subfolder_name" </dev/null >/dev/null 2>&1 || true
+            local cf_marker="$ZB_RUN_DIR/.cf_${dest_email//[^A-Za-z0-9]/_}_${subfolder_name//[^A-Za-z0-9]/_}"
+            if [[ ! -f "$cf_marker" ]]; then
+                zb_run_zmmailbox_throttled -z -m "$dest_email" cf "/$subfolder_name" </dev/null >/dev/null 2>&1 || true
+                touch "$cf_marker" 2>/dev/null || true
+            fi
             rest_path="/${subfolder_name}?fmt=tgz&resolve=skip"
             ;;
         *)

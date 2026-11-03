@@ -582,7 +582,12 @@ zb_cli_job() {
             local edit_id="$1"
             shift
             zb_job_load "$edit_id" || return 1
+            local prev_type="$BACKUP_TYPE"
             zb_parse_job_flags "$@" || return 1
+            if [[ "$BACKUP_TYPE" == "incremental" && "$prev_type" != "incremental" ]]; then
+                [[ "$ZB_KEEP_EXPLICIT" == "1" ]] || KEEP_COUNT="2"
+                [[ "$ZB_PARALLEL_EXPLICIT" == "1" ]] || PARALLEL_JOBS="4"
+            fi
             if [[ "$SCOPE_MODE" == "all" ]]; then
                 SCOPE_VALUES=""
             fi
@@ -612,10 +617,15 @@ zb_cli_job() {
             local del_id="$1"
             local confirm="${2:-}"
             zb_job_load "$del_id" || return 1
-            if [[ "$confirm" != "--yes" && -t 0 ]]; then
-                local ans=""
-                read -r -p "Delete job configuration '$del_id' (existing backup data on disk is kept)? [y/N]: " ans
-                [[ "$ans" =~ ^[Yy]$ ]] || { zb_info "Canceled."; return 0; }
+            if [[ "$confirm" != "--yes" ]]; then
+                if [[ -t 0 ]]; then
+                    local ans=""
+                    read -r -p "Delete job configuration '$del_id' (existing backup data on disk is kept)? [y/N]: " ans
+                    [[ "$ans" =~ ^[Yy]$ ]] || { zb_info "Canceled."; return 0; }
+                else
+                    zb_err "Refusing to delete job '$del_id' in non-interactive shell without '--yes'."
+                    return 1
+                fi
             fi
             rm -f -- "$(zb_job_file "$del_id")"
             zb_cron_sync || return 1

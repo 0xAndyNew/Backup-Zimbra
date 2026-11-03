@@ -31,30 +31,30 @@ zb_send_email_alert() {
     [[ "${EMAIL_ALERT_ENABLED:-no}" == "yes" && -n "${EMAIL_ALERT_TO:-}" ]] || return 0
     local subject="$1"
     local body="$2"
-    if command -v sendmail >/dev/null 2>&1; then
-        {
-            printf 'To: %s\n' "$EMAIL_ALERT_TO"
-            printf 'Subject: %s\n' "$subject"
-            printf 'Content-Type: text/plain; charset=UTF-8\n\n'
-            printf '%s\n' "$body"
-        } | sendmail -t >/dev/null 2>&1 || {
-            zb_log "WARNING: Failed to send email alert to $EMAIL_ALERT_TO."
-            return 1
-        }
-    elif [[ -x "$ZB_ZIMBRA_HOME/common/sbin/sendmail" ]]; then
-        {
-            printf 'To: %s\n' "$EMAIL_ALERT_TO"
-            printf 'Subject: %s\n' "$subject"
-            printf 'Content-Type: text/plain; charset=UTF-8\n\n'
-            printf '%s\n' "$body"
-        } | "$ZB_ZIMBRA_HOME/common/sbin/sendmail" -t >/dev/null 2>&1 || {
-            zb_log "WARNING: Failed to send email alert via Zimbra sendmail."
-            return 1
-        }
+    local sm_bin="" host_from
+    # Prefer Zimbra's bundled Postfix sendmail (system sendmail is often absent on Zimbra hosts)
+    if [[ -x "$ZB_ZIMBRA_HOME/common/sbin/sendmail" ]]; then
+        sm_bin="$ZB_ZIMBRA_HOME/common/sbin/sendmail"
+    elif command -v sendmail >/dev/null 2>&1; then
+        sm_bin="$(command -v sendmail)"
     else
         zb_log "WARNING: 'sendmail' binary not found for email alerts."
         return 1
     fi
+    host_from="$(zb_host_label)"
+    {
+        printf 'From: zimbra-backup <%s@%s>\n' "$ZB_ZIMBRA_USER" "$host_from"
+        printf 'To: %s\n' "$EMAIL_ALERT_TO"
+        printf 'Subject: %s\n' "$subject"
+        printf 'Date: %s\n' "$(LC_ALL=C date -R 2>/dev/null || LC_ALL=C date)"
+        printf 'MIME-Version: 1.0\n'
+        printf 'Content-Type: text/plain; charset=UTF-8\n\n'
+        printf '%s\n' "$body"
+    } | "$sm_bin" -t >/dev/null 2>&1 || {
+        zb_log "WARNING: Failed to send email alert to $EMAIL_ALERT_TO via $sm_bin."
+        return 1
+    }
+    return 0
 }
 
 zb_notify() {

@@ -640,6 +640,7 @@ zb_restore_ldap_metadata() {
 
         if [[ -s "$attrs_file" ]]; then
             local -a ma_args=()
+            local -A seen_ma_attrs=()
             local attr val_b64 val_decoded
             while IFS=$'\t' read -r attr val_b64 <&4; do
                 [[ -n "$attr" && -n "$val_b64" ]] || continue
@@ -653,7 +654,12 @@ zb_restore_ldap_metadata() {
                         printf '%s\t%s\n' "$dest_email" "closed" >> "$deferred_status_file"
                     fi
                 else
-                    ma_args+=("$attr" "$val_decoded")
+                    if [[ -n "${seen_ma_attrs[$attr]:-}" ]]; then
+                        ma_args+=("+$attr" "$val_decoded")
+                    else
+                        ma_args+=("$attr" "$val_decoded")
+                        seen_ma_attrs["$attr"]=1
+                    fi
                 fi
             done 4< "$attrs_file"
             if (( ${#ma_args[@]} > 0 )); then
@@ -766,11 +772,17 @@ zb_restore_ldap_metadata() {
 
                     if [[ -s "$dl_attrs_file" ]]; then
                         local -a mdl_args=()
+                        local -A seen_mdl_attrs=()
                         local attr val_b64 val_decoded
                         while IFS=$'\t' read -r attr val_b64 <&4; do
                             [[ -n "$attr" && -n "$val_b64" ]] || continue
                             val_decoded="$(printf '%s' "$val_b64" | base64 -d 2>/dev/null || printf '%s' "$val_b64" | base64 --decode 2>/dev/null || true)"
-                            mdl_args+=("$attr" "$val_decoded")
+                            if [[ -n "${seen_mdl_attrs[$attr]:-}" ]]; then
+                                mdl_args+=("+$attr" "$val_decoded")
+                            else
+                                mdl_args+=("$attr" "$val_decoded")
+                                seen_mdl_attrs["$attr"]=1
+                            fi
                         done 4< "$dl_attrs_file"
                         if (( ${#mdl_args[@]} > 0 )); then
                             zmprov mdl "$dl" "${mdl_args[@]}" </dev/null >/dev/null 2>&1 || zb_warn "Warning applying attributes for distribution list: $dl"
@@ -951,6 +963,15 @@ zb_run_restore() (
         trap - EXIT INT TERM HUP
         zb_cleanup_auth_token
         zb_cleanup_restore_ldap_cache
+        if [[ -n "${ZB_RESTORE_DEFERRED_STATUS_FILE:-}" && -s "$ZB_RESTORE_DEFERRED_STATUS_FILE" ]]; then
+            local def_acc def_st
+            while IFS=$'\t' read -r def_acc def_st; do
+                [[ -n "$def_acc" && -n "$def_st" ]] || continue
+                zmprov ma "$def_acc" zimbraAccountStatus "$def_st" </dev/null >/dev/null 2>&1 || true
+            done < "$ZB_RESTORE_DEFERRED_STATUS_FILE"
+            rm -f -- "$ZB_RESTORE_DEFERRED_STATUS_FILE"
+            ZB_RESTORE_DEFERRED_STATUS_FILE=""
+        fi
         [[ -n "${ZB_RESTORE_LEGACY_TMP:-}" && -d "$ZB_RESTORE_LEGACY_TMP" ]] && rm -rf -- "$ZB_RESTORE_LEGACY_TMP"
         rm -f -- "$acc_list"
         zb_close_run_log
@@ -970,6 +991,11 @@ zb_run_restore() (
             zb_err "--target-user is only allowed when restoring a single source account (selected: $acc_count)."
             return 1
         fi
+    fi
+
+    if [[ -n "$subfolder_name" && "$mode" != "subfolder" ]]; then
+        zb_err "--subfolder-name can only be used with '--mode subfolder'."
+        return 1
     fi
 
     if [[ "$mode" == "subfolder" || -n "$subfolder_name" ]]; then
@@ -1013,14 +1039,19 @@ zb_run_restore() (
 
     zb_require_zimbra_cli || return 1
 
-    if (( assume_yes == 0 )) && [[ -t 0 ]]; then
-        local confirm=""
-        if [[ "$mode" == "reset" ]]; then
-            read -r -p "WARNING: Mode 'reset' WIPES current mailbox data before importing! Type 'RESET' to confirm: " confirm
-            [[ "$confirm" == "RESET" ]] || { zb_info "Restore canceled."; return 0; }
+    if (( assume_yes == 0 )); then
+        if [[ -t 0 ]]; then
+            local confirm=""
+            if [[ "$mode" == "reset" ]]; then
+                read -r -p "WARNING: Mode 'reset' WIPES current mailbox data before importing! Type 'RESET' to confirm: " confirm
+                [[ "$confirm" == "RESET" ]] || { zb_info "Restore canceled."; return 0; }
+            else
+                read -r -p "Proceed with restore now? [y/N]: " confirm
+                [[ "$confirm" =~ ^[Yy]$ ]] || { zb_info "Restore canceled."; return 0; }
+            fi
         else
-            read -r -p "Proceed with restore now? [y/N]: " confirm
-            [[ "$confirm" =~ ^[Yy]$ ]] || { zb_info "Restore canceled."; return 0; }
+            zb_err "Refusing to execute live restore in non-interactive shell without '--yes'."
+            return 1
         fi
     fi
 
@@ -1032,7 +1063,7 @@ zb_run_restore() (
     zb_log "Verifying backup chain integrity before restore ($chain_len step(s))..."
     for step_dir in "${ZB_RESTORE_CHAIN_DIRS[@]}"; do
         if [[ -f "$step_dir/manifest" ]]; then
-            zb_verify_snapshot_dir "$step_dir" "0" || return 1
+            zb_verify_snapshot_dir "$step_dir" "0" "$acc_list" || return 1
         fi
     done
 
@@ -1040,6 +1071,7 @@ zb_run_restore() (
 
     local deferred_status_file="$ZB_RUN_DIR/.deferred_status.$$.txt"
     : > "$deferred_status_file"
+    ZB_RESTORE_DEFERRED_STATUS_FILE="$deferred_status_file"
 
     # Restore LDAP metadata from the target point-in-time snapshot (latest state in chain)
     if [[ "$only_part" == "all" || "$only_part" == "ldap" ]]; then
@@ -1048,6 +1080,21 @@ zb_run_restore() (
 
     local fail_mbox=0
     if [[ "$only_part" == "all" || "$only_part" == "mailbox" ]]; then
+        # If only restoring mailbox (skipping LDAP), check destination account status once upfront.
+        # If 'closed', temporarily switch to 'maintenance' and record in deferred_status_file to re-close at the end.
+        if [[ "$only_part" == "mailbox" ]]; then
+            local chk_u cur_st d_acc
+            while IFS= read -r chk_u <&3; do
+                [[ -n "$chk_u" ]] || continue
+                d_acc="${target_user:-$chk_u}"
+                cur_st="$(zmprov -l ga "$d_acc" zimbraAccountStatus 2>/dev/null | awk '/^zimbraAccountStatus:/{print $2}' || true)"
+                if [[ "$cur_st" == "closed" ]]; then
+                    zmprov ma "$d_acc" zimbraAccountStatus maintenance </dev/null >/dev/null 2>&1 || true
+                    printf '%s\t%s\n' "$d_acc" "closed" >> "$deferred_status_file"
+                fi
+            done 3< "$acc_list"
+        fi
+
         local step_num=0
         for step_dir in "${ZB_RESTORE_CHAIN_DIRS[@]}"; do
             step_num=$((step_num + 1))
@@ -1088,26 +1135,10 @@ zb_run_restore() (
                     fi
                 fi
 
-                # If only restoring mailbox (skipping LDAP) and destination account is currently closed,
-                # temporarily switch to maintenance so REST/zmmailbox can import without ACCOUNT_INACTIVE error.
-                local dest_reclose=0
-                if [[ "$only_part" == "mailbox" ]]; then
-                    local cur_st=""
-                    cur_st="$(zmprov -l ga "$dest_u" zimbraAccountStatus 2>/dev/null | awk '/^zimbraAccountStatus:/{print $2}' || true)"
-                    if [[ "$cur_st" == "closed" ]]; then
-                        zmprov ma "$dest_u" zimbraAccountStatus maintenance </dev/null >/dev/null 2>&1 || true
-                        dest_reclose=1
-                    fi
-                fi
-
                 zb_log "  ($u_idx/$acc_count) Importing ${tgz##*/} -> $dest_u ..."
                 if ! zb_import_mailbox_archive "$dest_u" "$tgz" "$step_mode" "$subfolder_name"; then
                     zb_warn "Failed importing mailbox $src_u (step $step_num)."
                     fail_mbox=$((fail_mbox + 1))
-                fi
-
-                if (( dest_reclose == 1 )); then
-                    zmprov ma "$dest_u" zimbraAccountStatus closed </dev/null >/dev/null 2>&1 || true
                 fi
             done 3< "$acc_list"
         done
@@ -1124,6 +1155,7 @@ zb_run_restore() (
         done 3< "$deferred_status_file"
     fi
     rm -f -- "$deferred_status_file"
+    ZB_RESTORE_DEFERRED_STATUS_FILE=""
 
     local elapsed=$(( $(date +%s) - start_ts ))
     if (( fail_mbox > 0 )); then

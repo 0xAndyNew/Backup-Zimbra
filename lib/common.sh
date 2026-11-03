@@ -21,7 +21,7 @@ ZB_BIN_PATH="${ZB_BIN_PATH:-/usr/bin/zimbra-backup}"
 # Global settings defaults
 DEFAULT_BACKUP_DIR="/home/backup"
 CUSTOM_RESTORE_DIR=""
-REQUIRE_MOUNTPOINT="yes"
+REQUIRE_MOUNTPOINT="no"
 DISK_WARN_PERCENT="85"
 DISK_MIN_FREE_MB="1024"
 TELEGRAM_ENABLED="no"
@@ -110,7 +110,7 @@ zb_ensure_utf8_ctype() {
 
 zb_load_zimbra_env() {
     zb_ensure_utf8_ctype
-    PATH="$ZB_ZIMBRA_BIN:$ZB_ZIMBRA_HOME/common/bin:$ZB_ZIMBRA_HOME/libexec:$PATH"
+    PATH="$ZB_ZIMBRA_BIN:$ZB_ZIMBRA_HOME/common/bin:$ZB_ZIMBRA_HOME/common/sbin:$ZB_ZIMBRA_HOME/libexec:$PATH"
     export PATH
     if [[ "$ZB_SKIP_ZMSHUTIL" != "1" && -f "$ZB_ZIMBRA_BIN/zmshutil" ]]; then
         # zmshutil references positional args without default; guard against set -u.
@@ -279,6 +279,12 @@ zb_validate_settings() {
     [[ "$EMAIL_ALERT_ENABLED" == "yes" || "$EMAIL_ALERT_ENABLED" == "no" ]] || { zb_err "EMAIL_ALERT_ENABLED must be yes or no"; return 1; }
     if [[ -n "$EMAIL_ALERT_TO" ]]; then
         zb_valid_email "$EMAIL_ALERT_TO" || { zb_err "Invalid alert email address: $EMAIL_ALERT_TO"; return 1; }
+    fi
+    if [[ "$TELEGRAM_ENABLED" == "yes" ]]; then
+        [[ -n "$TELEGRAM_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]] || { zb_err "TELEGRAM_ENABLED=yes requires both TELEGRAM_TOKEN and TELEGRAM_CHAT_ID"; return 1; }
+    fi
+    if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
+        [[ -n "$EMAIL_ALERT_TO" ]] || { zb_err "EMAIL_ALERT_ENABLED=yes requires EMAIL_ALERT_TO"; return 1; }
     fi
     [[ "$HOST_LABEL" =~ ^[A-Za-z0-9._-]*$ ]] || { zb_err "HOST_LABEL only allows letters, digits, dots, underscores, and hyphens"; return 1; }
     return 0

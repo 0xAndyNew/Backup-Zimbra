@@ -73,6 +73,7 @@ zb_read_manifest_meta() {
 zb_verify_snapshot_dir() {
     local snap_dir="$1"
     local quiet="${2:-0}"
+    local filter_file="${3:-}"
     local mf="$snap_dir/manifest"
     [[ -f "$mf" ]] || { [[ "$quiet" == "1" ]] || zb_err "Manifest not found: $mf"; return 1; }
     zb_read_manifest_meta "$mf" || { [[ "$quiet" == "1" ]] || zb_err "Unsupported or corrupted manifest header: $mf"; return 1; }
@@ -82,10 +83,20 @@ zb_verify_snapshot_dir() {
     awk 'found { print } /^# --- sha256 ---$/ { found = 1 }' "$mf" > "$sum_tmp"
 
     if [[ -s "$sum_tmp" ]]; then
-        if ! (cd "$snap_dir" && sha256sum -c "$sum_tmp" >/dev/null 2>&1); then
-            rm -f -- "$sum_tmp"
-            [[ "$quiet" == "1" ]] || zb_err "SHA-256 checksum mismatch in backup: $snap_dir"
-            return 1
+        if [[ -n "$filter_file" && -s "$filter_file" ]]; then
+            local filtered_sum
+            filtered_sum="$(mktemp "$ZB_RUN_DIR/.verify_sha_filt.XXXXXX")" || { rm -f -- "$sum_tmp"; return 1; }
+            grep -E ' (domains/|dl/|admins/)' "$sum_tmp" >> "$filtered_sum" 2>/dev/null || true
+            grep -F -f "$filter_file" "$sum_tmp" >> "$filtered_sum" 2>/dev/null || true
+            sort -u "$filtered_sum" -o "$filtered_sum" 2>/dev/null || true
+            mv -f -- "$filtered_sum" "$sum_tmp"
+        fi
+        if [[ -s "$sum_tmp" ]]; then
+            if ! (cd "$snap_dir" && sha256sum -c "$sum_tmp" >/dev/null 2>&1); then
+                rm -f -- "$sum_tmp"
+                [[ "$quiet" == "1" ]] || zb_err "SHA-256 checksum mismatch in backup: $snap_dir"
+                return 1
+            fi
         fi
     fi
     rm -f -- "$sum_tmp"
@@ -328,9 +339,10 @@ zb_plan_incremental_step() {
     local last_id="$MF_BACKUP_ID"
 
     zb_read_manifest_meta "$base_step/manifest" || return 0
-    local base_date_ymd="${MF_CREATED_AT%%T*}"
+    local base_date_ymd
+    base_date_ymd="$(date -d "${MF_CREATED_AT:-}" '+%Y-%m-%d' 2>/dev/null || printf '%s' "${MF_CREATED_AT%%T*}")"
     local today_ymd today_dow today_dom
-    today_ymd="$(date -u '+%Y-%m-%d')"
+    today_ymd="$(date '+%Y-%m-%d')"
     today_dow="$(date '+%w')"
     today_dom="$(date '+%-d')"
 
@@ -444,6 +456,19 @@ zb_export_metadata_stage() {
             d="$(zb_trim "$d")"
             grep -Fxq -- "$d" "$all_doms" && printf '%s\n' "$d" >> "$stage_dir/domains/domains.txt"
         done
+    elif [[ "$scope_mode" == "accounts" ]]; then
+        : > "$stage_dir/domains/domains.txt"
+        local -a alist=()
+        local a d
+        IFS=',' read -r -a alist <<< "$scope_values"
+        for a in "${alist[@]}"; do
+            a="$(zb_trim "$a")"
+            d="${a#*@}"
+            if [[ -n "$d" && "$d" != "$a" ]] && grep -Fxq -- "$d" "$all_doms"; then
+                printf '%s\n' "$d" >> "$stage_dir/domains/domains.txt"
+            fi
+        done
+        LC_ALL=C sort -u -o "$stage_dir/domains/domains.txt" "$stage_dir/domains/domains.txt"
     else
         cp -f -- "$all_doms" "$stage_dir/domains/domains.txt"
     fi
@@ -464,16 +489,18 @@ zb_export_metadata_stage() {
     local dl
     while IFS= read -r dl <&3; do
         [[ -n "$dl" ]] || continue
-        if [[ "$scope_mode" == "domains" ]]; then
+        if [[ "$scope_mode" == "domains" || "$scope_mode" == "accounts" ]]; then
             local dl_dom="${dl#*@}"
             grep -Fxq -- "$dl_dom" "$stage_dir/domains/domains.txt" || continue
         fi
         printf '%s\n' "$dl" >> "$stage_dir/dl/distribution_lists.txt"
-        # Export DL members via gdlm so membership is cleanly restorable
-        zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '!/^#/ && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/' > "$stage_dir/dl/${dl}.members" || true
         zmprov -l gdl "$dl" > "$stage_dir/dl/${dl}.ldif" 2>/dev/null || true
-        # Extract structured DL attributes, aliases, and extra members
+        # Extract structured DL attributes, aliases, and members from LDIF
         zb_extract_dl_artifacts "$stage_dir/dl/${dl}.ldif" "$stage_dir" "$dl" || true
+        # Fallback to gdlm only if members were not already populated by gdl
+        if [[ ! -s "$stage_dir/dl/${dl}.members" ]]; then
+            zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '!/^#/ && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/' > "$stage_dir/dl/${dl}.members" || true
+        fi
     done 3< "$all_dls"
     rm -f -- "$all_dls"
 
@@ -594,16 +621,9 @@ zb_export_mailboxes_parallel() {
             fi
         fi
 
-        # Refresh admin auth token periodically (every 40 accounts or >=20 minutes elapsed)
+        # Refresh admin auth token if older than 1 hour without blocking running workers
         now_ts="$(date +%s)"
-        if (( batch_counter >= 40 || (ZB_AUTH_TOKEN_TIME > 0 && (now_ts - ZB_AUTH_TOKEN_TIME) >= 1200) )); then
-            local p
-            for p in "${pids[@]+"${pids[@]}"}"; do
-                wait "$p" || true
-            done
-            pids=()
-            ZB_ACTIVE_WORKER_PIDS=()
-            batch_counter=0
+        if (( ZB_AUTH_TOKEN_TIME > 0 && (now_ts - ZB_AUTH_TOKEN_TIME) >= 3600 )); then
             zb_ensure_auth_cfg 1 || true
         fi
 
@@ -611,11 +631,23 @@ zb_export_mailboxes_parallel() {
         pids+=("$!")
         ZB_ACTIVE_WORKER_PIDS=("${pids[@]}")
 
-        if (( ${#pids[@]} >= parallel_limit )); then
-            wait "${pids[0]}" || true
-            pids=("${pids[@]:1}")
-            ZB_ACTIVE_WORKER_PIDS=("${pids[@]}")
-        fi
+        while (( ${#pids[@]} >= parallel_limit )); do
+            local -a still_running=()
+            local found_exited=0 p
+            for p in "${pids[@]}"; do
+                if kill -0 "$p" 2>/dev/null; then
+                    still_running+=("$p")
+                else
+                    wait "$p" || true
+                    found_exited=1
+                fi
+            done
+            pids=("${still_running[@]+"${still_running[@]}"}")
+            ZB_ACTIVE_WORKER_PIDS=("${pids[@]+"${pids[@]}"}")
+            if (( found_exited == 0 && ${#pids[@]} >= parallel_limit )); then
+                sleep 0.2
+            fi
+        done
     done 3< "$acc_file"
 
     local rem_pid
@@ -763,9 +795,6 @@ zb_run_job() (
         fail_reason="One or more mailbox exports failed"
     else
         zb_write_manifest "$stage_dir" "$backup_id" "$JOB_ID" "$step_type" "$chain_id" "$chain_seq" "$parent_id" "$cp_from" "$cp_to"
-        if ! zb_verify_snapshot_dir "$stage_dir" "0"; then
-            fail_reason="Manifest SHA-256 verification failed"
-        fi
     fi
 
     if [[ -n "$fail_reason" ]]; then
@@ -877,7 +906,6 @@ zb_run_adhoc_users() (
     zb_export_metadata_stage "$stage_dir" "accounts" "$emails_csv" || return 1
     zb_export_mailboxes_parallel "$stage_dir" "full" "0" "2" || return 1
     zb_write_manifest "$stage_dir" "$backup_id" "account" "full" "standalone" "0" "none" "0" "$cp_to"
-    zb_verify_snapshot_dir "$stage_dir" "0" || return 1
 
     mv -- "$stage_dir" "$final_dir"
     stage_dir=""

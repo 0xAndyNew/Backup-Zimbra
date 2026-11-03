@@ -53,7 +53,7 @@ zimbra-backup v${ZB_VERSION} - Unified Backup & Restore Manager for Zimbra Colla
 
 USAGE:
   zimbra-backup
-      Open the interactive English TUI menu (launches Quick Setup on first run).
+      Open the interactive English TUI menu.
 
   1. Initialize global configuration (after RPM install or automated provisioning):
      zimbra-backup init --backup-dir /home/backup [--restore-dir /mnt/restore|none]
@@ -65,7 +65,7 @@ USAGE:
      zimbra-backup job show <job_id>
      zimbra-backup job add <job_id> --type full|incremental [--target-dir /home/backup]
          [--scope all|domains|accounts] [--scope-values d1.com,d2.com]
-         [--schedule daily|weekly|monthly|off] [--hour 2 --minute 0] [--dow 0] [--dom 1,15 --month *]
+         [--schedule daily|weekly|monthly|custom|off] [--hour 2 --minute 0] [--dow 0] [--dom 1,15 --month *]
          [--cron-expr "0 2 * * *"] [--full-cycle max_incr|weekly|monthly --full-cycle-value 6]
          [--keep 7] [--prune-timing after|before] [--parallel 2]
      zimbra-backup job edit <job_id> [options to update...]
