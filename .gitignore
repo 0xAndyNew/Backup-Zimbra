@@ -1,0 +1,16 @@
+# Compiled packages and build artifacts
+*.rpm
+*.tar.gz
+dist/
+rpmbuild/
+
+# Python cache & temporary scripts
+__pycache__/
+*.pyc
+.tmp_*
+
+# OS & editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*~

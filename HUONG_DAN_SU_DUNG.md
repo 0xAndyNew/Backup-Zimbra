@@ -112,13 +112,25 @@ chmod 700 /home/backup
 
 *(Nếu bạn có sẵn thư mục backup cũ ở `/backup` muốn đọc để khôi phục, cấp quyền đọc cho `zimbra`: `chown -R zimbra:zimbra /backup` hoặc `chmod -R a+rX /backup`).*
 
-### Bước 2: Cài đặt hoặc nâng cấp gói RPM
+### Bước 2: Tải gói RPM từ mục Releases & Cài đặt
+
+Tải bản phát hành mới nhất từ [GitHub Releases](https://github.com/0xAndyNew/Backup-Zimbra/releases) (mục **Releases** của repository):
+
+```bash
+curl -fSL -o zimbra-backup-0.3.1-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm
+```
+
+*(Kiểm tra mã băm SHA-256 tùy chọn: `echo "47a2814ac0b5c3b068d95e041282939a5ce681701ded188284d9937b2cd2fe29  zimbra-backup-0.3.1-1.noarch.rpm" | sha256sum -c`).*
 
 Trên **Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9** (cài mới):
 
 ```bash
 dnf install -y ./zimbra-backup-0.3.1-1.noarch.rpm
 ```
+
+*(Hoặc cài trực tiếp 1 lệnh qua mạng:*
+`dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm`*).*
 
 Trên **CentOS / RHEL 7** (cài mới):
 

@@ -42,13 +42,28 @@ Công cụ đóng gói `.rpm` hợp nhất dành cho máy chủ **Zimbra Collabo
 
 ## Cài đặt / Nâng cấp gói RPM trên máy chủ Zimbra
 
-- **Gói đóng gói sẵn mới nhất**: `zimbra-backup-0.3.1-1.noarch.rpm`
+- **Gói đóng gói sẵn mới nhất**: [zimbra-backup-0.3.1-1.noarch.rpm](https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm) (mục [GitHub Releases](https://github.com/0xAndyNew/Backup-Zimbra/releases))
+- **SHA-256 Checksum**: `47a2814ac0b5c3b068d95e041282939a5ce681701ded188284d9937b2cd2fe29`
 
 Yêu cầu máy chủ đã cài sẵn Zimbra (`user zimbra` tồn tại dưới `/opt/zimbra`).
+
+### 1. Tải gói RPM từ mục Releases
+
+```bash
+curl -fSL -o zimbra-backup-0.3.1-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm
+```
+
+### 2. Cài đặt / Nâng cấp
+
+Trên **Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9** (cài mới hoặc cài thẳng từ URL):
 
 ```bash
 dnf install -y ./zimbra-backup-0.3.1-1.noarch.rpm
 ```
+
+*(Có thể cài trực tiếp không cần tải trước:*
+`dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.1/zimbra-backup-0.3.1-1.noarch.rpm`*)*
 
 Nếu máy đã cài bản cũ (`0.1.0`, `0.2.0`...), nâng cấp thẳng lên bản mới (giữ nguyên toàn bộ Job và lịch Cron hiện có):
 
