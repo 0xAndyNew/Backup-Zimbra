@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.2
+Version:        0.3.3
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,12 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.3-1
+- Eliminate blocking first-run setup wizard; initialize defaults silently in background
+- Move 'Require dedicated mounted disk/NFS' option into Job Storage Directory wizard
+- Set default REQUIRE_MOUNTPOINT to 'no' for hassle-free local directory setups
+- Fix RPM immutable header region trailer placement to prevent headerRead tag mismatch
+
 * Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.2-1
 - Comprehensive Distribution List (group) backup and restore: preserve displayName (UTF-8), status, hideInGal, notes, policies, owner, and reply-to attributes
 - Preserve Distribution List aliases (zmprov adla) and member forward addresses (zmprov adlm)

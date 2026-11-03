@@ -94,58 +94,6 @@ zb_tui_edit_advanced_settings() {
     fi
 }
 
-# Streamlined First-Run Setup: 2 core prompts + optional advanced alerts
-zb_tui_first_run_wizard() {
-    zb_load_settings || true
-    zb_tui_header "QUICK INITIAL SETUP"
-    zb_msg "Welcome! Configure your default backup storage in 2 quick steps."
-    zb_msg ""
-
-    while true; do
-        DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "1. Default backup directory" "$DEFAULT_BACKUP_DIR")"
-        DEFAULT_BACKUP_DIR="$(zb_normalize_dir_input "$DEFAULT_BACKUP_DIR")"
-        if ! zb_valid_safe_path "$DEFAULT_BACKUP_DIR"; then
-            zb_warn "Invalid path (use an absolute path like /home/backup or /backup, no spaces)."
-            continue
-        fi
-
-        local mount_default="no"
-        if zb_has_mounted_base "$DEFAULT_BACKUP_DIR"; then
-            mount_default="yes"
-        fi
-        zb_msg "   (Tip: Choose 'yes' for external disk/NFS/SAN, or 'no' for a normal local folder)"
-        REQUIRE_MOUNTPOINT="$(zb_tui_prompt_yesno "2. Require dedicated mounted disk/NFS?" "$mount_default")"
-
-        if [[ ! -d "$DEFAULT_BACKUP_DIR" && "$REQUIRE_MOUNTPOINT" == "no" ]]; then
-            local mk
-            mk="$(zb_tui_prompt_yesno "   Directory '$DEFAULT_BACKUP_DIR' does not exist. Create it now?" "yes")"
-            if [[ "$mk" == "yes" ]]; then
-                mkdir -p -m 700 -- "$DEFAULT_BACKUP_DIR" || zb_warn "Could not create $DEFAULT_BACKUP_DIR (check permissions for user zimbra)."
-            fi
-        elif [[ "$REQUIRE_MOUNTPOINT" == "yes" ]] && ! zb_has_mounted_base "$DEFAULT_BACKUP_DIR"; then
-            zb_warn "Note: '$DEFAULT_BACKUP_DIR' is not currently mounted. Mount your disk before running a job."
-        fi
-
-        local adv
-        adv="$(zb_tui_prompt_yesno "Configure advanced settings (disk thresholds / Telegram / Email alerts) now?" "no")"
-        if [[ "$adv" == "yes" ]]; then
-            zb_tui_edit_advanced_settings
-        fi
-
-        if zb_save_settings; then
-            zb_info "Saved global settings to $ZB_SETTINGS_FILE"
-            break
-        fi
-    done
-
-    zb_msg ""
-    local create_first
-    create_first="$(zb_tui_prompt_yesno "Create your first scheduled backup job now?" "yes")"
-    if [[ "$create_first" == "yes" ]]; then
-        zb_tui_job_create
-    fi
-}
-
 # Interactive schedule builder (single HH:MM time prompt)
 zb_tui_configure_schedule() {
     local cur_choice="1"
