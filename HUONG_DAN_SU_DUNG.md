@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.5)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.6)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.5** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.6** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -9,7 +9,7 @@ Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình
 1. [Tổng quan tính năng & Thành phần dữ liệu sao lưu](#1-tổng-quan-tính-năng--thành-phần-dữ-liệu-sao-lưu)
    - [1.1. Dữ liệu được bảo toàn đầy đủ khi sao lưu](#11-dữ-liệu-được-bảo-toàn-đầy-đủ-khi-sao-lưu)
    - [1.2. Cấu trúc thư mục chuẩn hóa trên máy chủ](#12-cấu-trúc-thư-mục-chuẩn-hóa-trên-máy-chủ)
-   - [1.3. Cơ chế tối ưu hiệu năng và an toàn hệ thống v0.3.5](#13-cơ-chế-tối-ưu-hiệu-năng-và-an-toàn-hệ-thống-v035)
+   - [1.3. Cơ chế tối ưu hiệu năng, an toàn và thông báo đa kênh v0.3.6](#13-cơ-chế-tối-ưu-hiệu-năng-an-toàn-và-thông-báo-đa-kênh-v036)
 2. [Cài đặt, Nâng cấp & Gỡ bỏ](#2-cài-đặt-nâng-cấp--gỡ-bỏ)
    - [2.1. Phân quyền thư mục lưu trữ cho user zimbra](#21-phân-quyền-thư-mục-lưu-trữ-cho-user-zimbra)
    - [2.2. Cài đặt trên RHEL / CentOS / Rocky / AlmaLinux (Gói RPM)](#22-cài-đặt-trên-rhel--centos--rocky--almalinux-gói-rpm)
@@ -31,6 +31,7 @@ Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình
    - [4.5. Lệnh `restore` — Khôi phục chuyên sâu bằng dòng lệnh](#45-lệnh-restore--khôi-phục-chuyên-sâu-bằng-dòng-lệnh)
    - [4.6. Cơ chế an toàn `--yes` và các cờ bảo vệ dữ liệu](#46-cơ-chế-an-toàn---yes-và-các-cờ-bảo-vệ-dữ-liệu)
    - [4.7. Lệnh `status` & `logs` — Trạng thái hệ thống và xem Log](#47-lệnh-status--logs--trạng-thái-hệ-thống-và-xem-log)
+   - [4.8. Lệnh `notify` — Kiểm tra thông báo Email và Telegram](#48-lệnh-notify--kiểm-tra-thông-báo-email-và-telegram)
 5. [Các kịch bản thực chiến hay gặp nhất (Step-by-Step)](#5-các-kịch-bản-thực-chiến-hay-gặp-nhất-step-by-step)
    - [Kịch bản 1: Khôi phục toàn bộ server mới dựng (Disaster Recovery)](#kịch-bản-1-khôi-phục-toàn-bộ-server-mới-dựng-disaster-recovery)
    - [Kịch bản 2: Khôi phục hộp thư bị nhân viên xóa nhầm mà không mất mail mới](#kịch-bản-2-khôi-phục-hộp-thư-bị-nhân-viên-xóa-nhầm-mà-không-mất-mail-mới)
@@ -106,7 +107,7 @@ Khi cài đặt gói RPM/DEB, hệ thống phân tách rành mạch thành các 
 
 ---
 
-### 1.3. Cơ chế tối ưu hiệu năng và an toàn hệ thống v0.3.5
+### 1.3. Cơ chế tối ưu hiệu năng, an toàn và thông báo đa kênh v0.3.6
 
 1. **Triệt tiêu độ trễ khởi động Java JVM (Zero JVM Cold-Start):**
    Tự động lưu và tái sử dụng `ZM_ADMIN_AUTH_TOKEN` trong tối đa 3600 giây qua file tạm quyền `0600` (tự động làm mới nếu gặp HTTP 401). Tránh việc bật/tắt máy ảo Java `zmprov`/`zmmailbox` hàng trăm lần cho từng tài khoản.
@@ -118,6 +119,8 @@ Khi cài đặt gói RPM/DEB, hệ thống phân tách rành mạch thành các 
    Khi chạy khôi phục, hệ thống chỉ kiểm tra mã băm SHA-256 của đúng những tài khoản/domain được chỉ định, không tốn thời gian kiểm tra lại các tài khoản không liên quan trong bản backup.
 5. **Cơ chế an toàn `--yes`:**
    Mọi thao tác khôi phục nguy hiểm (đặc biệt là `--mode reset`) trong môi trường không tương tác (Crontab/Script) bắt buộc phải có cờ `--yes`, tránh việc chạy nhầm làm ghi đè hòm thư người dùng.
+6. **Cơ chế Thông báo Email & Telegram Đa Kênh (`EMAIL_ALERT_LEVEL`):**
+   Cho phép cấu hình gửi email thông báo định kỳ cho cả những bản sao lưu thành công (`EMAIL_ALERT_LEVEL=all`) hoặc chỉ khi có sự cố (`EMAIL_ALERT_LEVEL=failure`). Bắt chi tiết lỗi `stderr` từ Postfix/sendmail, tích hợp lệnh kiểm tra tức thời `zimbra-backup notify test-email`, `test-telegram` và tự động gửi thông báo cho cả sao lưu lẻ tài khoản.
 
 ---
 
@@ -141,26 +144,26 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.5):**
+**Tải gói RPM mới nhất (v0.3.6):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.5-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.5/zimbra-backup-0.3.5-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.6-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup-0.3.6-1.noarch.rpm
 ```
-*(Mã băm SHA-256 kiểm tra: `5ef2333e28c5d9bcdbf27c84e3f2248c676333b06fd8f1ae8483f8fbd20c70d8`)*
+*(Mã băm SHA-256 kiểm tra: `7e9ecad41972257e505bcf6eeaaeff8718c53711a6f0af2a11488a40de39b14b`)*
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.5-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.6-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.5-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.6-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.5-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.6-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.5-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.6-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -176,21 +179,21 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.5):**
+**Tải gói DEB mới nhất (v0.3.6):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.5-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.5/zimbra-backup_0.3.5-1_all.deb
+curl -fSL -o zimbra-backup_0.3.6-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup_0.3.6-1_all.deb
 ```
-*(Mã băm SHA-256 kiểm tra: `9935433acb7d78dd47bede77850cb991ca034cc973c454225a64b3e735868fe5`)*
+*(Mã băm SHA-256 kiểm tra: `19b4615958264db760cabd8728556b144a8b69418ec4a9c069b4ee6932d38b00`)*
 
 **Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
 ```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.5-1_all.deb
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.6-1_all.deb
 ```
 
 **Hoặc cài đặt qua `dpkg`:**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.5-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.6-1_all.deb
 sudo apt-get install -f -y
 ```
 
@@ -213,7 +216,7 @@ Hệ thống tự khởi tạo cấu hình chuẩn trong nền (thư mục mặc
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.5) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.6) - mail.hdll.vn
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -223,7 +226,7 @@ Hệ thống tự khởi tạo cấu hình chuẩn trong nền (thư mục mặc
   3) Restore from Backup Job   (Select Configured Job -> Snapshot)
   4) Restore from Custom Dir   (Configure / Scan Other Directory)
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
-  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram)
+  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram, Email)
   7) View Logs
   0) Exit
 ============================================================
@@ -238,7 +241,7 @@ Bấm phím **`1`** từ Main Menu để quản lý danh sách các tác vụ sa
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.5) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.6) - mail.hdll.vn
   >> BACKUP JOBS & CRONTAB SCHEDULE
 ============================================================
 ID               MODE         SCHEDULE             KEEP   PAR   EN   TARGET DIRECTORY
@@ -331,7 +334,7 @@ Bấm phím **`6`**:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.5) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.6) - mail.hdll.vn
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup
@@ -340,12 +343,14 @@ Bấm phím **`6`**:
   4) Disk warning / Min free  : 85% / 1024 MB
   5) Server label (alerts)    : (auto: mail.hdll.vn)
   6) Telegram Bot alerts      : yes
-  7) Email failure alerts     : no
+  7) Email alerts             : yes [all]
   8) Send test Telegram alert
+  9) Send test Email alert
   0) Back to main menu
 ============================================================
 ```
 - **Cấu hình Telegram Bot (Mục 6 & 8)**: Nhập Bot Token và Chat ID. Bấm mục `8` để gửi tin nhắn thử nghiệm ngay trên điện thoại.
+- **Cấu hình Email Alerts (Mục 7 & 9)**: Bật/tắt gửi email và chọn mức kích hoạt `EMAIL_ALERT_LEVEL` (`all` để gửi mọi bản sao lưu bao gồm thành công, hoặc `failure` để chỉ gửi khi có cảnh báo/lỗi). Bấm mục `9` để kiểm tra khả năng gửi thư của Postfix/sendmail trên máy chủ.
 - **Bảo vệ ổ đĩa (Mục 4)**: Cảnh báo khi đĩa vượt ngưỡng 85% và từ chối chạy nếu dung lượng trống dưới 1024 MB (tránh làm đầy ổ đĩa 100%).
 
 ---
@@ -378,6 +383,7 @@ zimbra-backup init [--backup-dir <path>] [--restore-dir <path|none>]
                    [--telegram-enabled <yes|no>] [--telegram-token <token>]
                    [--telegram-chat <chat_id>] [--telegram-thread <thread_id>]
                    [--email-enabled <yes|no>] [--email-to <email>]
+                   [--email-level <all|failure>]
 ```
 
 **Ví dụ:**
@@ -537,6 +543,20 @@ zimbra-backup logs list
 
 # Đọc file log cụ thể theo tên:
 zimbra-backup logs job_daily-full_20261103_013000.log 100
+```
+
+---
+
+### 4.8. Lệnh `notify` — Kiểm tra thông báo Email và Telegram
+
+Kiểm tra ngay khả năng kết nối và gửi cảnh báo mà không cần chờ chạy xong một tiến trình sao lưu:
+
+```bash
+# Gửi thư thử nghiệm qua Postfix / sendmail nội bộ:
+zimbra-backup notify test-email
+
+# Gửi tin nhắn thử nghiệm tới Telegram Bot:
+zimbra-backup notify test-telegram
 ```
 
 ---

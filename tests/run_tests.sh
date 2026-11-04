@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.5
+# End-to-end automated test suite for zimbra-backup v0.3.6
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -296,6 +296,16 @@ exit 0
 EOF
 chmod +x "$MOCK_BIN/zmmailbox"
 
+# Mock sendmail
+cat > "$MOCK_BIN/sendmail" <<'EOF'
+#!/usr/bin/env bash
+printf 'SENDMAIL %s\n' "$*" >> "$MOCK_LOG"
+cat >> "$MOCK_LOG"
+printf '\n---END-SENDMAIL---\n' >> "$MOCK_LOG"
+exit 0
+EOF
+chmod +x "$MOCK_BIN/sendmail"
+
 # Mock curl (validates -K 0600 config usage, hides secrets from argv, serves REST tgz & imports)
 cat > "$MOCK_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -394,7 +404,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.5" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.5"
+assert_contains "$ver_out" "zimbra-backup 0.3.6" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.6"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1010,6 +1020,63 @@ assert_contains "$multival_rest_log" "zimbraMailForwardingAddress fwd1@example.c
     "Giá trị thuộc tính đầu tiên được nạp chuẩn xác: zimbraMailForwardingAddress fwd1@example.com"
 assert_contains "$multival_rest_log" "+zimbraMailForwardingAddress fwd2@example.com" \
     "Thuộc tính đa trị xuất hiện từ lần 2 được tiền tố dấu +: +zimbraMailForwardingAddress fwd2@example.com"
+
+printf '\n=== 15. Kiểm tra cơ chế gửi Email thông báo (EMAIL_ALERT_LEVEL & Test Email) v0.3.6 ===\n'
+
+# 15a. Config validation & CLI init with email-level
+"$ZB_CMD" init \
+    --backup-dir "$STORE_DIR" \
+    --require-mount yes \
+    --disk-warn 95 \
+    --disk-min-mb 10 \
+    --email-enabled yes \
+    --email-to "alert@example.com" \
+    --email-level all \
+    --telegram-enabled yes \
+    --telegram-token "mock_tg_token" \
+    --telegram-chat "12345678" >/dev/null
+
+cfg_content="$(cat "$STATE_DIR/settings.conf")"
+assert_contains "$cfg_content" "EMAIL_ALERT_ENABLED=yes" "Init lưu đúng EMAIL_ALERT_ENABLED=yes"
+assert_contains "$cfg_content" "EMAIL_ALERT_TO=alert@example.com" "Init lưu đúng EMAIL_ALERT_TO=alert@example.com"
+assert_contains "$cfg_content" "EMAIL_ALERT_LEVEL=all" "Init lưu đúng EMAIL_ALERT_LEVEL=all"
+assert_contains "$cfg_content" "TELEGRAM_ENABLED=yes" "Init lưu đúng TELEGRAM_ENABLED=yes"
+
+# 15b. Test email command
+: > "$MOCK_LOG"
+"$ZB_CMD" notify test-email >/dev/null
+test_mail_log="$(cat "$MOCK_LOG")"
+assert_contains "$test_mail_log" "SENDMAIL -t" "Lệnh 'zimbra-backup notify test-email' gọi sendmail với cờ -t"
+assert_contains "$test_mail_log" "To: alert@example.com" "Email test gửi đúng địa chỉ alert@example.com"
+assert_contains "$test_mail_log" "Subject: [TEST] Zimbra Backup" "Email test có tiêu đề [TEST] Zimbra Backup"
+
+# 15c. Test telegram command
+: > "$MOCK_LOG"
+"$ZB_CMD" notify test-telegram >/dev/null
+assert_contains "$(cat "$MOCK_LOG")" "api.telegram.org" "Lệnh 'zimbra-backup notify test-telegram' gọi API Telegram"
+
+# 15d. Backup success dispatches email when EMAIL_ALERT_LEVEL=all
+"$ZB_CMD" job add mail-test --type full --schedule off --target-dir "$STORE_DIR" >/dev/null
+: > "$MOCK_LOG"
+"$ZB_CMD" job run mail-test >/dev/null
+job_all_log="$(cat "$MOCK_LOG")"
+assert_contains "$job_all_log" "SENDMAIL -t" "Backup thành công phát sinh email thông báo khi EMAIL_ALERT_LEVEL=all"
+assert_contains "$job_all_log" "Subject: [OK] Zimbra Backup" "Email thông báo backup thành công mang tag [OK]"
+
+# 15e. Backup success suppresses email when EMAIL_ALERT_LEVEL=failure
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --email-enabled yes --email-to "alert@example.com" --email-level failure >/dev/null
+: > "$MOCK_LOG"
+"$ZB_CMD" job run mail-test >/dev/null
+job_fail_log="$(cat "$MOCK_LOG")"
+assert_not_contains "$job_fail_log" "SENDMAIL -t" "Backup thành công KHÔNG gửi email khi EMAIL_ALERT_LEVEL=failure"
+
+# 15f. Ad-hoc backup dispatches notification on completion
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --email-enabled yes --email-to "alert@example.com" --email-level all >/dev/null
+: > "$MOCK_LOG"
+"$ZB_CMD" backup user "user1@example.com" --dir "$STORE_DIR" >/dev/null
+adhoc_mail_log="$(cat "$MOCK_LOG")"
+assert_contains "$adhoc_mail_log" "SENDMAIL -t" "Sao lưu lẻ (Ad-hoc) phát sinh email thông báo khi hoàn tất"
+assert_contains "$adhoc_mail_log" "Ad-hoc account backup succeeded" "Email thông báo ghi nhận thành công cho sao lưu lẻ"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

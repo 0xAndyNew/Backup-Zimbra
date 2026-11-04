@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.5
+Version:        0.3.6
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,13 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Wed Nov 04 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.6-1
+- Add EMAIL_ALERT_LEVEL setting ('all' vs 'failure') to support email notifications on successful backups
+- Capture stderr and detailed exit codes on sendmail execution for improved mail delivery troubleshooting
+- Add test email capability ('zimbra-backup notify test-email' and TUI Menu option 9)
+- Hook notification dispatch into ad-hoc single/multi-account backups upon completion or failure
+- Bump package version to v0.3.6
+
 * Tue Nov 03 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.5-1
 - Fix head-of-line blocking in parallel workers using non-blocking PID polling for Bash 4.2
 - Cache admin auth token across operations to eliminate repeated JVM cold-starts

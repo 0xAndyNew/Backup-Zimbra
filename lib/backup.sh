@@ -903,13 +903,27 @@ zb_run_adhoc_users() (
 
     mkdir -p -m 700 -- "$stage_dir"
     zb_log "Starting ad-hoc Full backup for account(s): $emails_csv"
-    zb_export_metadata_stage "$stage_dir" "accounts" "$emails_csv" || return 1
-    zb_export_mailboxes_parallel "$stage_dir" "full" "0" "2" || return 1
+    if ! zb_export_metadata_stage "$stage_dir" "accounts" "$emails_csv"; then
+        zb_notify "error" "Ad-hoc backup failed for account(s): $emails_csv" "Metadata export failed. Log: $ZB_CURRENT_LOG"
+        return 1
+    fi
+    if ! zb_export_mailboxes_parallel "$stage_dir" "full" "0" "2"; then
+        zb_notify "error" "Ad-hoc backup failed for account(s): $emails_csv" "Mailbox export failed. Log: $ZB_CURRENT_LOG"
+        return 1
+    fi
     zb_write_manifest "$stage_dir" "$backup_id" "account" "full" "standalone" "0" "none" "0" "$cp_to"
 
     mv -- "$stage_dir" "$final_dir"
     stage_dir=""
-    zb_log "Completed ad-hoc account backup at: $final_dir"
+    zb_read_manifest_meta "$final_dir/manifest" || true
+    local human_sz
+    human_sz="$(zb_human_bytes "${MF_TOTAL_BYTES:-0}")"
+    zb_log "Completed ad-hoc account backup at: $final_dir (Size: $human_sz)"
+    zb_notify "ok" "Ad-hoc account backup succeeded" \
+"Backup ID: ${backup_id}
+Accounts: ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT})
+Size: ${human_sz}
+Path: ${final_dir}"
     return 0
 )
 

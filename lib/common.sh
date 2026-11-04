@@ -2,7 +2,7 @@
 # Core utilities, configuration parser, privilege switching, locking, and storage guards.
 # Compatible with Bash 4.2+ (CentOS/RHEL 7, 8, 9).
 
-ZB_VERSION="0.3.5"
+ZB_VERSION="0.3.6"
 ZB_STATE_DIR="${ZB_STATE_DIR:-/var/lib/zimbra-backup}"
 ZB_SETTINGS_FILE="$ZB_STATE_DIR/settings.conf"
 ZB_JOBS_DIR="$ZB_STATE_DIR/jobs"
@@ -30,6 +30,7 @@ TELEGRAM_CHAT_ID=""
 TELEGRAM_THREAD_ID=""
 EMAIL_ALERT_ENABLED="no"
 EMAIL_ALERT_TO=""
+EMAIL_ALERT_LEVEL="all"
 HOST_LABEL=""
 
 ZB_CURRENT_LOG=""
@@ -261,6 +262,7 @@ zb_reset_settings_defaults() {
     TELEGRAM_THREAD_ID=""
     EMAIL_ALERT_ENABLED="no"
     EMAIL_ALERT_TO=""
+    EMAIL_ALERT_LEVEL="all"
     HOST_LABEL=""
 }
 
@@ -277,6 +279,7 @@ zb_validate_settings() {
     [[ "$TELEGRAM_CHAT_ID" =~ ^-?[0-9]*$ ]] || { zb_err "Invalid TELEGRAM_CHAT_ID"; return 1; }
     [[ "$TELEGRAM_THREAD_ID" =~ ^[0-9]*$ ]] || { zb_err "Invalid TELEGRAM_THREAD_ID"; return 1; }
     [[ "$EMAIL_ALERT_ENABLED" == "yes" || "$EMAIL_ALERT_ENABLED" == "no" ]] || { zb_err "EMAIL_ALERT_ENABLED must be yes or no"; return 1; }
+    [[ "$EMAIL_ALERT_LEVEL" == "all" || "$EMAIL_ALERT_LEVEL" == "failure" ]] || { zb_err "EMAIL_ALERT_LEVEL must be all or failure"; return 1; }
     if [[ -n "$EMAIL_ALERT_TO" ]]; then
         zb_valid_email "$EMAIL_ALERT_TO" || { zb_err "Invalid alert email address: $EMAIL_ALERT_TO"; return 1; }
     fi
@@ -309,7 +312,7 @@ zb_load_settings() {
         case "$key" in
             DEFAULT_BACKUP_DIR) DEFAULT_BACKUP_DIR="$value" ;;
             STORE_ROOT) DEFAULT_BACKUP_DIR="$value" ;; # legacy key alias
-            CUSTOM_RESTORE_DIR|REQUIRE_MOUNTPOINT|DISK_WARN_PERCENT|DISK_MIN_FREE_MB|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|EMAIL_ALERT_ENABLED|EMAIL_ALERT_TO|HOST_LABEL)
+            CUSTOM_RESTORE_DIR|REQUIRE_MOUNTPOINT|DISK_WARN_PERCENT|DISK_MIN_FREE_MB|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|EMAIL_ALERT_ENABLED|EMAIL_ALERT_TO|EMAIL_ALERT_LEVEL|HOST_LABEL)
                 printf -v "$key" '%s' "$value"
                 ;;
             KEEP_FULL_COUNT|FULL_SCHEDULE|FULL_DAY|FULL_HOUR|FULL_MINUTE)
@@ -342,6 +345,7 @@ zb_save_settings() {
         printf 'TELEGRAM_THREAD_ID=%s\n' "$TELEGRAM_THREAD_ID"
         printf 'EMAIL_ALERT_ENABLED=%s\n' "$EMAIL_ALERT_ENABLED"
         printf 'EMAIL_ALERT_TO=%s\n' "$EMAIL_ALERT_TO"
+        printf 'EMAIL_ALERT_LEVEL=%s\n' "$EMAIL_ALERT_LEVEL"
         printf 'HOST_LABEL=%s\n' "$HOST_LABEL"
     } > "$tmp"
     chmod 600 "$tmp"

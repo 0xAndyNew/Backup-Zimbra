@@ -486,6 +486,7 @@ zb_cli_init() {
             --telegram-thread) TELEGRAM_THREAD_ID="${2-}"; shift 2 ;;
             --email-enabled) EMAIL_ALERT_ENABLED="${2-}"; shift 2 ;;
             --email-to) EMAIL_ALERT_TO="${2-}"; shift 2 ;;
+            --email-level) EMAIL_ALERT_LEVEL="${2-}"; shift 2 ;;
             --create-dir) create_dir="yes"; shift ;;
             *) zb_err "Unknown init option: $1"; return 1 ;;
         esac

@@ -88,9 +88,16 @@ zb_tui_edit_advanced_settings() {
         TELEGRAM_THREAD_ID="$(zb_tui_prompt_default "  Topic Thread ID (blank if none)" "$TELEGRAM_THREAD_ID")"
     fi
 
-    EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts on failure?" "$EMAIL_ALERT_ENABLED")"
+    EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts?" "$EMAIL_ALERT_ENABLED")"
     if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
         EMAIL_ALERT_TO="$(zb_tui_prompt_default "  Alert recipient email" "$EMAIL_ALERT_TO")"
+        local lvl_w
+        lvl_w="$(zb_tui_prompt_default "  Trigger level: 1) all backups, 2) failures only [1/2]" "$([[ "$EMAIL_ALERT_LEVEL" == "failure" ]] && printf '2' || printf '1')")"
+        if [[ "$lvl_w" == "2" ]]; then
+            EMAIL_ALERT_LEVEL="failure"
+        else
+            EMAIL_ALERT_LEVEL="all"
+        fi
     fi
 }
 
@@ -1066,12 +1073,13 @@ zb_tui_settings_menu() {
         zb_msg "  4) Disk warning / Min free  : ${DISK_WARN_PERCENT}% / ${DISK_MIN_FREE_MB} MB"
         zb_msg "  5) Server label (alerts)    : ${HOST_LABEL:-(auto: $(zb_host_label))}"
         zb_msg "  6) Telegram Bot alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
-        zb_msg "  7) Email failure alerts     : $EMAIL_ALERT_ENABLED ${EMAIL_ALERT_TO:+($EMAIL_ALERT_TO)}"
+        zb_msg "  7) Email alerts             : $EMAIL_ALERT_ENABLED [${EMAIL_ALERT_LEVEL}] ${EMAIL_ALERT_TO:+($EMAIL_ALERT_TO)}"
         zb_msg "  8) Send test Telegram alert"
+        zb_msg "  9) Send test Email alert"
         zb_msg "  0) Back to main menu"
         zb_msg ""
         local c=""
-        read -r -p "Select [0-8]: " c || return 0
+        read -r -p "Select [0-9]: " c || return 0
         case "$(zb_trim "$c")" in
             1)
                 DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "Default job backup directory" "$DEFAULT_BACKUP_DIR")"
@@ -1135,9 +1143,20 @@ zb_tui_settings_menu() {
                 zb_pause
                 ;;
             7)
-                EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts on failure?" "$EMAIL_ALERT_ENABLED")"
+                EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts?" "$EMAIL_ALERT_ENABLED")"
                 if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
                     EMAIL_ALERT_TO="$(zb_tui_prompt_default "Recipient email address" "$EMAIL_ALERT_TO")"
+                    zb_msg ""
+                    zb_msg "Email Notification Trigger Level:"
+                    zb_msg "  1) all     - Send email for all backup results (success, warnings, and failures)"
+                    zb_msg "  2) failure - Send email only when a backup job fails or warns"
+                    local lvl_c
+                    lvl_c="$(zb_tui_prompt_default "Select trigger level [1-2]" "$([[ "$EMAIL_ALERT_LEVEL" == "failure" ]] && printf '2' || printf '1')")"
+                    if [[ "$lvl_c" == "2" ]]; then
+                        EMAIL_ALERT_LEVEL="failure"
+                    else
+                        EMAIL_ALERT_LEVEL="all"
+                    fi
                 fi
                 if zb_save_settings; then
                     zb_info "Saved."
@@ -1145,11 +1164,11 @@ zb_tui_settings_menu() {
                 zb_pause
                 ;;
             8)
-                if zb_send_telegram "[OK] [$(zb_host_label)] Test notification from zimbra-backup v${ZB_VERSION}"; then
-                    zb_info "Test Telegram message sent."
-                else
-                    zb_warn "Failed to send Telegram message (check TELEGRAM_ENABLED, Token, and Chat ID)."
-                fi
+                zb_test_telegram || true
+                zb_pause
+                ;;
+            9)
+                zb_test_email || true
                 zb_pause
                 ;;
             0) return 0 ;;

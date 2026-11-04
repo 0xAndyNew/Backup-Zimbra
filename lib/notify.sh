@@ -42,7 +42,9 @@ zb_send_email_alert() {
         return 1
     fi
     host_from="$(zb_host_label)"
-    {
+    local sm_err="" sm_rc=0
+    set +e
+    sm_err="$({
         printf 'From: zimbra-backup <%s@%s>\n' "$ZB_ZIMBRA_USER" "$host_from"
         printf 'To: %s\n' "$EMAIL_ALERT_TO"
         printf 'Subject: %s\n' "$subject"
@@ -50,11 +52,54 @@ zb_send_email_alert() {
         printf 'MIME-Version: 1.0\n'
         printf 'Content-Type: text/plain; charset=UTF-8\n\n'
         printf '%s\n' "$body"
-    } | "$sm_bin" -t >/dev/null 2>&1 || {
-        zb_log "WARNING: Failed to send email alert to $EMAIL_ALERT_TO via $sm_bin."
+    } | "$sm_bin" -t 2>&1)"
+    sm_rc=$?
+    set -e
+    if (( sm_rc != 0 )); then
+        zb_log "WARNING: Failed to send email alert to $EMAIL_ALERT_TO via $sm_bin (exit code=$sm_rc): $sm_err"
+        return 1
+    fi
+    return 0
+}
+
+zb_test_email() {
+    [[ "${EMAIL_ALERT_ENABLED:-no}" == "yes" && -n "${EMAIL_ALERT_TO:-}" ]] || {
+        zb_err "Email alerts are not enabled or EMAIL_ALERT_TO is not set."
         return 1
     }
-    return 0
+    local host
+    host="$(zb_host_label)"
+    local subject="[TEST] Zimbra Backup (${host}): Email notification test"
+    local body="This is a test notification from zimbra-backup v${ZB_VERSION}.
+Host: ${host}
+Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
+Status: OK
+Trigger Level: ${EMAIL_ALERT_LEVEL:-all}
+
+If you received this email, email notifications for Zimbra Backup are functioning properly."
+    zb_info "Dispatching test email to $EMAIL_ALERT_TO..."
+    if zb_send_email_alert "$subject" "$body"; then
+        zb_info "Test email sent successfully to $EMAIL_ALERT_TO."
+        return 0
+    else
+        zb_err "Failed to dispatch test email to $EMAIL_ALERT_TO."
+        return 1
+    fi
+}
+
+zb_test_telegram() {
+    if [[ "${TELEGRAM_ENABLED:-no}" != "yes" || -z "${TELEGRAM_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+        zb_err "Telegram alerts are not enabled or token/chat ID is missing."
+        return 1
+    fi
+    zb_info "Sending test Telegram message to chat ${TELEGRAM_CHAT_ID}..."
+    if zb_send_telegram "[OK] [$(zb_host_label)] Test notification from zimbra-backup v${ZB_VERSION}"; then
+        zb_info "Test Telegram message sent successfully."
+        return 0
+    else
+        zb_err "Failed to send Telegram message (check token, chat ID, and network connectivity)."
+        return 1
+    fi
 }
 
 zb_notify() {
@@ -71,7 +116,15 @@ zb_notify() {
     local full_msg="${icon} [${host}] ${title}
 ${details}"
     zb_send_telegram "$full_msg" || true
-    if [[ "$status_tag" != "ok" ]]; then
+    local send_email=0
+    if [[ "${EMAIL_ALERT_ENABLED:-no}" == "yes" && -n "${EMAIL_ALERT_TO:-}" ]]; then
+        if [[ "${EMAIL_ALERT_LEVEL:-all}" == "all" ]]; then
+            send_email=1
+        elif [[ "$status_tag" != "ok" ]]; then
+            send_email=1
+        fi
+    fi
+    if (( send_email == 1 )); then
         zb_send_email_alert "${icon} Zimbra Backup (${host}): ${title}" "$full_msg" || true
     fi
 }

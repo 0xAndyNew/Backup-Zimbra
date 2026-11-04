@@ -59,6 +59,7 @@ USAGE:
      zimbra-backup init --backup-dir /home/backup [--restore-dir /mnt/restore|none]
                         [--require-mount yes|no] [--disk-warn 85] [--disk-min-mb 1024]
                         [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
+                        [--email-enabled yes --email-to <addr> --email-level all|failure]
 
   2. Manage Multi-Job Backups & Automatic Crontab:
      zimbra-backup job list
@@ -92,6 +93,10 @@ USAGE:
   5. Status & Logs:
      zimbra-backup status
      zimbra-backup logs [list | latest [lines]]
+
+  6. Notifications & Tests:
+     zimbra-backup notify test-email
+     zimbra-backup notify test-telegram
 EOF
 }
 
@@ -105,8 +110,8 @@ zb_print_status() {
     zb_msg "  Initialized          : $(zb_is_initialized && printf 'yes (%s)' "$ZB_SETTINGS_FILE" || printf 'no')"
     zb_msg "  Default Backup Dir   : $DEFAULT_BACKUP_DIR (require mountpoint: $REQUIRE_MOUNTPOINT)"
     zb_msg "  Custom Restore Dir   : ${CUSTOM_RESTORE_DIR:-(not set)}"
-    zb_msg "  Telegram Alerts      : $TELEGRAM_ENABLED"
-    zb_msg "  Email Alerts         : $EMAIL_ALERT_ENABLED"
+    zb_msg "  Telegram Alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
+    zb_msg "  Email Alerts         : $EMAIL_ALERT_ENABLED (level: $EMAIL_ALERT_LEVEL, to: ${EMAIL_ALERT_TO:-(not set)})"
     zb_msg ""
     zb_msg "--- Configured Backup Jobs ---"
     zb_job_print_summary_table
@@ -168,6 +173,22 @@ main() {
             ;;
         logs|log)
             zb_cli_logs "$@"
+            ;;
+        notify)
+            local sub="${1:-}"
+            zb_load_settings || return 1
+            case "$sub" in
+                test-email)
+                    zb_test_email
+                    ;;
+                test-telegram)
+                    zb_test_telegram
+                    ;;
+                *)
+                    zb_err "Usage: zimbra-backup notify [test-email|test-telegram]"
+                    return 1
+                    ;;
+            esac
             ;;
         run-account)
             zb_run_adhoc_users "${1:-}" "${2:-}" "${3:-}"

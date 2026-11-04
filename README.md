@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.5)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.6)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-136%2F136_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-149%2F149_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.5/zimbra-backup-0.3.5-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup-0.3.6-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.5/zimbra-backup-0.3.5-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup-0.3.6-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.5/zimbra-backup_0.3.5-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup_0.3.6-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.5) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.6) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -51,7 +51,7 @@ zimbra-backup
   3) Restore from Backup Job   (Select Configured Job -> Snapshot)
   4) Restore from Custom Dir   (Configure / Scan Other Directory)
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
-  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram)
+  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram, Email)
   7) View Logs
   0) Exit
 ============================================================
@@ -62,13 +62,14 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.5 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.6 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
 | **Giao diện Menu TUI tương tác** | ❌ Chỉ chạy CLI | Web Admin GUI | **✅ Menu TUI ASCII 1 chạm trực quan** |
 | **Tốc độ (Khử JVM Cold-Start)** | ❌ Bật/tắt Java liên tục | Tích hợp sẵn | **✅ Cache Auth Token & LDAP In-memory** |
 | **Hàng đợi đa luồng không nghẽn** | ❌ Xử lý tuần tự | Có | **✅ Non-blocking Worker Pool** |
+| **Thông báo Email & Telegram** | ⚠️ Thô sơ hoặc lỗi | Tích hợp sẵn | **✅ Đầy đủ mức all/failure & Test gửi** |
 | **Bảo toàn tiếng Việt UTF-8** | ⚠️ Thường lỗi font có dấu | ✅ Có | **✅ Giải mã Base64 RFC 2849 chuẩn xác** |
 | **Bảo toàn quyền Admin & Mật khẩu** | ❌ Thường thiếu sót | ✅ Có | **✅ 100% Đầy đủ SSHA/SHA512 & Admin** |
 | **Bảo toàn nhóm (Distribution Lists)** | ❌ Bỏ qua | ✅ Có | **✅ Đầy đủ Attributes, Aliases & Members** |
@@ -78,7 +79,13 @@ Select [0-7]:
 
 ---
 
-## 🌟 Điểm nổi bật trong phiên bản v0.3.5
+## 🌟 Điểm nổi bật trong phiên bản v0.3.6
+
+1. **Cơ chế Thông báo Email & Telegram Toàn diện**:
+   - Hỗ trợ lựa chọn mức kích hoạt `EMAIL_ALERT_LEVEL`: `all` (gửi thông báo cho mọi bản sao lưu bao gồm thành công) hoặc `failure` (chỉ gửi khi có cảnh báo/lỗi).
+   - Bổ sung lệnh kiểm tra gửi thử email và telegram ngay lập tức: `zimbra-backup notify test-email` và `zimbra-backup notify test-telegram` (hoặc phím số `9` và `8` trong Menu Cài đặt TUI).
+   - Tự động bắt lỗi và ghi chi tiết `stderr` từ Postfix/sendmail vào log giúp khắc phục nhanh sự cố máy chủ thư không gửi được mail ra ngoài.
+   - Tự động gửi thông báo cho cả các tác vụ sao lưu tài khoản lẻ (Ad-hoc account backup).
 
 1. **Menu TUI tiếng Anh tinh gọn, hiển thị chuẩn trên mọi Terminal**:
    - Tự động khởi tạo cấu hình chuẩn trong nền với thư mục lưu trữ mặc định `/home/backup`.
