@@ -159,7 +159,7 @@ zimbra-backup restore --dir /backup --from 1 --all --mode skip --yes
 
 ## 🛠️ Đóng gói & Kiểm thử từ mã nguồn
 
-Chạy bộ kiểm thử tự động đầu-cuối 136 bài test:
+Chạy bộ kiểm thử tự động đầu-cuối 149 bài test:
 ```bash
 bash tests/run_tests.sh
 ```
@@ -169,6 +169,17 @@ bash tests/run_tests.sh
 python packaging/build_deb.py
 python packaging/build_rpm.py
 ```
+
+---
+
+## ☕ Ủng hộ tác giả (Buy Me a Coffee)
+
+Nếu công cụ `zimbra-backup` giúp ích cho công việc quản trị hệ thống và bảo vệ dữ liệu Zimbra của bạn, bạn có thể ủng hộ tác giả một ly cà phê qua các kênh dưới đây:
+
+| 📱 MoMo / VietQR | 💎 USDT (BEP20) | 🪙 Bitcoin (BTC) |
+|:---:|:---:|:---:|
+| <img src="docs/images/donate-momo.jpg" width="220" alt="MoMo / VietQR"> | <img src="docs/images/donate-usdt-bsc.png" width="220" alt="USDT (BSC)"> | <img src="docs/images/donate-btc.png" width="220" alt="Bitcoin (BTC)"> |
+| **MoMo / Napas 247**<br>Chủ TK: **DAU XUAN HIEU**<br>SĐT: `*******416` | **Mạng BSC (BEP20)**<br>`0x1b1817cc4f6eb49adb051c25d0f82e77f66c8514` | **Mạng BTC**<br>`14enMJBiXgk7jLc187qXB5qucBBSfsYuVG` |
 
 ---
 

@@ -168,7 +168,7 @@ zimbra-backup notify test-telegram
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (136 tests):
+Execute end-to-end automated test suite (149 tests):
 ```bash
 bash tests/run_tests.sh
 ```
@@ -178,6 +178,17 @@ Build binary `.deb` and `.rpm` packages (requires Python 3):
 python packaging/build_deb.py
 python packaging/build_rpm.py
 ```
+
+---
+
+## ☕ Support the Project (Buy Me a Coffee)
+
+If `zimbra-backup` has helped simplify your system administration tasks and protected your Zimbra mail server, consider supporting the maintenance and development of this project:
+
+| 📱 MoMo / VietQR (Vietnam) | 💎 USDT (BEP20) | 🪙 Bitcoin (BTC) |
+|:---:|:---:|:---:|
+| <img src="docs/images/donate-momo.jpg" width="220" alt="MoMo / VietQR"> | <img src="docs/images/donate-usdt-bsc.png" width="220" alt="USDT (BSC)"> | <img src="docs/images/donate-btc.png" width="220" alt="Bitcoin (BTC)"> |
+| **MoMo / VietQR**<br>Account: **DAU XUAN HIEU**<br>Phone: `*******416` | **BSC Network (BEP20)**<br>`0x1b1817cc4f6eb49adb051c25d0f82e77f66c8514` | **BTC Network**<br>`14enMJBiXgk7jLc187qXB5qucBBSfsYuVG` |
 
 ---
 
