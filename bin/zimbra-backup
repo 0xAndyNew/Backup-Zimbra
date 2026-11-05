@@ -60,6 +60,9 @@ USAGE:
                         [--require-mount yes|no] [--disk-warn 85] [--disk-min-mb 1024]
                         [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
                         [--email-enabled yes --email-to <addr> --email-level all|failure]
+                        [--ftp-enabled yes|no] [--ftp-protocol ftp|sftp] [--ftp-host <host>]
+                        [--ftp-port 21|22] [--ftp-user <user>] [--ftp-password <pass>]
+                        [--ftp-dir <remote_path>] [--ftp-ssl yes|no]
 
   2. Manage Multi-Job Backups & Automatic Crontab:
      zimbra-backup job list
@@ -97,6 +100,7 @@ USAGE:
   6. Notifications & Tests:
      zimbra-backup notify test-email
      zimbra-backup notify test-telegram
+     zimbra-backup notify test-ftp
 EOF
 }
 
@@ -112,6 +116,7 @@ zb_print_status() {
     zb_msg "  Custom Restore Dir   : ${CUSTOM_RESTORE_DIR:-(not set)}"
     zb_msg "  Telegram Alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
     zb_msg "  Email Alerts         : $EMAIL_ALERT_ENABLED (level: $EMAIL_ALERT_LEVEL, to: ${EMAIL_ALERT_TO:-(not set)})"
+    zb_msg "  Remote Storage (FTP) : $FTP_ENABLED ${FTP_HOST:+[$FTP_PROTOCOL://$FTP_HOST:$FTP_PORT -> $FTP_REMOTE_DIR]}"
     zb_msg ""
     zb_msg "--- Configured Backup Jobs ---"
     zb_job_print_summary_table
@@ -184,8 +189,11 @@ main() {
                 test-telegram)
                     zb_test_telegram
                     ;;
+                test-ftp)
+                    zb_test_ftp
+                    ;;
                 *)
-                    zb_err "Usage: zimbra-backup notify [test-email|test-telegram]"
+                    zb_err "Usage: zimbra-backup notify [test-email|test-telegram|test-ftp]"
                     return 1
                     ;;
             esac

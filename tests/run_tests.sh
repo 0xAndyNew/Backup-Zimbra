@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.6
+# End-to-end automated test suite for zimbra-backup v0.3.7
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -310,7 +310,7 @@ chmod +x "$MOCK_BIN/sendmail"
 cat > "$MOCK_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 for arg in "$@"; do
-    if [[ "$arg" == *"MOCK_ADMIN_TOKEN_SECRET_999"* || "$arg" == *"TG_SECRET_BOT_TOKEN"* ]]; then
+    if [[ "$arg" == *"MOCK_ADMIN_TOKEN_SECRET_999"* || "$arg" == *"TG_SECRET_BOT_TOKEN"* || "$arg" == *"FTP_SECRET_PW"* ]]; then
         printf 'SECURITY_LEAK: secret exposed on curl command line: %s\n' "$arg" >&2
         exit 99
     fi
@@ -332,8 +332,8 @@ while (( $# > 0 )); do
         -T|--data-binary) upload_file="$2"; is_post=1; shift 2 ;;
         --data-urlencode) shift 2 ;;
         --connect-timeout|--max-time) shift 2 ;;
-        -k|-s|-sS|-ks|-sk) shift ;;
-        http://*|https://*) pos_url="$1"; shift ;;
+        -k|-s|-sS|-ks|-sk|--ftp-create-dirs|--insecure|--ssl-reqd|--show-error|--fail|--silent) shift ;;
+        http://*|https://*|ftp://*|sftp://*) pos_url="$1"; shift ;;
         *) shift ;;
     esac
 done
@@ -353,6 +353,17 @@ printf 'CURL post=%d url=%s upload=%s\n' "$is_post" "$effective_url" "$upload_fi
 # Telegram endpoint
 if [[ "$effective_url" == *"api.telegram.org"* ]]; then
     [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && printf '{"ok":true}' > "$out_file"
+    [[ -n "$write_fmt" ]] && printf '200'
+    exit 0
+fi
+
+# FTP / SFTP endpoint
+if [[ "$effective_url" == ftp://* || "$effective_url" == sftp://* ]]; then
+    grep -q 'user = "' "$cfg_file" || { echo "Missing user credentials in FTP curl config" >&2; exit 4; }
+    if [[ "$upload_file" == "-" ]]; then
+        cat >/dev/null
+    fi
+    [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && printf '200' > "$out_file"
     [[ -n "$write_fmt" ]] && printf '200'
     exit 0
 fi
@@ -404,7 +415,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.6" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.6"
+assert_contains "$ver_out" "zimbra-backup 0.3.7" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.7"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1077,6 +1088,83 @@ assert_not_contains "$job_fail_log" "SENDMAIL -t" "Backup thành công KHÔNG g�
 adhoc_mail_log="$(cat "$MOCK_LOG")"
 assert_contains "$adhoc_mail_log" "SENDMAIL -t" "Sao lưu lẻ (Ad-hoc) phát sinh email thông báo khi hoàn tất"
 assert_contains "$adhoc_mail_log" "Ad-hoc account backup succeeded" "Email thông báo ghi nhận thành công cho sao lưu lẻ"
+
+printf '\n=== 16. Kiem tra co che sao luu tu xa FTP / SFTP & Chuan hoa thong bao v0.3.7 ===\n'
+
+# 16a. Cau hinh FTP qua CLI init
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes \
+    --ftp-enabled yes --ftp-protocol ftp --ftp-host "ftp.example.com" \
+    --ftp-port 21 --ftp-user "ftpuser" --ftp-password "FTP_SECRET_PW" \
+    --ftp-dir "/backups" --ftp-ssl yes >/dev/null
+
+assert_file_exists "$ZB_STATE_DIR/settings.conf" "settings.conf ton tai sau khi init FTP"
+ftp_cfg="$(cat "$ZB_STATE_DIR/settings.conf")"
+assert_contains "$ftp_cfg" "FTP_ENABLED=yes" "Cau hinh FTP_ENABLED duoc luu la yes"
+assert_contains "$ftp_cfg" "FTP_PROTOCOL=ftp" "Cau hinh FTP_PROTOCOL duoc luu la ftp"
+assert_contains "$ftp_cfg" "FTP_HOST=ftp.example.com" "Cau hinh FTP_HOST duoc luu chinh xac"
+assert_contains "$ftp_cfg" "FTP_PORT=21" "Cau hinh FTP_PORT duoc luu la 21"
+assert_contains "$ftp_cfg" "FTP_USER=ftpuser" "Cau hinh FTP_USER duoc luu chinh xac"
+assert_contains "$ftp_cfg" "FTP_PASSWORD=FTP_SECRET_PW" "Cau hinh FTP_PASSWORD duoc luu chinh xac"
+assert_contains "$ftp_cfg" "FTP_REMOTE_DIR=/backups" "Cau hinh FTP_REMOTE_DIR duoc luu chinh xac"
+assert_contains "$ftp_cfg" "FTP_SSL=yes" "Cau hinh FTP_SSL duoc luu la yes"
+
+# 16b. Kiem tra notify test-ftp voi FTP va SFTP
+: > "$MOCK_LOG"
+test_ftp_out="$("$ZB_CMD" notify test-ftp 2>&1)"
+assert_contains "$test_ftp_out" "SUCCESSFUL" "Lenh 'notify test-ftp' bao ket noi thanh cong"
+mock_ftp_log="$(cat "$MOCK_LOG")"
+assert_contains "$mock_ftp_log" "url=ftp://ftp.example.com:21/backups/" "curl thuc hien ket noi toi ftp:// URL dung port va thu muc"
+assert_not_contains "$mock_ftp_log" "SECURITY_LEAK" "Khong lo mat khau FTP_SECRET_PW tren dong lenh curl"
+
+# Chuyen sang SFTP port 22
+"$ZB_CMD" init --ftp-protocol sftp --ftp-port 22 >/dev/null
+: > "$MOCK_LOG"
+test_sftp_out="$("$ZB_CMD" notify test-ftp 2>&1)"
+assert_contains "$test_sftp_out" "SUCCESSFUL" "Lenh 'notify test-ftp' bao ket noi SFTP thanh cong"
+mock_sftp_log="$(cat "$MOCK_LOG")"
+assert_contains "$mock_sftp_log" "url=sftp://ftp.example.com:22/backups/" "curl thuc hien ket noi toi sftp:// URL tren port 22"
+
+# 16c. Sao luu Job voi Remote Storage bat (FTP upload) va kiem tra dinh dang thong bao
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes \
+    --email-enabled yes --email-to "alert@example.com" --email-level all \
+    --telegram-enabled yes --telegram-token "TG_SECRET_BOT_TOKEN" --telegram-chat-id "123456789" \
+    --ftp-enabled yes --ftp-protocol ftp --ftp-host "ftp.example.com" --ftp-port 21 \
+    --ftp-user "ftpuser" --ftp-password "FTP_SECRET_PW" --ftp-dir "/backups" >/dev/null
+
+: > "$MOCK_LOG"
+"$ZB_CMD" job run mail-test >/dev/null
+
+job_ftp_log="$(cat "$MOCK_LOG")"
+assert_contains "$job_ftp_log" "upload=" "Tien trinh backup thuc hien upload snapshot len FTP"
+assert_contains "$job_ftp_log" ".tar" "Upload file archive .tar cua snapshot"
+assert_contains "$job_ftp_log" "manifest" "Upload file manifest cua snapshot"
+assert_contains "$job_ftp_log" "SENDMAIL -t" "Gui email thong bao sau khi upload FTP hoan tat"
+assert_contains "$job_ftp_log" "Job Name   : Scheduled backup mail-test" "Thong bao chua Job Name day du"
+assert_contains "$job_ftp_log" "Backup Mode: FULL" "Thong bao chua Backup Mode FULL"
+assert_contains "$job_ftp_log" "Accounts   :" "Thong bao chua thong tin so luong Accounts"
+assert_contains "$job_ftp_log" "Total Size :" "Thong bao chua Total Size"
+assert_contains "$job_ftp_log" "Duration   :" "Thong bao chua Duration"
+assert_contains "$job_ftp_log" "Local Path :" "Thong bao chua Local Path"
+assert_contains "$job_ftp_log" "Remote Storage : OK (FTP://ftp.example.com:21" "Thong bao xac nhan Remote Storage OK kem host va port"
+
+# 16d. Sao luu Job thong thuong (FTP disabled) van giu nguyen chuan hoa thong bao
+"$ZB_CMD" init --ftp-enabled no >/dev/null
+: > "$MOCK_LOG"
+"$ZB_CMD" job run mail-test >/dev/null
+
+job_local_log="$(cat "$MOCK_LOG")"
+assert_contains "$job_local_log" "SENDMAIL -t" "Email duoc gui cho job local-only"
+assert_contains "$job_local_log" "Job Name   : Scheduled backup mail-test" "Local job thong bao co Job Name"
+assert_contains "$job_local_log" "Backup Mode: FULL" "Local job thong bao co Backup Mode"
+assert_contains "$job_local_log" "Accounts   :" "Local job thong bao co Accounts"
+assert_contains "$job_local_log" "Total Size :" "Local job thong bao co Total Size"
+assert_contains "$job_local_log" "Duration   :" "Local job thong bao co Duration"
+assert_contains "$job_local_log" "Local Path :" "Local job thong bao co Local Path"
+assert_not_contains "$job_local_log" "Remote Storage : OK" "Local job khong bao Remote Storage OK khi FTP tat"
+
+# 16e. Kiem tra lenh status hien thi Remote Storage
+status_out="$("$ZB_CMD" status)"
+assert_contains "$status_out" "Remote Storage" "Lenh 'status' hien thi muc Remote Storage"
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

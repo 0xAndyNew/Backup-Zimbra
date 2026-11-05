@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.6)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.7)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-149%2F149_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-156%2F156_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup-0.3.6-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup-0.3.6-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.6/zimbra-backup_0.3.6-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup_0.3.7-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.6) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.7) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -51,7 +51,7 @@ zimbra-backup
   3) Restore from Backup Job   (Select Configured Job -> Snapshot)
   4) Restore from Custom Dir   (Configure / Scan Other Directory)
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
-  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram, Email)
+  6) Global Settings & Alerts  (Storage, FTP/SFTP, Disk Limits, Alerts)
   7) View Logs
   0) Exit
 ============================================================
@@ -62,14 +62,15 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.6 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.7 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
 | **Interactive TUI Console** | ❌ CLI only | Web Admin GUI | **✅ 1-touch ASCII TUI Menu** |
+| **Remote Storage (FTP / SFTP)** | ❌ External script needed | ⚠️ Custom setup | **✅ Native Port 21/22 automated upload** |
 | **Zero JVM Cold-Start** | ❌ Spawns Java repeatedly | Native Engine | **✅ Cached Token & In-Memory LDAP** |
 | **Non-blocking Worker Pool** | ❌ Sequential execution | Supported | **✅ Concurrent multi-thread pool** |
-| **Email & Telegram Alerts** | ⚠️ Basic or broken | Supported | **✅ Configurable all/failure & Instant Test** |
+| **Email & Telegram Alerts** | ⚠️ Basic or broken | Supported | **✅ Standardized comprehensive metrics** |
 | **UTF-8 Diacritics Preservation** | ⚠️ Often corrupted | ✅ Supported | **✅ RFC 2849 Base64 decoding** |
 | **Password & Global Admin Rights** | ❌ Often missed | ✅ Supported | **✅ SSHA/SHA512 hashes & Admin roles** |
 | **Distribution Lists Backup** | ❌ Omitted | ✅ Supported | **✅ Attributes, Aliases & Members** |
@@ -79,13 +80,28 @@ Select [0-7]:
 
 ---
 
-## 🌟 Key Architecture & Capabilities
+## 🌟 Key Architecture & Capabilities (v0.3.7)
 
-1. **Comprehensive Email & Telegram Alerting Engine**:
+1. **Remote Storage Integration (FTP / SFTP)**:
+   - Automated snapshot replication over **FTP (port 21)** or **SFTP (port 22)** via `curl` immediately after local verification and commit.
+   - Transparent protocol support for standard FTP, explicit FTPS (SSL/TLS), and SFTP over SSH.
+   - **Strict Credential Isolation**: Remote passwords are transferred via ephemeral `0600` config files with `curl -K`, completely hidden from `ps aux` and process listings.
+   - Connection validation utility: `zimbra-backup notify test-ftp` and TUI Option 11 in Menu 6.
+
+2. **Standardized & Comprehensive Notifications (All Jobs)**:
+   - Every backup notification across Telegram and Email reports full operational metrics:
+     ```text
+     [OK] [mail.domain.com] Job 'daily-backup' (INCREMENTAL) completed - 125 accounts, 12.45 GiB
+     Job Name   : daily-backup
+     Backup Mode: INCREMENTAL
+     Accounts   : 125 (new/changed: 118, unchanged: 7)
+     Total Size : 12.45 GiB
+     Duration   : 185s
+     Local Path : /home/backup/incremental/daily-backup/chain-...
+     Remote Storage : OK (SFTP://backup.server.com:22 - in 35s, size: 12.45 GiB)
+     ```
    - Configurable alert trigger levels: `EMAIL_ALERT_LEVEL=all` (delivers email reports for all backup results, including successful backups) or `EMAIL_ALERT_LEVEL=failure` (only sends warnings/failures).
-   - Dedicated notification test commands: `zimbra-backup notify test-email` and `zimbra-backup notify test-telegram` (as well as options `9` and `8` in TUI Menu 7).
-   - Diagnostic logging: captures `stderr` and exit codes from Postfix/sendmail to simplify debugging local MTA routing errors.
-   - Ad-hoc account backups automatically dispatch notification summaries upon completion or failure.
+   - Dedicated notification test commands: `zimbra-backup notify test-email`, `zimbra-backup notify test-telegram`, and `zimbra-backup notify test-ftp`.
 
 1. **Lightweight ASCII TUI & Streamlined First Run**:
    - Automatically initializes global configuration in the background with `/home/backup` as default storage.

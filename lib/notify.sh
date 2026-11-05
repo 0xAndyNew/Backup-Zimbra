@@ -102,6 +102,62 @@ zb_test_telegram() {
     fi
 }
 
+zb_test_ftp() {
+    if [[ -z "${FTP_HOST:-}" || -z "${FTP_USER:-}" ]]; then
+        zb_err "Remote storage is not configured (missing FTP_HOST or FTP_USER)."
+        return 1
+    fi
+    local proto="${FTP_PROTOCOL:-ftp}"
+    local port="${FTP_PORT:-21}"
+    if [[ "$proto" == "sftp" && "$port" == "21" ]]; then
+        port="22"
+    fi
+    zb_info "Testing remote $proto connection to $FTP_HOST:$port (user: $FTP_USER)..."
+
+    local cfg
+    zb_ensure_state_dirs || return 1
+    cfg="$(mktemp "$ZB_RUN_DIR/.ftp_test.XXXXXX")" || return 1
+    chmod 600 "$cfg"
+    # Technical Invariant #2: Hide credentials from process table
+    printf 'user = "%s:%s"\n' "$FTP_USER" "$FTP_PASSWORD" > "$cfg"
+
+    local remote_path="${FTP_REMOTE_DIR:-/}"
+    [[ "$remote_path" == /* ]] || remote_path="/$remote_path"
+    [[ "$remote_path" == */ ]] || remote_path="$remote_path/"
+
+    local -a curl_args=(
+        --fail --silent --show-error
+        --connect-timeout 10 --max-time 30
+        -K "$cfg"
+    )
+
+    local target_url=""
+    if [[ "$proto" == "sftp" ]]; then
+        target_url="sftp://${FTP_HOST}:${port}${remote_path}"
+        curl_args+=(--insecure)
+    else
+        target_url="ftp://${FTP_HOST}:${port}${remote_path}"
+        if [[ "${FTP_SSL:-no}" == "yes" ]]; then
+            curl_args+=(--ssl-reqd --insecure)
+        fi
+    fi
+
+    local curl_out="" curl_rc=0
+    set +e
+    curl_out="$(curl "${curl_args[@]}" "$target_url" 2>&1)"
+    curl_rc=$?
+    set -e
+    rm -f -- "$cfg"
+
+    if (( curl_rc == 0 )); then
+        zb_info "Connection test SUCCESSFUL to $proto://$FTP_HOST:$port$remote_path"
+        return 0
+    else
+        zb_err "Connection test FAILED to $proto://$FTP_HOST:$port (curl exit code=$curl_rc): $curl_out"
+        return 1
+    fi
+}
+
 zb_notify() {
     local status_tag="$1"
     local title="$2"

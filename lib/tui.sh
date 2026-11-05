@@ -1063,6 +1063,128 @@ zb_tui_catalog_menu() {
     done
 }
 
+zb_tui_ftp_menu() {
+    while true; do
+        zb_load_settings || true
+        zb_tui_header "REMOTE STORAGE CONFIGURATION (FTP / SFTP)"
+        local masked_pw="(not set)"
+        if [[ -n "$FTP_PASSWORD" ]]; then
+            masked_pw="********"
+        fi
+        local eff_port="${FTP_PORT:-21}"
+        if [[ "${FTP_PROTOCOL:-ftp}" == "sftp" && "$eff_port" == "21" ]]; then
+            eff_port="22"
+        fi
+        zb_msg "  1) Enable Remote Storage    : $FTP_ENABLED"
+        zb_msg "  2) Protocol                 : $FTP_PROTOCOL (ftp or sftp)"
+        zb_msg "  3) Server Host / IP         : ${FTP_HOST:-(not set)}"
+        zb_msg "  4) Port                     : $eff_port"
+        zb_msg "  5) Remote Directory Path    : ${FTP_REMOTE_DIR:-/}"
+        zb_msg "  6) Username                 : ${FTP_USER:-(not set)}"
+        zb_msg "  7) Password                 : $masked_pw"
+        zb_msg "  8) FTPS (SSL encryption)    : $FTP_SSL (for port 21 ftp only)"
+        zb_msg "  9) Test connection now"
+        zb_msg "  0) Back to Global Settings"
+        zb_msg ""
+        local c=""
+        read -r -p "Select [0-9]: " c || return 0
+        case "$(zb_trim "$c")" in
+            1)
+                FTP_ENABLED="$(zb_tui_prompt_yesno "Enable Remote Storage upload?" "$FTP_ENABLED")"
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
+                zb_pause
+                ;;
+            2)
+                zb_msg ""
+                zb_msg "Select protocol:"
+                zb_msg "  1) ftp  - Standard File Transfer Protocol (default port 21, optional FTPS SSL)"
+                zb_msg "  2) sftp - SSH File Transfer Protocol (default port 22 over SSH)"
+                local p_choice
+                local def_ch="1"
+                [[ "$FTP_PROTOCOL" == "sftp" ]] && def_ch="2"
+                p_choice="$(zb_tui_prompt_default "Select protocol [1-2]" "$def_ch")"
+                if [[ "$p_choice" == "2" ]]; then
+                    FTP_PROTOCOL="sftp"
+                    if [[ "$FTP_PORT" == "21" || -z "$FTP_PORT" ]]; then
+                        FTP_PORT="22"
+                    fi
+                else
+                    FTP_PROTOCOL="ftp"
+                    if [[ "$FTP_PORT" == "22" || -z "$FTP_PORT" ]]; then
+                        FTP_PORT="21"
+                    fi
+                fi
+                if zb_save_settings; then
+                    zb_info "Saved (protocol: $FTP_PROTOCOL, port: $FTP_PORT)."
+                fi
+                zb_pause
+                ;;
+            3)
+                FTP_HOST="$(zb_tui_prompt_default "Server Hostname or IP" "$FTP_HOST")"
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
+                zb_pause
+                ;;
+            4)
+                FTP_PORT="$(zb_tui_prompt_default "Port (1-65535)" "$eff_port")"
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
+                zb_pause
+                ;;
+            5)
+                FTP_REMOTE_DIR="$(zb_tui_prompt_default "Remote directory path on server" "${FTP_REMOTE_DIR:-/}")"
+                [[ "$FTP_REMOTE_DIR" == /* ]] || FTP_REMOTE_DIR="/$FTP_REMOTE_DIR"
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
+                zb_pause
+                ;;
+            6)
+                FTP_USER="$(zb_tui_prompt_default "FTP/SFTP Username" "$FTP_USER")"
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
+                zb_pause
+                ;;
+            7)
+                local pw_in=""
+                if [[ -t 0 ]]; then
+                    read -r -s -p "Enter FTP/SFTP Password (hidden): " pw_in || true
+                    printf '\n'
+                else
+                    read -r pw_in || true
+                fi
+                pw_in="$(zb_trim "$pw_in")"
+                if [[ -n "$pw_in" ]]; then
+                    FTP_PASSWORD="$pw_in"
+                    if zb_save_settings; then
+                        zb_info "Password updated."
+                    fi
+                else
+                    zb_info "Password unchanged."
+                fi
+                zb_pause
+                ;;
+            8)
+                FTP_SSL="$(zb_tui_prompt_yesno "Require FTPS SSL encryption on port 21?" "$FTP_SSL")"
+                if zb_save_settings; then
+                    zb_info "Saved."
+                fi
+                zb_pause
+                ;;
+            9)
+                zb_test_ftp || true
+                zb_pause
+                ;;
+            0) return 0 ;;
+        esac
+    done
+}
+
 zb_tui_settings_menu() {
     while true; do
         zb_load_settings || true
@@ -1074,12 +1196,14 @@ zb_tui_settings_menu() {
         zb_msg "  5) Server label (alerts)    : ${HOST_LABEL:-(auto: $(zb_host_label))}"
         zb_msg "  6) Telegram Bot alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
         zb_msg "  7) Email alerts             : $EMAIL_ALERT_ENABLED [${EMAIL_ALERT_LEVEL}] ${EMAIL_ALERT_TO:+($EMAIL_ALERT_TO)}"
-        zb_msg "  8) Send test Telegram alert"
-        zb_msg "  9) Send test Email alert"
+        zb_msg "  8) Remote FTP / SFTP Storage: $FTP_ENABLED ${FTP_HOST:+[${FTP_PROTOCOL}://${FTP_HOST}:${FTP_PORT}]}"
+        zb_msg "  9) Send test Telegram alert"
+        zb_msg " 10) Send test Email alert"
+        zb_msg " 11) Test Remote Storage connection"
         zb_msg "  0) Back to main menu"
         zb_msg ""
         local c=""
-        read -r -p "Select [0-9]: " c || return 0
+        read -r -p "Select [0-11]: " c || return 0
         case "$(zb_trim "$c")" in
             1)
                 DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "Default job backup directory" "$DEFAULT_BACKUP_DIR")"
@@ -1164,11 +1288,18 @@ zb_tui_settings_menu() {
                 zb_pause
                 ;;
             8)
+                zb_tui_ftp_menu
+                ;;
+            9)
                 zb_test_telegram || true
                 zb_pause
                 ;;
-            9)
+            10)
                 zb_test_email || true
+                zb_pause
+                ;;
+            11)
+                zb_test_ftp || true
                 zb_pause
                 ;;
             0) return 0 ;;

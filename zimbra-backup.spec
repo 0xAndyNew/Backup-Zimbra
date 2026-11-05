@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.6
+Version:        0.3.7
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,12 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Thu Nov 05 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.7-1
+- Add remote FTP and SFTP storage integration supporting port 21 and port 22 via curl -K
+- Add dedicated Remote Storage configuration submenu in Menu 6 (Global Settings)
+- Add 'notify test-ftp' CLI and TUI command for testing remote storage connectivity
+- Standardize and enhance backup notifications across all jobs to report Job Name, Mode (FULL/INCREMENTAL), Accounts count, Total Size, Duration, and Remote FTP status
+
 * Wed Nov 04 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.6-1
 - Add EMAIL_ALERT_LEVEL setting ('all' vs 'failure') to support email notifications on successful backups
 - Capture stderr and detailed exit codes on sendmail execution for improved mail delivery troubleshooting

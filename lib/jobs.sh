@@ -482,11 +482,19 @@ zb_cli_init() {
             --host-label) HOST_LABEL="${2-}"; shift 2 ;;
             --telegram-enabled) TELEGRAM_ENABLED="${2-}"; shift 2 ;;
             --telegram-token) TELEGRAM_TOKEN="${2-}"; shift 2 ;;
-            --telegram-chat) TELEGRAM_CHAT_ID="${2-}"; shift 2 ;;
-            --telegram-thread) TELEGRAM_THREAD_ID="${2-}"; shift 2 ;;
+            --telegram-chat|--telegram-chat-id) TELEGRAM_CHAT_ID="${2-}"; shift 2 ;;
+            --telegram-thread|--telegram-thread-id) TELEGRAM_THREAD_ID="${2-}"; shift 2 ;;
             --email-enabled) EMAIL_ALERT_ENABLED="${2-}"; shift 2 ;;
             --email-to) EMAIL_ALERT_TO="${2-}"; shift 2 ;;
             --email-level) EMAIL_ALERT_LEVEL="${2-}"; shift 2 ;;
+            --ftp-enabled) FTP_ENABLED="${2-}"; shift 2 ;;
+            --ftp-protocol) FTP_PROTOCOL="${2-}"; shift 2 ;;
+            --ftp-host) FTP_HOST="${2-}"; shift 2 ;;
+            --ftp-port) FTP_PORT="${2-}"; shift 2 ;;
+            --ftp-user) FTP_USER="${2-}"; shift 2 ;;
+            --ftp-password|--ftp-pass) FTP_PASSWORD="${2-}"; shift 2 ;;
+            --ftp-dir|--ftp-remote-dir) FTP_REMOTE_DIR="${2-}"; shift 2 ;;
+            --ftp-ssl) FTP_SSL="${2-}"; shift 2 ;;
             --create-dir) create_dir="yes"; shift ;;
             *) zb_err "Unknown init option: $1"; return 1 ;;
         esac

@@ -2,7 +2,7 @@
 # Core utilities, configuration parser, privilege switching, locking, and storage guards.
 # Compatible with Bash 4.2+ (CentOS/RHEL 7, 8, 9).
 
-ZB_VERSION="0.3.6"
+ZB_VERSION="0.3.7"
 ZB_STATE_DIR="${ZB_STATE_DIR:-/var/lib/zimbra-backup}"
 ZB_SETTINGS_FILE="$ZB_STATE_DIR/settings.conf"
 ZB_JOBS_DIR="$ZB_STATE_DIR/jobs"
@@ -32,6 +32,14 @@ EMAIL_ALERT_ENABLED="no"
 EMAIL_ALERT_TO=""
 EMAIL_ALERT_LEVEL="all"
 HOST_LABEL=""
+FTP_ENABLED="no"
+FTP_PROTOCOL="ftp"
+FTP_HOST=""
+FTP_PORT="21"
+FTP_USER=""
+FTP_PASSWORD=""
+FTP_REMOTE_DIR="/"
+FTP_SSL="no"
 
 ZB_CURRENT_LOG=""
 ZB_LOCK_ACQUIRED=0
@@ -264,6 +272,14 @@ zb_reset_settings_defaults() {
     EMAIL_ALERT_TO=""
     EMAIL_ALERT_LEVEL="all"
     HOST_LABEL=""
+    FTP_ENABLED="no"
+    FTP_PROTOCOL="ftp"
+    FTP_HOST=""
+    FTP_PORT="21"
+    FTP_USER=""
+    FTP_PASSWORD=""
+    FTP_REMOTE_DIR="/"
+    FTP_SSL="no"
 }
 
 zb_validate_settings() {
@@ -290,6 +306,19 @@ zb_validate_settings() {
         [[ -n "$EMAIL_ALERT_TO" ]] || { zb_err "EMAIL_ALERT_ENABLED=yes requires EMAIL_ALERT_TO"; return 1; }
     fi
     [[ "$HOST_LABEL" =~ ^[A-Za-z0-9._-]*$ ]] || { zb_err "HOST_LABEL only allows letters, digits, dots, underscores, and hyphens"; return 1; }
+    [[ "$FTP_ENABLED" == "yes" || "$FTP_ENABLED" == "no" ]] || { zb_err "FTP_ENABLED must be yes or no"; return 1; }
+    [[ "$FTP_PROTOCOL" == "ftp" || "$FTP_PROTOCOL" == "sftp" ]] || { zb_err "FTP_PROTOCOL must be ftp or sftp"; return 1; }
+    [[ "$FTP_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$FTP_PORT >= 1 && 10#$FTP_PORT <= 65535 )) || { zb_err "FTP_PORT must be between 1 and 65535"; return 1; }
+    [[ "$FTP_SSL" == "yes" || "$FTP_SSL" == "no" ]] || { zb_err "FTP_SSL must be yes or no"; return 1; }
+    [[ "$FTP_PASSWORD" != *$'\n'* && "$FTP_PASSWORD" != *$'\r'* ]] || { zb_err "FTP_PASSWORD cannot contain newlines"; return 1; }
+    if [[ "$FTP_ENABLED" == "yes" ]]; then
+        [[ -n "$FTP_HOST" ]] || { zb_err "FTP_ENABLED=yes requires FTP_HOST"; return 1; }
+        [[ "$FTP_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { zb_err "FTP_HOST contains invalid characters"; return 1; }
+        [[ -n "$FTP_USER" ]] || { zb_err "FTP_ENABLED=yes requires FTP_USER"; return 1; }
+        [[ "$FTP_USER" =~ ^[A-Za-z0-9._%@+-]+$ ]] || { zb_err "FTP_USER contains invalid characters"; return 1; }
+        [[ -n "$FTP_REMOTE_DIR" ]] || { zb_err "FTP_ENABLED=yes requires FTP_REMOTE_DIR"; return 1; }
+        [[ "$FTP_REMOTE_DIR" =~ ^[A-Za-z0-9._/-]+$ ]] || { zb_err "FTP_REMOTE_DIR contains invalid characters"; return 1; }
+    fi
     return 0
 }
 
@@ -312,7 +341,7 @@ zb_load_settings() {
         case "$key" in
             DEFAULT_BACKUP_DIR) DEFAULT_BACKUP_DIR="$value" ;;
             STORE_ROOT) DEFAULT_BACKUP_DIR="$value" ;; # legacy key alias
-            CUSTOM_RESTORE_DIR|REQUIRE_MOUNTPOINT|DISK_WARN_PERCENT|DISK_MIN_FREE_MB|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|EMAIL_ALERT_ENABLED|EMAIL_ALERT_TO|EMAIL_ALERT_LEVEL|HOST_LABEL)
+            CUSTOM_RESTORE_DIR|REQUIRE_MOUNTPOINT|DISK_WARN_PERCENT|DISK_MIN_FREE_MB|TELEGRAM_ENABLED|TELEGRAM_TOKEN|TELEGRAM_CHAT_ID|TELEGRAM_THREAD_ID|EMAIL_ALERT_ENABLED|EMAIL_ALERT_TO|EMAIL_ALERT_LEVEL|HOST_LABEL|FTP_ENABLED|FTP_PROTOCOL|FTP_HOST|FTP_PORT|FTP_USER|FTP_PASSWORD|FTP_REMOTE_DIR|FTP_SSL)
                 printf -v "$key" '%s' "$value"
                 ;;
             KEEP_FULL_COUNT|FULL_SCHEDULE|FULL_DAY|FULL_HOUR|FULL_MINUTE)
@@ -347,6 +376,14 @@ zb_save_settings() {
         printf 'EMAIL_ALERT_TO=%s\n' "$EMAIL_ALERT_TO"
         printf 'EMAIL_ALERT_LEVEL=%s\n' "$EMAIL_ALERT_LEVEL"
         printf 'HOST_LABEL=%s\n' "$HOST_LABEL"
+        printf 'FTP_ENABLED=%s\n' "$FTP_ENABLED"
+        printf 'FTP_PROTOCOL=%s\n' "$FTP_PROTOCOL"
+        printf 'FTP_HOST=%s\n' "$FTP_HOST"
+        printf 'FTP_PORT=%s\n' "$FTP_PORT"
+        printf 'FTP_USER=%s\n' "$FTP_USER"
+        printf 'FTP_PASSWORD=%s\n' "$FTP_PASSWORD"
+        printf 'FTP_REMOTE_DIR=%s\n' "$FTP_REMOTE_DIR"
+        printf 'FTP_SSL=%s\n' "$FTP_SSL"
     } > "$tmp"
     chmod 600 "$tmp"
     mv -f -- "$tmp" "$ZB_SETTINGS_FILE"

@@ -672,6 +672,129 @@ zb_export_mailboxes_parallel() {
     return 0
 }
 
+# Upload snapshot to remote FTP / SFTP storage (if enabled)
+TRANSFER_STATUS=""
+TRANSFER_BYTES=0
+TRANSFER_DURATION=0
+TRANSFER_ERROR=""
+
+zb_upload_snapshot() {
+    local snap_dir="$1"
+    local job_id="$2"
+    local step_type="$3"
+    local chain_sub="${4:-}"
+
+    TRANSFER_STATUS="failed"
+    TRANSFER_BYTES=0
+    TRANSFER_DURATION=0
+    TRANSFER_ERROR=""
+
+    if [[ "${FTP_ENABLED:-no}" != "yes" ]]; then
+        TRANSFER_STATUS="disabled"
+        return 0
+    fi
+
+    if [[ -z "${FTP_HOST:-}" || -z "${FTP_USER:-}" ]]; then
+        TRANSFER_ERROR="FTP_HOST or FTP_USER not configured"
+        zb_log "WARNING: Remote storage upload skipped: $TRANSFER_ERROR"
+        return 1
+    fi
+
+    local snap_leaf="${snap_dir##*/}"
+    local proto="${FTP_PROTOCOL:-ftp}"
+    local port="${FTP_PORT:-21}"
+    if [[ "$proto" == "sftp" && "$port" == "21" ]]; then
+        port="22"
+    fi
+
+    local rel_path=""
+    if [[ "$job_id" == "account" ]]; then
+        rel_path="account/${snap_leaf}"
+    elif [[ "$step_type" == "incremental" && -n "$chain_sub" ]]; then
+        rel_path="incremental/${job_id}/${chain_sub}/${snap_leaf}"
+    elif [[ "$step_type" == "incremental" ]]; then
+        rel_path="incremental/${job_id}/${snap_leaf}"
+    else
+        rel_path="full/${job_id}/${snap_leaf}"
+    fi
+
+    local remote_base="${FTP_REMOTE_DIR:-/}"
+    [[ "$remote_base" == /* ]] || remote_base="/$remote_base"
+    remote_base="${remote_base%/}"
+
+    local remote_dir="${remote_base}/${rel_path%/*}"
+    [[ "$remote_dir" == */ ]] || remote_dir="$remote_dir/"
+
+    local tar_name="${snap_leaf}.tar"
+    local manifest_name="${snap_leaf}.manifest"
+
+    local snap_bytes=0
+    snap_bytes="$(zb_calc_dir_bytes "$snap_dir")"
+    TRANSFER_BYTES="$snap_bytes"
+
+    local cfg
+    zb_ensure_state_dirs || return 1
+    cfg="$(mktemp "$ZB_RUN_DIR/.ftp_up.XXXXXX")" || return 1
+    chmod 600 "$cfg"
+    printf 'user = "%s:%s"\n' "$FTP_USER" "$FTP_PASSWORD" > "$cfg"
+
+    local -a curl_args=(
+        --fail --silent --show-error
+        --connect-timeout 15 --max-time 14400
+        --ftp-create-dirs
+        -K "$cfg"
+    )
+
+    local base_url=""
+    if [[ "$proto" == "sftp" ]]; then
+        base_url="sftp://${FTP_HOST}:${port}"
+        curl_args+=(--insecure)
+    else
+        base_url="ftp://${FTP_HOST}:${port}"
+        if [[ "${FTP_SSL:-no}" == "yes" ]]; then
+            curl_args+=(--ssl-reqd --insecure)
+        fi
+    fi
+
+    local target_tar_url="${base_url}${remote_dir}${tar_name}"
+    local target_mf_url="${base_url}${remote_dir}${manifest_name}"
+
+    zb_log "Streaming snapshot archive via $proto ($port) to: $target_tar_url (~$(zb_human_bytes "$snap_bytes"))"
+    local up_start up_end up_rc=0 up_err=""
+    up_start="$(date +%s)"
+
+    local err_file="$ZB_RUN_DIR/.ftp_err.$$.log"
+    set +e
+    (
+        tar -cf - -C "$snap_dir" . | curl "${curl_args[@]}" -T - "$target_tar_url"
+    ) 2>"$err_file"
+    up_rc=$?
+    if (( up_rc == 0 )) && [[ -f "$snap_dir/manifest" ]]; then
+        curl "${curl_args[@]}" -T "$snap_dir/manifest" "$target_mf_url" >/dev/null 2>&1 || true
+    fi
+    set -e
+
+    up_end="$(date +%s)"
+    TRANSFER_DURATION=$((up_end - up_start))
+
+    if [[ -f "$err_file" ]]; then
+        up_err="$(head -n 5 "$err_file" | tr '\n' ' ')"
+        rm -f -- "$err_file"
+    fi
+    rm -f -- "$cfg"
+
+    if (( up_rc == 0 )); then
+        TRANSFER_STATUS="ok"
+        zb_log "Remote upload SUCCESS: $(zb_human_bytes "$snap_bytes") streamed in ${TRANSFER_DURATION}s"
+        return 0
+    else
+        TRANSFER_STATUS="failed"
+        TRANSFER_ERROR="Upload failed (exit code=$up_rc): ${up_err:-Transfer interrupted}"
+        zb_log "ERROR: Remote upload to $proto://$FTP_HOST:$port failed: $TRANSFER_ERROR"
+        return 1
+    fi
+}
+
 # Run a configured job in an isolated subshell so lock FD & tee stdout close cleanly when returning to TUI.
 zb_run_job() (
     local job_id="$1"
@@ -798,9 +921,13 @@ zb_run_job() (
     fi
 
     if [[ -n "$fail_reason" ]]; then
-        zb_log "ERROR: Backup Job '$JOB_ID' failed: $fail_reason"
-        zb_notify "error" "Backup Job '$JOB_ID' FAILED" "Reason: ${fail_reason}
-Log: ${ZB_CURRENT_LOG}"
+        zb_log "ERROR: Backup Job '$JOB_ID' (${step_type^^}) failed: $fail_reason"
+        zb_notify "error" "Job '${JOB_NAME:-$JOB_ID}' (${step_type^^}) FAILED" \
+"Job Name   : ${JOB_NAME:-$JOB_ID}
+Backup Mode: ${step_type^^}
+Status     : FAILED
+Reason     : ${fail_reason}
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
 
@@ -815,17 +942,45 @@ Log: ${ZB_CURRENT_LOG}"
 
     local human_sz
     human_sz="$(zb_human_bytes "${MF_TOTAL_BYTES:-0}")"
+
+    # Remote FTP / SFTP upload hook (if enabled)
+    local ftp_line=""
+    local notify_tag="ok"
+    if [[ "${FTP_ENABLED:-no}" == "yes" ]]; then
+        local chain_sub=""
+        [[ "$step_type" == "incremental" ]] && chain_sub="${chain_id}"
+        if zb_upload_snapshot "$final_dir" "$JOB_ID" "$step_type" "$chain_sub"; then
+            ftp_line="Remote Storage : OK (${FTP_PROTOCOL^^}://${FTP_HOST}:${FTP_PORT} - in ${TRANSFER_DURATION}s)"
+        else
+            ftp_line="Remote Storage : FAILED (${TRANSFER_ERROR})"
+            notify_tag="warn"
+        fi
+    fi
+
     zb_log "============================================================"
     zb_log "COMPLETED JOB '$JOB_ID' (${step_type^^}) | Accounts: ${MF_ACCOUNTS_COUNT} | Size: ${human_sz} | Duration: ${duration_sec}s"
     zb_log "Location: $final_dir"
+    [[ -n "$ftp_line" ]] && zb_log "$ftp_line"
     zb_log "============================================================"
 
-    zb_notify "ok" "Backup Job '$JOB_ID' (${step_type^^}) succeeded" \
-"Backup ID: ${backup_id}
-Accounts: ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT}, unchanged: ${MF_EMPTY_DELTA_COUNT})
-Size: ${human_sz}
-Duration: ${duration_sec}s
-Path: ${final_dir}"
+    local notify_title="Job '${JOB_NAME:-$JOB_ID}' (${step_type^^}) completed - ${MF_ACCOUNTS_COUNT} accounts, ${human_sz}"
+    if [[ "$notify_tag" == "warn" ]]; then
+        notify_title="Job '${JOB_NAME:-$JOB_ID}' (${step_type^^}) completed (remote upload failed)"
+    fi
+
+    local notify_body="Job Name   : ${JOB_NAME:-$JOB_ID}
+Backup Mode: ${step_type^^}
+Accounts   : ${MF_ACCOUNTS_COUNT} (new/changed: ${MF_ARCHIVES_COUNT}, unchanged: ${MF_EMPTY_DELTA_COUNT})
+Total Size : ${human_sz}
+Duration   : ${duration_sec}s
+Local Path : ${final_dir}"
+
+    if [[ -n "$ftp_line" ]]; then
+        notify_body="${notify_body}
+${ftp_line}"
+    fi
+
+    zb_notify "$notify_tag" "$notify_title" "$notify_body"
     return 0
 )
 
@@ -904,11 +1059,21 @@ zb_run_adhoc_users() (
     mkdir -p -m 700 -- "$stage_dir"
     zb_log "Starting ad-hoc Full backup for account(s): $emails_csv"
     if ! zb_export_metadata_stage "$stage_dir" "accounts" "$emails_csv"; then
-        zb_notify "error" "Ad-hoc backup failed for account(s): $emails_csv" "Metadata export failed. Log: $ZB_CURRENT_LOG"
+        zb_notify "error" "Ad-hoc account backup FAILED for: $emails_csv" \
+"Job Name   : adhoc-account
+Backup Mode: FULL
+Status     : FAILED
+Reason     : Metadata export failed
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
     if ! zb_export_mailboxes_parallel "$stage_dir" "full" "0" "2"; then
-        zb_notify "error" "Ad-hoc backup failed for account(s): $emails_csv" "Mailbox export failed. Log: $ZB_CURRENT_LOG"
+        zb_notify "error" "Ad-hoc account backup FAILED for: $emails_csv" \
+"Job Name   : adhoc-account
+Backup Mode: FULL
+Status     : FAILED
+Reason     : Mailbox export failed
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
     zb_write_manifest "$stage_dir" "$backup_id" "account" "full" "standalone" "0" "none" "0" "$cp_to"
@@ -918,12 +1083,39 @@ zb_run_adhoc_users() (
     zb_read_manifest_meta "$final_dir/manifest" || true
     local human_sz
     human_sz="$(zb_human_bytes "${MF_TOTAL_BYTES:-0}")"
+
+    # Remote FTP / SFTP upload hook (if enabled)
+    local ftp_line=""
+    local notify_tag="ok"
+    if [[ "${FTP_ENABLED:-no}" == "yes" ]]; then
+        if zb_upload_snapshot "$final_dir" "account" "full"; then
+            ftp_line="Remote Storage : OK (${FTP_PROTOCOL^^}://${FTP_HOST}:${FTP_PORT} - in ${TRANSFER_DURATION}s)"
+        else
+            ftp_line="Remote Storage : FAILED (${TRANSFER_ERROR})"
+            notify_tag="warn"
+        fi
+    fi
+
     zb_log "Completed ad-hoc account backup at: $final_dir (Size: $human_sz)"
-    zb_notify "ok" "Ad-hoc account backup succeeded" \
-"Backup ID: ${backup_id}
-Accounts: ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT})
-Size: ${human_sz}
-Path: ${final_dir}"
+    [[ -n "$ftp_line" ]] && zb_log "$ftp_line"
+
+    local notify_title="Ad-hoc account backup succeeded - ${MF_ACCOUNTS_COUNT} accounts, ${human_sz}"
+    if [[ "$notify_tag" == "warn" ]]; then
+        notify_title="Ad-hoc account backup succeeded (remote upload failed)"
+    fi
+
+    local notify_body="Job Name   : adhoc-account
+Backup Mode: FULL
+Accounts   : ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT})
+Total Size : ${human_sz}
+Local Path : ${final_dir}"
+
+    if [[ -n "$ftp_line" ]]; then
+        notify_body="${notify_body}
+${ftp_line}"
+    fi
+
+    zb_notify "$notify_tag" "$notify_title" "$notify_body"
     return 0
 )
 
