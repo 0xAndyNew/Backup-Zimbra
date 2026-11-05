@@ -689,7 +689,8 @@ zb_upload_snapshot() {
     TRANSFER_DURATION=0
     TRANSFER_ERROR=""
 
-    if [[ "${FTP_ENABLED:-no}" != "yes" ]]; then
+    local upload_enabled="${FTP_UPLOAD:-${FTP_ENABLED:-no}}"
+    if [[ "$upload_enabled" != "yes" ]]; then
         TRANSFER_STATUS="disabled"
         return 0
     fi
@@ -710,7 +711,7 @@ zb_upload_snapshot() {
     local rel_path=""
     if [[ "$job_id" == "account" ]]; then
         rel_path="account/${snap_leaf}"
-    elif [[ "$step_type" == "incremental" && -n "$chain_sub" ]]; then
+    elif [[ -n "$chain_sub" && "$chain_sub" != "standalone" ]]; then
         rel_path="incremental/${job_id}/${chain_sub}/${snap_leaf}"
     elif [[ "$step_type" == "incremental" ]]; then
         rel_path="incremental/${job_id}/${snap_leaf}"
@@ -793,6 +794,164 @@ zb_upload_snapshot() {
         zb_log "ERROR: Remote upload to $proto://$FTP_HOST:$port failed: $TRANSFER_ERROR"
         return 1
     fi
+}
+
+# Automatically prune old remote .tar and .manifest files on FTP/SFTP server according to FTP_KEEP_COUNT.
+# Completely independent of local KEEP_COUNT; preserves all local backups untouched.
+zb_prune_remote_storage() {
+    local job_id="$1"
+    local btype="$2"
+    local chain_sub="${3:-}"
+    local keep="${4:-7}"
+
+    local upload_enabled="${FTP_UPLOAD:-${FTP_ENABLED:-no}}"
+    if [[ "$upload_enabled" != "yes" ]]; then
+        return 0
+    fi
+    if [[ -z "${FTP_HOST:-}" || -z "${FTP_USER:-}" ]]; then
+        return 0
+    fi
+    [[ "$keep" =~ ^[0-9]+$ ]] && (( keep >= 1 )) || keep=7
+
+    local proto="${FTP_PROTOCOL:-ftp}"
+    local port="${FTP_PORT:-21}"
+    if [[ "$proto" == "sftp" && "$port" == "21" ]]; then
+        port="22"
+    fi
+
+    local remote_base="${FTP_REMOTE_DIR:-/}"
+    [[ "$remote_base" == /* ]] || remote_base="/$remote_base"
+    remote_base="${remote_base%/}"
+
+    local cfg
+    zb_ensure_state_dirs || return 1
+    cfg="$(mktemp "$ZB_RUN_DIR/.ftp_prune.XXXXXX")" || return 1
+    chmod 600 "$cfg"
+    printf 'user = "%s:%s"\n' "$FTP_USER" "$FTP_PASSWORD" > "$cfg"
+
+    local -a curl_base=(
+        --fail --silent --show-error
+        --connect-timeout 15 --max-time 120
+        -K "$cfg"
+    )
+
+    local base_url=""
+    if [[ "$proto" == "sftp" ]]; then
+        base_url="sftp://${FTP_HOST}:${port}"
+        curl_base+=(--insecure)
+    else
+        base_url="ftp://${FTP_HOST}:${port}"
+        if [[ "${FTP_SSL:-no}" == "yes" ]]; then
+            curl_base+=(--ssl-reqd --insecure)
+        fi
+    fi
+
+    local target_dir=""
+    if [[ "$job_id" == "account" ]]; then
+        target_dir="${remote_base}/account/"
+    elif [[ "$btype" == "incremental" ]]; then
+        target_dir="${remote_base}/incremental/${job_id}/"
+    else
+        target_dir="${remote_base}/full/${job_id}/"
+    fi
+
+    # Query existing entries on remote server
+    local list_raw
+    list_raw="$(curl "${curl_base[@]}" --list-only "${base_url}${target_dir}" 2>/dev/null || true)"
+    if [[ -z "$list_raw" ]]; then
+        rm -f -- "$cfg"
+        return 0
+    fi
+
+    if [[ "$btype" == "incremental" && -n "$chain_sub" && "$chain_sub" != "standalone" ]]; then
+        local -a chain_items=()
+        local line
+        while IFS= read -r line; do
+            line="$(zb_trim "$line")"
+            line="${line##*/}"
+            if [[ "$line" == chain-* ]]; then
+                chain_items+=("$line")
+            fi
+        done <<< "$list_raw"
+
+        local -a sorted_chains=()
+        if (( ${#chain_items[@]} > 0 )); then
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && sorted_chains+=("$line")
+            done < <(printf '%s\n' "${chain_items[@]}" | LC_ALL=C sort)
+        fi
+
+        local total_chains="${#sorted_chains[@]}"
+        if (( total_chains > keep )); then
+            local remove_cnt=$((total_chains - keep))
+            local i=0
+            while (( i < remove_cnt )); do
+                local victim_chain="${sorted_chains[$i]}"
+                local chain_dir="${target_dir}${victim_chain}/"
+                local cfiles_raw
+                cfiles_raw="$(curl "${curl_base[@]}" --list-only "${base_url}${chain_dir}" 2>/dev/null || true)"
+                if [[ -n "$cfiles_raw" ]]; then
+                    local f
+                    while IFS= read -r f; do
+                        f="$(zb_trim "$f")"
+                        f="${f##*/}"
+                        [[ -n "$f" ]] || continue
+                        if [[ "$proto" == "sftp" ]]; then
+                            curl "${curl_base[@]}" -Q "rm ${chain_dir}${f}" "${base_url}/" >/dev/null 2>&1 || true
+                        else
+                            curl "${curl_base[@]}" -Q "DELE ${chain_dir}${f}" "${base_url}/" >/dev/null 2>&1 || true
+                        fi
+                    done <<< "$cfiles_raw"
+                fi
+                if [[ "$proto" == "sftp" ]]; then
+                    curl "${curl_base[@]}" -Q "rmdir ${target_dir}${victim_chain}" "${base_url}/" >/dev/null 2>&1 || true
+                else
+                    curl "${curl_base[@]}" -Q "RMD ${target_dir}${victim_chain}" "${base_url}/" >/dev/null 2>&1 || true
+                fi
+                zb_log "[FTP] Pruned expired remote chain: ${victim_chain} (retained ${keep} remote chains)"
+                i=$((i + 1))
+            done
+        fi
+    else
+        local -a tar_items=()
+        local line
+        while IFS= read -r line; do
+            line="$(zb_trim "$line")"
+            line="${line##*/}"
+            if [[ "$line" == *.tar ]]; then
+                tar_items+=("$line")
+            fi
+        done <<< "$list_raw"
+
+        local -a sorted_tars=()
+        if (( ${#tar_items[@]} > 0 )); then
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && sorted_tars+=("$line")
+            done < <(printf '%s\n' "${tar_items[@]}" | LC_ALL=C sort)
+        fi
+
+        local total_tars="${#sorted_tars[@]}"
+        if (( total_tars > keep )); then
+            local remove_cnt=$((total_tars - keep))
+            local i=0
+            while (( i < remove_cnt )); do
+                local victim_tar="${sorted_tars[$i]}"
+                local victim_stem="${victim_tar%.tar}"
+                if [[ "$proto" == "sftp" ]]; then
+                    curl "${curl_base[@]}" -Q "rm ${target_dir}${victim_tar}" "${base_url}/" >/dev/null 2>&1 || true
+                    curl "${curl_base[@]}" -Q "rm ${target_dir}${victim_stem}.manifest" "${base_url}/" >/dev/null 2>&1 || true
+                else
+                    curl "${curl_base[@]}" -Q "DELE ${target_dir}${victim_tar}" "${base_url}/" >/dev/null 2>&1 || true
+                    curl "${curl_base[@]}" -Q "DELE ${target_dir}${victim_stem}.manifest" "${base_url}/" >/dev/null 2>&1 || true
+                fi
+                zb_log "[FTP] Pruned expired remote archive: ${victim_tar} (retained ${keep} remote archives)"
+                i=$((i + 1))
+            done
+        fi
+    fi
+
+    rm -f -- "$cfg"
+    return 0
 }
 
 # Run a configured job in an isolated subshell so lock FD & tee stdout close cleanly when returning to TUI.
@@ -943,14 +1102,19 @@ Log File   : ${ZB_CURRENT_LOG}"
     local human_sz
     human_sz="$(zb_human_bytes "${MF_TOTAL_BYTES:-0}")"
 
-    # Remote FTP / SFTP upload hook (if enabled)
+    # Remote FTP / SFTP upload hook (if enabled for this job)
     local ftp_line=""
     local notify_tag="ok"
-    if [[ "${FTP_ENABLED:-no}" == "yes" ]]; then
+    local job_ftp_enabled="${FTP_UPLOAD:-${FTP_ENABLED:-no}}"
+    if [[ "$job_ftp_enabled" == "yes" ]]; then
         local chain_sub=""
-        [[ "$step_type" == "incremental" ]] && chain_sub="${chain_id}"
+        if [[ "$BACKUP_TYPE" == "incremental" ]]; then
+            chain_sub="${chain_id}"
+        fi
         if zb_upload_snapshot "$final_dir" "$JOB_ID" "$step_type" "$chain_sub"; then
-            ftp_line="Remote Storage : OK (${FTP_PROTOCOL^^}://${FTP_HOST}:${FTP_PORT} - in ${TRANSFER_DURATION}s)"
+            local ftp_keep="${FTP_KEEP_COUNT:-7}"
+            zb_prune_remote_storage "$JOB_ID" "$BACKUP_TYPE" "$chain_sub" "$ftp_keep" || true
+            ftp_line="Remote Storage : OK (${FTP_PROTOCOL^^}://${FTP_HOST}:${FTP_PORT} - in ${TRANSFER_DURATION}s | Retained: ${ftp_keep} remote)"
         else
             ftp_line="Remote Storage : FAILED (${TRANSFER_ERROR})"
             notify_tag="warn"

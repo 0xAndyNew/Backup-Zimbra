@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.7)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.8)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup_0.3.7-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup_0.3.8-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.7) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.8) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -51,7 +51,7 @@ zimbra-backup
   3) Restore from Backup Job   (Select Configured Job -> Snapshot)
   4) Restore from Custom Dir   (Configure / Scan Other Directory)
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
-  6) Global Settings & Alerts  (Storage, FTP/SFTP, Disk Limits, Alerts)
+  6) Global Settings & Alerts  (Storage, Disk Limits, Alerts)
   7) View Logs
   0) Exit
 ============================================================
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.7 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.8 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -80,28 +80,23 @@ Select [0-7]:
 
 ---
 
-## 🌟 Key Architecture & Capabilities (v0.3.7)
+## 🌟 Key Architecture & Capabilities (v0.3.8)
 
-1. **Remote Storage Integration (FTP / SFTP)**:
-   - Automated snapshot replication over **FTP (port 21)** or **SFTP (port 22)** via `curl` immediately after local verification and commit.
-   - Transparent protocol support for standard FTP, explicit FTPS (SSL/TLS), and SFTP over SSH.
+1. **Per-Job Remote Storage Configuration (FTP / SFTP)**:
+   - Configured independently per job: choose whether each individual job replicates offsite (`[y/N]`), target remote server, port, credentials, and distinct remote directory (`/<job_id>`).
+   - Seamless protocol support for standard FTP, explicit FTPS (SSL/TLS on port 21), and SFTP over SSH (port 22) powered by native `curl`.
    - **Strict Credential Isolation**: Remote passwords are transferred via ephemeral `0600` config files with `curl -K`, completely hidden from `ps aux` and process listings.
-   - Connection validation utility: `zimbra-backup notify test-ftp` and TUI Option 11 in Menu 6.
 
-2. **Standardized & Comprehensive Notifications (All Jobs)**:
-   - Every backup notification across Telegram and Email reports full operational metrics:
-     ```text
-     [OK] [mail.domain.com] Job 'daily-backup' (INCREMENTAL) completed - 125 accounts, 12.45 GiB
-     Job Name   : daily-backup
-     Backup Mode: INCREMENTAL
-     Accounts   : 125 (new/changed: 118, unchanged: 7)
-     Total Size : 12.45 GiB
-     Duration   : 185s
-     Local Path : /home/backup/incremental/daily-backup/chain-...
-     Remote Storage : OK (SFTP://backup.server.com:22 - in 35s, size: 12.45 GiB)
-     ```
-   - Configurable alert trigger levels: `EMAIL_ALERT_LEVEL=all` (delivers email reports for all backup results, including successful backups) or `EMAIL_ALERT_LEVEL=failure` (only sends warnings/failures).
-   - Dedicated notification test commands: `zimbra-backup notify test-email`, `zimbra-backup notify test-telegram`, and `zimbra-backup notify test-ftp`.
+2. **Independent Remote Retention (`FTP_KEEP_COUNT`) & Automated Remote Pruning**:
+   - Remote snapshot retention on FTP (`FTP_KEEP_COUNT`) is managed **completely independently** from local retention (`KEEP_COUNT`).
+   - Automated remote pruning (`zb_prune_remote_storage`): scans remote job archives and automatically executes standard `DELE` (FTP) or `rm` (SFTP) commands to delete expired `.tar` and `.manifest` pairs.
+   - **Zero Local Snapshot Deletion**: Remote backups serve as offsite disaster-recovery replicas. Local snapshots are never wiped upon upload and remain preserved according to the job's local `KEEP_COUNT`.
+
+3. **Refined ASCII TUI & CLI Experience**:
+   - **6-Step Job Creation Wizard**: Step 6 provides seamless interactive setup for Remote Storage and FTP retention count.
+   - **1-Touch Job Editor (Fields 1..11)**: Option 11 enables instant modification of FTP credentials, protocol, path, and retention.
+   - Cleaned up Menu 6 (Global Settings) to focus purely on local storage defaults, disk thresholds, and alert destinations.
+   - Direct connection test CLI: `zimbra-backup notify test-ftp [job_id]`.
 
 1. **Lightweight ASCII TUI & Streamlined First Run**:
    - Automatically initializes global configuration in the background with `/home/backup` as default storage.

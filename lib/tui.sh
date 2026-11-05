@@ -349,13 +349,18 @@ zb_tui_job_edit_loop() {
         zb_msg "  8) Parallel Workers   : $PARALLEL_JOBS"
         zb_msg "  9) Job Description    : $JOB_NAME"
         zb_msg " 10) Schedule Enabled   : $ENABLED"
+        local ftp_disp="Disabled"
+        if [[ "$FTP_UPLOAD" == "yes" ]]; then
+            ftp_disp="YES [${FTP_PROTOCOL}://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR} | Keep: ${FTP_KEEP_COUNT}]"
+        fi
+        zb_msg " 11) Remote FTP Upload  : $ftp_disp"
         zb_msg "------------------------------------------------------------"
         zb_msg "  s) Save & Sync Crontab"
         zb_msg "  0) Cancel (discard changes)"
         zb_msg ""
 
         local c=""
-        read -r -p "Select field to edit (1-10, 's' to save, '0' to cancel): " c || return 0
+        read -r -p "Select field to edit (1-11, 's' to save, '0' to cancel): " c || return 0
         c="$(zb_trim "$c")"
         case "${c,,}" in
             1) zb_tui_edit_backup_mode ;;
@@ -378,6 +383,7 @@ zb_tui_job_edit_loop() {
                 ;;
             9) JOB_NAME="$(zb_tui_prompt_default "Job description" "$JOB_NAME")" ;;
             10) ENABLED="$(zb_tui_prompt_yesno "Enable automatic cron schedule for this job?" "$ENABLED")" ;;
+            11) zb_tui_configure_job_ftp ;;
             s|save)
                 if zb_job_save && zb_cron_sync; then
                     zb_info "Saved job '$JOB_ID' and synchronized crontab."
@@ -402,7 +408,7 @@ zb_tui_job_edit_loop() {
 zb_tui_job_create() {
     zb_load_settings || return 1
     zb_job_reset_defaults
-    zb_tui_header "CREATE NEW BACKUP JOB (QUICK WIZARD)"
+    zb_tui_header "CREATE NEW BACKUP JOB (6-STEP WIZARD)"
 
     while true; do
         JOB_ID="$(zb_tui_prompt_default "1. Job ID (letters/digits/-/_)" "daily-backup")"
@@ -467,6 +473,17 @@ zb_tui_job_create() {
             fi
             zb_warn "Invalid retention count '$k_ans'. Enter an integer between 1 and 999."
         done
+    fi
+
+    zb_msg ""
+    zb_msg "6. Remote Storage (FTP / SFTP):"
+    local ftp_up
+    ftp_up="$(zb_tui_prompt_yesno "   Push backups to remote FTP / SFTP server for this job?" "$FTP_UPLOAD")"
+    if [[ "$ftp_up" == "yes" ]]; then
+        FTP_UPLOAD="yes"
+        zb_tui_configure_job_ftp_wizard
+    else
+        FTP_UPLOAD="no"
     fi
 
     zb_msg ""
@@ -1063,10 +1080,9 @@ zb_tui_catalog_menu() {
     done
 }
 
-zb_tui_ftp_menu() {
+zb_tui_configure_job_ftp() {
     while true; do
-        zb_load_settings || true
-        zb_tui_header "REMOTE STORAGE CONFIGURATION (FTP / SFTP)"
+        zb_tui_header "REMOTE FTP/SFTP CONFIGURATION: $JOB_ID"
         local masked_pw="(not set)"
         if [[ -n "$FTP_PASSWORD" ]]; then
             masked_pw="********"
@@ -1075,7 +1091,7 @@ zb_tui_ftp_menu() {
         if [[ "${FTP_PROTOCOL:-ftp}" == "sftp" && "$eff_port" == "21" ]]; then
             eff_port="22"
         fi
-        zb_msg "  1) Enable Remote Storage    : $FTP_ENABLED"
+        zb_msg "  1) Enable Remote Storage    : $FTP_UPLOAD"
         zb_msg "  2) Protocol                 : $FTP_PROTOCOL (ftp or sftp)"
         zb_msg "  3) Server Host / IP         : ${FTP_HOST:-(not set)}"
         zb_msg "  4) Port                     : $eff_port"
@@ -1083,18 +1099,15 @@ zb_tui_ftp_menu() {
         zb_msg "  6) Username                 : ${FTP_USER:-(not set)}"
         zb_msg "  7) Password                 : $masked_pw"
         zb_msg "  8) FTPS (SSL encryption)    : $FTP_SSL (for port 21 ftp only)"
-        zb_msg "  9) Test connection now"
-        zb_msg "  0) Back to Global Settings"
+        zb_msg "  9) Retention Keep on FTP    : $FTP_KEEP_COUNT remote archives"
+        zb_msg " 10) Test connection now"
+        zb_msg "  0) Done (return to Job editor)"
         zb_msg ""
         local c=""
-        read -r -p "Select [0-9]: " c || return 0
+        read -r -p "Select [0-10]: " c || return 0
         case "$(zb_trim "$c")" in
             1)
-                FTP_ENABLED="$(zb_tui_prompt_yesno "Enable Remote Storage upload?" "$FTP_ENABLED")"
-                if zb_save_settings; then
-                    zb_info "Saved."
-                fi
-                zb_pause
+                FTP_UPLOAD="$(zb_tui_prompt_yesno "Enable Remote Storage upload for this job?" "$FTP_UPLOAD")"
                 ;;
             2)
                 zb_msg ""
@@ -1116,39 +1129,29 @@ zb_tui_ftp_menu() {
                         FTP_PORT="21"
                     fi
                 fi
-                if zb_save_settings; then
-                    zb_info "Saved (protocol: $FTP_PROTOCOL, port: $FTP_PORT)."
-                fi
+                zb_info "Protocol set to: $FTP_PROTOCOL (port: $FTP_PORT)."
                 zb_pause
                 ;;
             3)
                 FTP_HOST="$(zb_tui_prompt_default "Server Hostname or IP" "$FTP_HOST")"
-                if zb_save_settings; then
-                    zb_info "Saved."
-                fi
-                zb_pause
                 ;;
             4)
-                FTP_PORT="$(zb_tui_prompt_default "Port (1-65535)" "$eff_port")"
-                if zb_save_settings; then
-                    zb_info "Saved."
-                fi
-                zb_pause
+                local port_in
+                while true; do
+                    port_in="$(zb_tui_prompt_default "Port (1-65535)" "$eff_port")"
+                    if [[ "$port_in" =~ ^[0-9]{1,5}$ ]] && (( 10#$port_in >= 1 && 10#$port_in <= 65535 )); then
+                        FTP_PORT="$port_in"
+                        break
+                    fi
+                    zb_warn "Invalid port '$port_in'. Enter an integer between 1 and 65535."
+                done
                 ;;
             5)
                 FTP_REMOTE_DIR="$(zb_tui_prompt_default "Remote directory path on server" "${FTP_REMOTE_DIR:-/}")"
                 [[ "$FTP_REMOTE_DIR" == /* ]] || FTP_REMOTE_DIR="/$FTP_REMOTE_DIR"
-                if zb_save_settings; then
-                    zb_info "Saved."
-                fi
-                zb_pause
                 ;;
             6)
                 FTP_USER="$(zb_tui_prompt_default "FTP/SFTP Username" "$FTP_USER")"
-                if zb_save_settings; then
-                    zb_info "Saved."
-                fi
-                zb_pause
                 ;;
             7)
                 local pw_in=""
@@ -1161,9 +1164,7 @@ zb_tui_ftp_menu() {
                 pw_in="$(zb_trim "$pw_in")"
                 if [[ -n "$pw_in" ]]; then
                     FTP_PASSWORD="$pw_in"
-                    if zb_save_settings; then
-                        zb_info "Password updated."
-                    fi
+                    zb_info "Password updated."
                 else
                     zb_info "Password unchanged."
                 fi
@@ -1171,18 +1172,95 @@ zb_tui_ftp_menu() {
                 ;;
             8)
                 FTP_SSL="$(zb_tui_prompt_yesno "Require FTPS SSL encryption on port 21?" "$FTP_SSL")"
-                if zb_save_settings; then
-                    zb_info "Saved."
-                fi
-                zb_pause
                 ;;
             9)
+                local k_in
+                while true; do
+                    k_in="$(zb_tui_prompt_default "Keep how many remote archives on FTP server?" "$FTP_KEEP_COUNT")"
+                    if [[ "$k_in" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
+                        FTP_KEEP_COUNT="$k_in"
+                        break
+                    fi
+                    zb_warn "Invalid retention count '$k_in'. Enter an integer between 1 and 999."
+                done
+                ;;
+            10)
                 zb_test_ftp || true
                 zb_pause
                 ;;
             0) return 0 ;;
         esac
     done
+}
+
+zb_tui_configure_job_ftp_wizard() {
+    zb_msg ""
+    zb_msg "--- Configure Remote FTP / SFTP for Job '$JOB_ID' ---"
+    zb_msg "Select protocol:"
+    zb_msg "  1) ftp  - Standard File Transfer Protocol (default port 21)"
+    zb_msg "  2) sftp - SSH File Transfer Protocol (default port 22 over SSH)"
+    local p_choice
+    p_choice="$(zb_tui_prompt_default "Select protocol [1-2]" "1")"
+    if [[ "$p_choice" == "2" ]]; then
+        FTP_PROTOCOL="sftp"
+        FTP_PORT="22"
+    else
+        FTP_PROTOCOL="ftp"
+        FTP_PORT="21"
+    fi
+
+    while true; do
+        FTP_HOST="$(zb_tui_prompt_default "Remote Server Hostname or IP" "$FTP_HOST")"
+        if [[ -n "$FTP_HOST" && "$FTP_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            break
+        fi
+        zb_warn "Server Host is required and must contain only letters, digits, '.', '-'."
+    done
+
+    FTP_PORT="$(zb_tui_prompt_default "Port (1-65535)" "$FTP_PORT")"
+
+    while true; do
+        FTP_USER="$(zb_tui_prompt_default "FTP/SFTP Username" "$FTP_USER")"
+        if [[ -n "$FTP_USER" ]]; then
+            break
+        fi
+        zb_warn "Username is required."
+    done
+
+    local pw_in=""
+    if [[ -t 0 ]]; then
+        read -r -s -p "Enter FTP/SFTP Password (hidden): " pw_in || true
+        printf '\n'
+    else
+        read -r pw_in || true
+    fi
+    FTP_PASSWORD="$(zb_trim "$pw_in")"
+
+    FTP_REMOTE_DIR="$(zb_tui_prompt_default "Remote directory path on server" "/${JOB_ID}")"
+    [[ "$FTP_REMOTE_DIR" == /* ]] || FTP_REMOTE_DIR="/$FTP_REMOTE_DIR"
+
+    if [[ "$FTP_PROTOCOL" == "ftp" ]]; then
+        FTP_SSL="$(zb_tui_prompt_yesno "Require FTPS SSL encryption on port 21?" "no")"
+    else
+        FTP_SSL="no"
+    fi
+
+    while true; do
+        local k_in
+        k_in="$(zb_tui_prompt_default "Keep how many remote archives on FTP server?" "${FTP_KEEP_COUNT:-7}")"
+        if [[ "$k_in" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
+            FTP_KEEP_COUNT="$k_in"
+            break
+        fi
+        zb_warn "Invalid retention count '$k_in'. Enter an integer between 1 and 999."
+    done
+
+    local do_test
+    do_test="$(zb_tui_prompt_yesno "Test remote connection now?" "yes")"
+    if [[ "$do_test" == "yes" ]]; then
+        zb_test_ftp || true
+        zb_pause
+    fi
 }
 
 zb_tui_settings_menu() {
@@ -1196,14 +1274,12 @@ zb_tui_settings_menu() {
         zb_msg "  5) Server label (alerts)    : ${HOST_LABEL:-(auto: $(zb_host_label))}"
         zb_msg "  6) Telegram Bot alerts      : $TELEGRAM_ENABLED ${TELEGRAM_CHAT_ID:+(chat: $TELEGRAM_CHAT_ID)}"
         zb_msg "  7) Email alerts             : $EMAIL_ALERT_ENABLED [${EMAIL_ALERT_LEVEL}] ${EMAIL_ALERT_TO:+($EMAIL_ALERT_TO)}"
-        zb_msg "  8) Remote FTP / SFTP Storage: $FTP_ENABLED ${FTP_HOST:+[${FTP_PROTOCOL}://${FTP_HOST}:${FTP_PORT}]}"
-        zb_msg "  9) Send test Telegram alert"
-        zb_msg " 10) Send test Email alert"
-        zb_msg " 11) Test Remote Storage connection"
+        zb_msg "  8) Send test Telegram alert"
+        zb_msg "  9) Send test Email alert"
         zb_msg "  0) Back to main menu"
         zb_msg ""
         local c=""
-        read -r -p "Select [0-11]: " c || return 0
+        read -r -p "Select [0-9]: " c || return 0
         case "$(zb_trim "$c")" in
             1)
                 DEFAULT_BACKUP_DIR="$(zb_tui_prompt_default "Default job backup directory" "$DEFAULT_BACKUP_DIR")"
@@ -1288,18 +1364,11 @@ zb_tui_settings_menu() {
                 zb_pause
                 ;;
             8)
-                zb_tui_ftp_menu
-                ;;
-            9)
                 zb_test_telegram || true
                 zb_pause
                 ;;
-            10)
+            9)
                 zb_test_email || true
-                zb_pause
-                ;;
-            11)
-                zb_test_ftp || true
                 zb_pause
                 ;;
             0) return 0 ;;

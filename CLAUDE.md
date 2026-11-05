@@ -2,7 +2,7 @@
 
 Tài liệu này hướng dẫn Claude Code (claude.ai/code) khi làm việc với mã nguồn trong repository này.
 
-## Tổng quan kiến trúc (`zimbra-backup` v0.3.7)
+## Tổng quan kiến trúc (`zimbra-backup` v0.3.8)
 
 Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **Ubuntu 18.04, 20.04, 22.04 LTS** (gói DEB `.deb`) và **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** (gói RPM `.rpm` `noarch`), phân phối tại mục GitHub Releases, hợp nhất và khắc phục các lỗi toàn vẹn dữ liệu của 3 script rời ban đầu (`auto_full_backup.sh`, `auto_incr_backup.sh`, `restore_email.sh` — được lưu trong thư mục `legacy-scripts/` để đối chiếu, không đóng gói).
 
@@ -18,7 +18,7 @@ Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration
 | `lib/jobs.sh` | `/usr/libexec/zimbra-backup/jobs.sh` | CRUD đa Job (`/var/lib/zimbra-backup/jobs/<id>.conf`), bộ lập lịch ngày/tuần/tháng/cron tùy chỉnh, đồng bộ khối `# BEGIN zimbra-backup .. # END zimbra-backup` trong `crontab` của `zimbra` |
 | `lib/backup.sh` | `/usr/libexec/zimbra-backup/backup.sh` | Engine sao lưu tách 3 thư mục `full/<job_id>/backup-full-*`, `incremental/<job_id>/chain-*/000_backup-full-*..NNN_backup-incremental-*`, `account/backup-<email>-*`, chạy song song `PARALLEL_JOBS`, ghi/kiểm tra `manifest` `zb-backup-v2`, xóa bản cũ `after`/`before` |
 | `lib/restore.sh` | `/usr/libexec/zimbra-backup/restore.sh` | Quét kho backup của Job hoặc quét đệ quy thư mục ngoài (`CUSTOM_RESTORE_DIR` / `--dir`), ghép chuỗi `000_full + 001..k_incr`, khôi phục toàn server / domain / danh sách user / sang tài khoản khác / thư mục con |
-| `lib/tui.sh` | `/usr/libexec/zimbra-backup/tui.sh` | Giao diện Menu tương tác tiếng Anh rút gọn (Pure 7-bit ASCII): Wizard thiết lập 2 bước, Tạo Job 5 bước (bắt buộc cấu hình đường dẫn lưu trữ), Sửa Job chọn trường `1..10` |
+| `lib/tui.sh` | `/usr/libexec/zimbra-backup/tui.sh` | Giao diện Menu tương tác tiếng Anh rút gọn (Pure 7-bit ASCII): Wizard thiết lập 2 bước, Tạo Job 6 bước (bắt buộc cấu hình đường dẫn lưu trữ), Sửa Job chọn trường `1..11` |
 | `packaging/preinstall.sh` | *(script `%pre` của RPM)* | Kiểm tra sự tồn tại của user hệ thống `zimbra` trước khi cài gói |
 | `packaging/preremove.sh` | *(script `%preun` của RPM)* | Khi gỡ hẳn (`$1 == 0`): chặn nếu `operation.lock` đang bận, gỡ riêng khối cron `zimbra-backup` (kiểm chứng `cmp -s` bảo toàn cron Zimbra) và dọn trước file con trong `/var/lib/zimbra-backup` |
 | `packaging/postremove.sh` | *(script `%postun` của RPM)* | Khi gỡ hẳn (`$1 == 0`): xóa `/var/lib/zimbra-backup` và `.rpmsave`/`.rpmnew`, giữ nguyên `/opt/zimbra` và dữ liệu backup |
@@ -76,9 +76,9 @@ nfpm package --config nfpm.yaml --packager rpm
 Đóng gói bằng `rpmbuild` trên máy chủ Linux có `rpm-build`:
 
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.7 && \
-cp -r bin lib packaging README.md zimbra-backup-0.3.7/ && \
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.7.tar.gz" zimbra-backup-0.3.7 && \
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.8 && \
+cp -r bin lib packaging README.md zimbra-backup-0.3.8/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.8.tar.gz" zimbra-backup-0.3.8 && \
 rpmbuild -ba zimbra-backup.spec
 ```
 

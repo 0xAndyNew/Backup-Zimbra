@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.7)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.8)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup_0.3.7-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup_0.3.8-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.7) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.8) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -51,7 +51,7 @@ zimbra-backup
   3) Restore from Backup Job   (Select Configured Job -> Snapshot)
   4) Restore from Custom Dir   (Configure / Scan Other Directory)
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
-  6) Global Settings & Alerts  (Storage, FTP/SFTP, Disk Limits, Alerts)
+  6) Global Settings & Alerts  (Storage, Disk Limits, Alerts)
   7) View Logs
   0) Exit
 ============================================================
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.7 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.8 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -80,28 +80,23 @@ Select [0-7]:
 
 ---
 
-## 🌟 Điểm nổi bật trong phiên bản v0.3.7
+## 🌟 Điểm nổi bật trong phiên bản v0.3.8
 
-1. **Tích hợp Lưu trữ Từ xa (Remote Storage FTP / SFTP)**:
-   - Tự động đóng gói và đẩy snapshot sao lưu lên máy chủ từ xa qua **FTP (port 21)** hoặc **SFTP (port 22)** sau khi hoàn tất sao lưu cục bộ.
+1. **Cấu hình Lưu trữ Từ xa FTP / SFTP theo từng Job (Per-Job Remote Storage)**:
+   - Chuyển hoàn toàn cấu hình FTP từ mức toàn cục vào từng Job riêng biệt: mỗi Job tự chọn có đẩy FTP hay không (`[y/N]`), cấu hình máy chủ FTP/SFTP, port, tài khoản, và thư mục đích riêng (`/<job_id>`).
    - Hỗ trợ mã hóa **FTPS (SSL/TLS)** cho FTP truyền thống và **SFTP qua giao thức SSH** với backend `curl` tích hợp sẵn, không phụ thuộc gói bên ngoài.
-   - **Bảo mật tuyệt đối**: Thông tin đăng nhập truyền qua file cấu hình tạm `0600` với cờ `curl -K`, dọn sạch ngay sau khi chạy, hoàn toàn không lộ mật khẩu trên lệnh hay tiến trình `ps aux`.
-   - Có lệnh kiểm tra kết nối từ xa tức thì: `zimbra-backup notify test-ftp` hoặc Mục 11 trong Menu 6 TUI.
+   - **Bảo mật tuyệt đối**: Mật khẩu truyền qua file cấu hình tạm `0600` với cờ `curl -K`, dọn sạch ngay sau khi chạy, hoàn toàn không lộ mật khẩu trên lệnh hay tiến trình `ps aux`.
 
-2. **Chuẩn hóa & Nâng cấp Thông báo Toàn diện (Áp dụng cho MỌI Job)**:
-   - Toàn bộ thông báo sao lưu (cả Email và Telegram) của **mọi job (Full, Incremental, Ad-hoc, dù có hay không dùng FTP)** được chuẩn hóa hiển thị đầy đủ thông tin:
-     ```text
-     [OK] [mail.domain.com] Job 'daily-backup' (INCREMENTAL) completed - 125 accounts, 12.45 GiB
-     Job Name   : daily-backup
-     Backup Mode: INCREMENTAL
-     Accounts   : 125 (new/changed: 118, unchanged: 7)
-     Total Size : 12.45 GiB
-     Duration   : 185s
-     Local Path : /home/backup/incremental/daily-backup/chain-...
-     Remote Storage : OK (SFTP://backup.server.com:22 - in 35s, size: 12.45 GiB)
-     ```
-   - Hỗ trợ lựa chọn mức kích hoạt `EMAIL_ALERT_LEVEL`: `all` (gửi thông báo cho mọi bản sao lưu bao gồm thành công) hoặc `failure` (chỉ gửi khi có cảnh báo/lỗi).
-   - Bổ sung lệnh kiểm tra gửi thử: `zimbra-backup notify test-email`, `zimbra-backup notify test-telegram`, và `zimbra-backup notify test-ftp`.
+2. **Quản lý Bản lưu FTP Độc lập (`FTP_KEEP_COUNT`) & Tự động Dọn dẹp File Cũ trên FTP**:
+   - Số lượng bản archive lưu giữ trên FTP (`FTP_KEEP_COUNT`) được quản lý **hoàn toàn độc lập** với số bản lưu cục bộ (`KEEP_COUNT`).
+   - Tự động quét và dọn dẹp các file `.tar` và `.manifest` cũ vượt quá hạn lưu trên FTP bằng lệnh chuẩn `DELE` (FTP) hoặc `rm` (SFTP).
+   - **Bảo toàn 100% bản lưu cục bộ tại Local**: Bản lưu trên FTP đóng vai trò là bản nhân bản dự phòng ngoài site (offsite replica). Hệ thống tuyệt đối không xóa bản backup ở local sau khi upload, giữ nguyên vẹn số bản local theo đúng `KEEP_COUNT`.
+
+3. **Cải tiến Giao diện TUI & CLI**:
+   - **Tạo Job 6 bước đầy đủ**: Bổ sung Bước 6 để tùy chọn cấu hình Remote Storage FTP / SFTP ngay khi tạo Job.
+   - **Chỉnh sửa Job 1 chạm (Mục 1..11)**: Mục 11 hỗ trợ bật/tắt và cập nhật toàn bộ thông số FTP của Job.
+   - Dọn sạch Menu 6 (Global Settings) để tập trung cấu hình đường dẫn chung, ngưỡng cảnh báo đĩa và thông báo Email/Telegram.
+   - Lệnh kiểm tra kết nối: `zimbra-backup notify test-ftp [job_id]`.
 
 1. **Menu TUI tiếng Anh tinh gọn, hiển thị chuẩn trên mọi Terminal**:
    - Tự động khởi tạo cấu hình chuẩn trong nền với thư mục lưu trữ mặc định `/home/backup`.

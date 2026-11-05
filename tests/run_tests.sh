@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.7
+# End-to-end automated test suite for zimbra-backup v0.3.8
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -322,6 +322,8 @@ write_fmt=""
 upload_file=""
 pos_url=""
 is_post=0
+is_list_only=0
+quote_cmds=()
 
 while (( $# > 0 )); do
     case "$1" in
@@ -330,6 +332,8 @@ while (( $# > 0 )); do
         -w) write_fmt="$2"; shift 2 ;;
         -X) [[ "$2" == "POST" ]] && is_post=1; shift 2 ;;
         -T|--data-binary) upload_file="$2"; is_post=1; shift 2 ;;
+        -Q|--quote) quote_cmds+=("$2"); shift 2 ;;
+        --list-only) is_list_only=1; shift ;;
         --data-urlencode) shift 2 ;;
         --connect-timeout|--max-time) shift 2 ;;
         -k|-s|-sS|-ks|-sk|--ftp-create-dirs|--insecure|--ssl-reqd|--show-error|--fail|--silent) shift ;;
@@ -360,6 +364,19 @@ fi
 # FTP / SFTP endpoint
 if [[ "$effective_url" == ftp://* || "$effective_url" == sftp://* ]]; then
     grep -q 'user = "' "$cfg_file" || { echo "Missing user credentials in FTP curl config" >&2; exit 4; }
+    if ((${#quote_cmds[@]} > 0)); then
+        for qc in "${quote_cmds[@]}"; do
+            printf 'FTP_QUOTE: %s\n' "$qc" >> "$MOCK_LOG"
+        done
+    fi
+    if (( is_list_only == 1 )); then
+        if [[ -n "${MOCK_FTP_LIST_DATA:-}" ]]; then
+            printf '%s\n' "$MOCK_FTP_LIST_DATA"
+        elif [[ -n "${MOCK_FTP_LIST_FILE:-}" && -f "$MOCK_FTP_LIST_FILE" ]]; then
+            cat "$MOCK_FTP_LIST_FILE"
+        fi
+        exit 0
+    fi
     if [[ "$upload_file" == "-" ]]; then
         cat >/dev/null
     fi
@@ -415,7 +432,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.7" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.7"
+assert_contains "$ver_out" "zimbra-backup 0.3.8" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.8"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1165,6 +1182,102 @@ assert_not_contains "$job_local_log" "Remote Storage : OK" "Local job khong bao 
 # 16e. Kiem tra lenh status hien thi Remote Storage
 status_out="$("$ZB_CMD" status)"
 assert_contains "$status_out" "Remote Storage" "Lenh 'status' hien thi muc Remote Storage"
+
+printf '\n=== 17. Kiem tra cau hinh FTP theo tung Job & Tu dong don dep FTP theo FTP_KEEP_COUNT v0.3.8 ===\n'
+
+# 17a. Them Job voi cau hinh FTP rieng
+"$ZB_CMD" job add job-ftp-test \
+    --type full \
+    --schedule off \
+    --target-dir "$STORE_DIR" \
+    --ftp-upload yes \
+    --ftp-protocol ftp \
+    --ftp-host "ftp.remote.org" \
+    --ftp-port 21 \
+    --ftp-user "jobuser" \
+    --ftp-password "JobSecretPass" \
+    --ftp-dir "/remote/custom" \
+    --ftp-ssl yes \
+    --ftp-keep 3 >/dev/null
+
+assert_file_exists "$ZB_STATE_DIR/jobs/job-ftp-test.conf" "Tao job-ftp-test.conf thanh cong"
+job_ftp_cfg="$(cat "$ZB_STATE_DIR/jobs/job-ftp-test.conf")"
+assert_contains "$job_ftp_cfg" "FTP_UPLOAD=yes" "Job luu dung FTP_UPLOAD=yes"
+assert_contains "$job_ftp_cfg" "FTP_PROTOCOL=ftp" "Job luu dung FTP_PROTOCOL=ftp"
+assert_contains "$job_ftp_cfg" "FTP_HOST=ftp.remote.org" "Job luu dung FTP_HOST=ftp.remote.org"
+assert_contains "$job_ftp_cfg" "FTP_PORT=21" "Job luu dung FTP_PORT=21"
+assert_contains "$job_ftp_cfg" "FTP_USER=jobuser" "Job luu dung FTP_USER=jobuser"
+assert_contains "$job_ftp_cfg" "FTP_PASSWORD=JobSecretPass" "Job luu dung FTP_PASSWORD=JobSecretPass"
+assert_contains "$job_ftp_cfg" "FTP_REMOTE_DIR=/remote/custom" "Job luu dung FTP_REMOTE_DIR=/remote/custom"
+assert_contains "$job_ftp_cfg" "FTP_SSL=yes" "Job luu dung FTP_SSL=yes"
+assert_contains "$job_ftp_cfg" "FTP_KEEP_COUNT=3" "Job luu dung FTP_KEEP_COUNT=3"
+
+# Kiem tra job show hien thi thong tin FTP
+job_show_out="$("$ZB_CMD" job show job-ftp-test)"
+assert_contains "$job_show_out" "YES [ftp://ftp.remote.org:21/remote/custom | Keep: 3 remote snapshots]" \
+    "Lenh 'job show' hien thi dung cau hinh Remote FTP kem retention"
+
+# 17b. Kiem tra test-ftp voi job_id cu the
+: > "$MOCK_LOG"
+test_job_ftp_out="$("$ZB_CMD" notify test-ftp job-ftp-test 2>&1)"
+assert_contains "$test_job_ftp_out" "SUCCESSFUL" "Lenh 'notify test-ftp job-ftp-test' bao ket noi thanh cong"
+mock_job_ftp_log="$(cat "$MOCK_LOG")"
+assert_contains "$mock_job_ftp_log" "url=ftp://ftp.remote.org:21/remote/custom/" \
+    "curl test-ftp dung dia chi ftp://ftp.remote.org:21/remote/custom/"
+
+# 17c. Them Job khong co FTP (FTP_UPLOAD=no)
+"$ZB_CMD" job add job-local-only \
+    --type full \
+    --schedule off \
+    --target-dir "$STORE_DIR" \
+    --ftp-upload no >/dev/null
+
+assert_file_exists "$ZB_STATE_DIR/jobs/job-local-only.conf" "Tao job-local-only.conf thanh cong"
+assert_contains "$(cat "$ZB_STATE_DIR/jobs/job-local-only.conf")" "FTP_UPLOAD=no" "Job local luu FTP_UPLOAD=no"
+job_local_show="$("$ZB_CMD" job show job-local-only)"
+assert_contains "$job_local_show" "Remote FTP Upload  : Disabled" "Job local hien thi Remote FTP Upload: Disabled"
+
+# 17d. Chay backup job co FTP: kiem tra upload va bao toan local snapshot
+: > "$MOCK_LOG"
+"$ZB_CMD" job run job-ftp-test >/dev/null
+job_run_ftp_log="$(cat "$MOCK_LOG")"
+assert_contains "$job_run_ftp_log" "upload=" "Job backup day thanh cong snapshot len FTP"
+assert_contains "$job_run_ftp_log" "ftp://ftp.remote.org:21/remote/custom/full/job-ftp-test/" \
+    "Snapshot duoc day dung vao thu muc remote cua Job"
+
+# Kiem tra thu muc local van giu nguyen 100% (tuyet doi khong bi xoa)
+local_snaps=( "$STORE_DIR/full/job-ftp-test"/backup-full-* )
+[[ ${#local_snaps[@]} -ge 1 && -d "${local_snaps[0]}" ]] \
+    && pass "Bao toan 100% ban backup cuc bo tai local sau khi upload FTP (tuyet doi khong xoa)" \
+    || fail "Bao toan local that bai: snapshot cuc bo bi mat sau khi upload FTP"
+assert_file_exists "${local_snaps[0]}/manifest" "Snapshot cuc bo van con nguyen ven manifest tai local"
+
+# 17e. Kiem tra co che tu dong don dep FTP (zb_prune_remote_storage) theo FTP_KEEP_COUNT
+export MOCK_FTP_LIST_DATA="backup-full-20261101-010000.tar
+backup-full-20261101-010000.manifest
+backup-full-20261102-010000.tar
+backup-full-20261102-010000.manifest
+backup-full-20261103-010000.tar
+backup-full-20261103-010000.manifest
+backup-full-20261104-010000.tar
+backup-full-20261104-010000.manifest
+backup-full-20261105-010000.tar
+backup-full-20261105-010000.manifest"
+
+: > "$MOCK_LOG"
+"$ZB_CMD" job run job-ftp-test >/dev/null
+prune_log="$(cat "$MOCK_LOG")"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261101-010000.tar" \
+    "Don dep FTP: Goi DELE xoa file .tar cu nhat (#1) tren FTP server"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261101-010000.manifest" \
+    "Don dep FTP: Goi DELE xoa file .manifest cu nhat (#1) tren FTP server"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261102-010000.tar" \
+    "Don dep FTP: Goi DELE xoa file .tar cu nhat (#2) tren FTP server"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261102-010000.manifest" \
+    "Don dep FTP: Goi DELE xoa file .manifest cu nhat (#2) tren FTP server"
+assert_not_contains "$prune_log" "backup-full-20261103-010000.tar" \
+    "Don dep FTP: Giu lai ban archive moi hon trong pham vi FTP_KEEP_COUNT=3"
+unset MOCK_FTP_LIST_DATA
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

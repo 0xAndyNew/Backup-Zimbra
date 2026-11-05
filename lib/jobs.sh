@@ -29,6 +29,15 @@ zb_job_reset_defaults() {
     KEEP_COUNT="7"                # full: snapshots kept | incremental: complete chains kept
     PRUNE_TIMING="after"          # after | before
     PARALLEL_JOBS="2"             # worker count 1..16
+    FTP_UPLOAD="no"               # yes | no
+    FTP_PROTOCOL="ftp"            # ftp | sftp
+    FTP_HOST=""
+    FTP_PORT="21"
+    FTP_USER=""
+    FTP_PASSWORD=""
+    FTP_REMOTE_DIR="/"
+    FTP_SSL="no"
+    FTP_KEEP_COUNT="7"            # remote archives kept on FTP/SFTP (independent of local KEEP_COUNT)
     CREATED_AT=""
     UPDATED_AT=""
 }
@@ -202,6 +211,21 @@ zb_job_validate() {
     [[ "$KEEP_COUNT" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]] || { zb_err "KEEP_COUNT must be an integer between 1 and 999."; return 1; }
     [[ "$PRUNE_TIMING" == "after" || "$PRUNE_TIMING" == "before" ]] || { zb_err "PRUNE_TIMING must be after or before."; return 1; }
     [[ "$PARALLEL_JOBS" =~ ^([1-9]|1[0-6])$ ]] || { zb_err "PARALLEL_JOBS must be between 1 and 16."; return 1; }
+
+    [[ "$FTP_UPLOAD" == "yes" || "$FTP_UPLOAD" == "no" ]] || { zb_err "FTP_UPLOAD must be yes or no."; return 1; }
+    [[ "$FTP_PROTOCOL" == "ftp" || "$FTP_PROTOCOL" == "sftp" ]] || { zb_err "FTP_PROTOCOL must be ftp or sftp."; return 1; }
+    [[ "$FTP_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$FTP_PORT >= 1 && 10#$FTP_PORT <= 65535 )) || { zb_err "FTP_PORT must be between 1 and 65535."; return 1; }
+    [[ "$FTP_SSL" == "yes" || "$FTP_SSL" == "no" ]] || { zb_err "FTP_SSL must be yes or no."; return 1; }
+    [[ "$FTP_PASSWORD" != *$'\n'* && "$FTP_PASSWORD" != *$'\r'* ]] || { zb_err "FTP_PASSWORD cannot contain newlines."; return 1; }
+    [[ "$FTP_KEEP_COUNT" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]] || { zb_err "FTP_KEEP_COUNT must be an integer between 1 and 999."; return 1; }
+    if [[ "$FTP_UPLOAD" == "yes" ]]; then
+        [[ -n "$FTP_HOST" ]] || { zb_err "FTP_UPLOAD=yes requires FTP_HOST."; return 1; }
+        [[ "$FTP_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { zb_err "FTP_HOST contains invalid characters."; return 1; }
+        [[ -n "$FTP_USER" ]] || { zb_err "FTP_UPLOAD=yes requires FTP_USER."; return 1; }
+        [[ "$FTP_USER" =~ ^[A-Za-z0-9._%@+-]+$ ]] || { zb_err "FTP_USER contains invalid characters."; return 1; }
+        [[ -n "$FTP_REMOTE_DIR" ]] || { zb_err "FTP_UPLOAD=yes requires FTP_REMOTE_DIR."; return 1; }
+        [[ "$FTP_REMOTE_DIR" =~ ^[A-Za-z0-9._/-]+$ ]] || { zb_err "FTP_REMOTE_DIR contains invalid characters."; return 1; }
+    fi
     return 0
 }
 
@@ -221,7 +245,7 @@ zb_job_load() {
         key="${line%%=*}"
         value="${line#*=}"
         case "$key" in
-            JOB_ID|JOB_NAME|ENABLED|BACKUP_TYPE|TARGET_DIR|JOB_REQUIRE_MOUNT|SCOPE_MODE|SCOPE_VALUES|SCHEDULE_KIND|SCHED_MINUTE|SCHED_HOUR|SCHED_DOM|SCHED_MONTH|SCHED_DOW|CRON_EXPR|FULL_CYCLE_MODE|FULL_CYCLE_VALUE|KEEP_COUNT|PRUNE_TIMING|PARALLEL_JOBS|CREATED_AT|UPDATED_AT)
+            JOB_ID|JOB_NAME|ENABLED|BACKUP_TYPE|TARGET_DIR|JOB_REQUIRE_MOUNT|SCOPE_MODE|SCOPE_VALUES|SCHEDULE_KIND|SCHED_MINUTE|SCHED_HOUR|SCHED_DOM|SCHED_MONTH|SCHED_DOW|CRON_EXPR|FULL_CYCLE_MODE|FULL_CYCLE_VALUE|KEEP_COUNT|PRUNE_TIMING|PARALLEL_JOBS|FTP_UPLOAD|FTP_PROTOCOL|FTP_HOST|FTP_PORT|FTP_USER|FTP_PASSWORD|FTP_REMOTE_DIR|FTP_SSL|FTP_KEEP_COUNT|CREATED_AT|UPDATED_AT)
                 printf -v "$key" '%s' "$value"
                 ;;
             *)
@@ -268,6 +292,15 @@ zb_job_save() {
         printf 'KEEP_COUNT=%s\n' "$KEEP_COUNT"
         printf 'PRUNE_TIMING=%s\n' "$PRUNE_TIMING"
         printf 'PARALLEL_JOBS=%s\n' "$PARALLEL_JOBS"
+        printf 'FTP_UPLOAD=%s\n' "$FTP_UPLOAD"
+        printf 'FTP_PROTOCOL=%s\n' "$FTP_PROTOCOL"
+        printf 'FTP_HOST=%s\n' "$FTP_HOST"
+        printf 'FTP_PORT=%s\n' "$FTP_PORT"
+        printf 'FTP_USER=%s\n' "$FTP_USER"
+        printf 'FTP_PASSWORD=%s\n' "$FTP_PASSWORD"
+        printf 'FTP_REMOTE_DIR=%s\n' "$FTP_REMOTE_DIR"
+        printf 'FTP_SSL=%s\n' "$FTP_SSL"
+        printf 'FTP_KEEP_COUNT=%s\n' "$FTP_KEEP_COUNT"
         printf 'CREATED_AT=%s\n' "$CREATED_AT"
         printf 'UPDATED_AT=%s\n' "$UPDATED_AT"
     } > "$tmp"
@@ -442,6 +475,10 @@ zb_job_print_detail() (
     if [[ "$BACKUP_TYPE" == "incremental" ]]; then
         keep_desc="${KEEP_COUNT} complete chains (each chain = 1 Full + Incrementals)"
     fi
+    local ftp_desc="Disabled"
+    if [[ "$FTP_UPLOAD" == "yes" ]]; then
+        ftp_desc="YES [${FTP_PROTOCOL}://${FTP_HOST}:${FTP_PORT}${FTP_REMOTE_DIR} | Keep: ${FTP_KEEP_COUNT} remote snapshots]"
+    fi
     cat <<EOF
 ============================================================
 JOB DETAILS: $JOB_ID
@@ -455,6 +492,7 @@ JOB DETAILS: $JOB_ID
   Full Chain Cycle   : $FULL_CYCLE_MODE (value: $FULL_CYCLE_VALUE)
   Retention Policy   : $keep_desc (prune timing: $PRUNE_TIMING)
   Parallel Workers   : $PARALLEL_JOBS
+  Remote FTP Upload  : $ftp_desc
   Created At (UTC)   : $CREATED_AT
   Updated At (UTC)   : $UPDATED_AT
 ============================================================
@@ -545,6 +583,15 @@ zb_parse_job_flags() {
             --keep) KEEP_COUNT="${2-}"; ZB_KEEP_EXPLICIT=1; shift 2 ;;
             --prune-timing) PRUNE_TIMING="${2-}"; shift 2 ;;
             --parallel) PARALLEL_JOBS="${2-}"; ZB_PARALLEL_EXPLICIT=1; shift 2 ;;
+            --ftp-upload) FTP_UPLOAD="${2-}"; shift 2 ;;
+            --ftp-protocol) FTP_PROTOCOL="${2-}"; shift 2 ;;
+            --ftp-host) FTP_HOST="${2-}"; shift 2 ;;
+            --ftp-port) FTP_PORT="${2-}"; shift 2 ;;
+            --ftp-user) FTP_USER="${2-}"; shift 2 ;;
+            --ftp-password|--ftp-pass) FTP_PASSWORD="${2-}"; shift 2 ;;
+            --ftp-dir|--ftp-remote-dir) FTP_REMOTE_DIR="${2-}"; shift 2 ;;
+            --ftp-ssl) FTP_SSL="${2-}"; shift 2 ;;
+            --ftp-keep|--ftp-keep-count) FTP_KEEP_COUNT="${2-}"; shift 2 ;;
             *) zb_err "Unknown job option: $1"; return 1 ;;
         esac
     done

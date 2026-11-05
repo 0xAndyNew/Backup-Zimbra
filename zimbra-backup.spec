@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.7
+Version:        0.3.8
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,14 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Thu Nov 05 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.8-1
+- Shift FTP/SFTP remote storage configuration from global settings to per-job configuration
+- Add per-job remote retention management (FTP_KEEP_COUNT) independent of local retention
+- Implement automatic remote pruning (zb_prune_remote_storage) for full and incremental archives via DELE/rm and RMD/rmdir
+- Preserve local backup snapshots completely intact (no local wipe) on remote upload
+- Add Step 6 in Job Creation Wizard and Field 11 in Job Editor for remote storage
+- Clean up Menu 6 to focus strictly on local global settings and alerts
+
 * Thu Nov 05 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.7-1
 - Add remote FTP and SFTP storage integration supporting port 21 and port 22 via curl -K
 - Add dedicated Remote Storage configuration submenu in Menu 6 (Global Settings)

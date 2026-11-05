@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.7)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.8)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.7** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.8** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -9,7 +9,7 @@ Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình
 1. [Tổng quan tính năng & Thành phần dữ liệu sao lưu](#1-tổng-quan-tính-năng--thành-phần-dữ-liệu-sao-lưu)
    - [1.1. Dữ liệu được bảo toàn đầy đủ khi sao lưu](#11-dữ-liệu-được-bảo-toàn-đầy-đủ-khi-sao-lưu)
    - [1.2. Cấu trúc thư mục chuẩn hóa trên máy chủ](#12-cấu-trúc-thư-mục-chuẩn-hóa-trên-máy-chủ)
-   - [1.3. Cơ chế tối ưu hiệu năng, Remote Storage FTP/SFTP và thông báo chuẩn hóa v0.3.7](#13-cơ-chế-tối-ưu-hiệu-năng-remote-storage-ftpsftp-và-thông-báo-chuẩn-hóa-v037)
+   - [1.3. Cơ chế tối ưu hiệu năng, Remote Storage FTP/SFTP theo Job và tự động dọn dẹp v0.3.8](#13-cơ-chế-tối-ưu-hiệu-năng-remote-storage-ftpsftp-theo-job-và-tự-động-dọn-dẹp-v038)
 2. [Cài đặt, Nâng cấp & Gỡ bỏ](#2-cài-đặt-nâng-cấp--gỡ-bỏ)
    - [2.1. Phân quyền thư mục lưu trữ cho user zimbra](#21-phân-quyền-thư-mục-lưu-trữ-cho-user-zimbra)
    - [2.2. Cài đặt trên RHEL / CentOS / Rocky / AlmaLinux (Gói RPM)](#22-cài-đặt-trên-rhel--centos--rocky--almalinux-gói-rpm)
@@ -107,24 +107,28 @@ Khi cài đặt gói RPM/DEB, hệ thống phân tách rành mạch thành các 
 
 ---
 
-### 1.3. Cơ chế tối ưu hiệu năng, Remote Storage FTP/SFTP và thông báo chuẩn hóa v0.3.7
+### 1.3. Cơ chế tối ưu hiệu năng, Remote Storage FTP/SFTP theo Job và tự động dọn dẹp v0.3.8
 
-1. **Lưu trữ từ xa tự động (Remote Storage FTP / SFTP):**
-   Tự động đóng gói snapshot thành 1 archive `.tar` duy nhất kèm `manifest` và đẩy sang máy chủ FTP (port 21, hỗ trợ FTPS qua SSL/TLS) hoặc máy chủ SFTP (port 22 qua SSH) ngay sau khi commit bản lưu cục bộ thành công. Dữ liệu được bảo mật tối đa: thông tin đăng nhập truyền qua file cấu hình tạm `0600` với `curl -K`, không bao giờ lộ mật khẩu trên `ps aux`.
-2. **Chuẩn hóa Thông báo Toàn diện (Universal Notifications):**
+1. **Lưu trữ từ xa độc lập theo từng Job (Per-Job Remote Storage FTP / SFTP):**
+   Mỗi Job có thể được cấu hình đẩy sang một máy chủ FTP/SFTP riêng biệt hoặc chỉ lưu cục bộ. Toàn bộ thông số (Protocol, Host, Port, User, Password ẩn, Thư mục từ xa `/<job_id>`, FTPS SSL) được tùy biến theo từng Job. Dữ liệu nén `.tar` được stream trực tiếp qua pipe `tar | curl -T -` giúp không tốn dung lượng đĩa tạm thời ở local. Mật khẩu được bảo vệ an toàn qua file tạm `0600` với `curl -K`, không lộ qua `ps aux`.
+2. **Quản lý Bản lưu FTP Độc lập (`FTP_KEEP_COUNT`) & Tự động Dọn dẹp (`zb_prune_remote_storage`):**
+   Số lượng bản lưu trên FTP (`FTP_KEEP_COUNT`) hoàn toàn độc lập với số bản lưu ở cục bộ (`KEEP_COUNT`). Sau khi upload thành công, hệ thống tự động quét thư mục Job trên FTP và gửi lệnh `DELE` (FTP) hoặc `rm` (SFTP) xóa các file `.tar` và `.manifest` cũ vượt quá `FTP_KEEP_COUNT`.
+3. **Bảo toàn 100% Bản lưu Cục bộ tại Local (Tuyệt đối không xóa local khi đẩy FTP):**
+   Bản sao lưu trên FTP chỉ là bản dự phòng ngoài site (offsite replica). Hệ thống tuyệt đối không xóa bản backup ở local sau khi upload sang FTP, giữ nguyên vẹn số bản local theo đúng `KEEP_COUNT` của Job.
+4. **Chuẩn hóa Thông báo Toàn diện (Universal Notifications):**
    Mọi bản tin thông báo (Email và Telegram) của tất cả các Job sao lưu (Full, Incremental, Ad-hoc) đều hiển thị chi tiết: Tên Job/ID, Chế độ (FULL / INCREMENTAL), Số tài khoản (chi tiết có thư mới / không đổi), Tổng dung lượng sao lưu (MiB/GiB), Thời gian chạy (giây), Trạng thái đẩy FTP/SFTP từ xa, và Thư mục lưu cục bộ.
-3. **Triệt tiêu độ trễ khởi động Java JVM (Zero JVM Cold-Start):**
+5. **Triệt tiêu độ trễ khởi động Java JVM (Zero JVM Cold-Start):**
    Tự động lưu và tái sử dụng `ZM_ADMIN_AUTH_TOKEN` trong tối đa 3600 giây qua file tạm quyền `0600` (tự động làm mới nếu gặp HTTP 401). Tránh việc bật/tắt máy ảo Java `zmprov`/`zmmailbox` hàng trăm lần cho từng tài khoản.
-4. **Bộ điều phối luồng song song không nghẽn hàng đợi (Non-blocking Worker Pool):**
+6. **Bộ điều phối luồng song song không nghẽn hàng đợi (Non-blocking Worker Pool):**
    Khắc phục giới hạn thiếu `wait -n` trên Bash 4.2 của CentOS 7 bằng vòng lặp kiểm tra trạng thái PID (`kill -0` và `wait "$pid"`). Khi một luồng hoàn thành hộp thư nhỏ, hệ thống lập tức nạp ngay tài khoản kế tiếp, duy trì hiệu suất tối đa của `PARALLEL_JOBS`.
-5. **Bộ nhớ đệm LDAP (In-memory LDAP Cache):**
+7. **Bộ nhớ đệm LDAP (In-memory LDAP Cache):**
    Quét danh sách Domains, Accounts, Distribution Lists một lần duy nhất lúc bắt đầu phiên, giảm tải hơn 90% truy vấn trực tiếp vào OpenLDAP của Zimbra.
-6. **Kiểm tra toàn vẹn có chọn lọc (Selective SHA-256 Verification):**
+8. **Kiểm tra toàn vẹn có chọn lọc (Selective SHA-256 Verification):**
    Khi chạy khôi phục, hệ thống chỉ kiểm tra mã băm SHA-256 của đúng những tài khoản/domain được chỉ định, không tốn thời gian kiểm tra lại các tài khoản không liên quan trong bản backup.
-7. **Cơ chế an toàn `--yes`:**
+9. **Cơ chế an toàn `--yes`:**
    Mọi thao tác khôi phục nguy hiểm (đặc biệt là `--mode reset`) trong môi trường không tương tác (Crontab/Script) bắt buộc phải có cờ `--yes`, tránh việc chạy nhầm làm ghi đè hòm thư người dùng.
-8. **Cơ chế Thông báo Email & Telegram Đa Kênh (`EMAIL_ALERT_LEVEL`):**
-   Cho phép cấu hình gửi email thông báo định kỳ cho cả những bản sao lưu thành công (`EMAIL_ALERT_LEVEL=all`) hoặc chỉ khi có sự cố (`EMAIL_ALERT_LEVEL=failure`). Bắt chi tiết lỗi `stderr` từ Postfix/sendmail, tích hợp lệnh kiểm tra tức thời `zimbra-backup notify test-email`, `test-telegram`, `test-ftp` và tự động gửi thông báo cho cả sao lưu lẻ tài khoản.
+10. **Cơ chế Thông báo Email & Telegram Đa Kênh (`EMAIL_ALERT_LEVEL`):**
+   Cho phép cấu hình gửi email thông báo định kỳ cho cả những bản sao lưu thành công (`EMAIL_ALERT_LEVEL=all`) hoặc chỉ khi có sự cố (`EMAIL_ALERT_LEVEL=failure`). Bắt chi tiết lỗi `stderr` từ Postfix/sendmail, tích hợp lệnh kiểm tra tức thời `zimbra-backup notify test-email`, `test-telegram`, `test-ftp [job_id]` và tự động gửi thông báo cho cả sao lưu lẻ tài khoản.
 
 ---
 
@@ -148,25 +152,25 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.7):**
+**Tải gói RPM mới nhất (v0.3.8):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.7-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup-0.3.7-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.8-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
 ```
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.7-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.8-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.7-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.8-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.7-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.8-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.7-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.8-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -182,20 +186,20 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.7):**
+**Tải gói DEB mới nhất (v0.3.8):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.7-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.7/zimbra-backup_0.3.7-1_all.deb
+curl -fSL -o zimbra-backup_0.3.8-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup_0.3.8-1_all.deb
 ```
 
 **Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
 ```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.7-1_all.deb
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.8-1_all.deb
 ```
 
 **Hoặc cài đặt qua `dpkg`:**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.7-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.8-1_all.deb
 sudo apt-get install -f -y
 ```
 
@@ -251,7 +255,7 @@ ID               MODE         SCHEDULE             KEEP   PAR   EN   TARGET DIRE
 daily-incr       incremental  daily (02:00)        2 ch   4     yes  (default: /home/backup)
 weekly-full      full         weekly (dow=0 01:30) 4      2     yes  (default: /home/backup)
 --------------------------------------------------------------------------------------------
-  1) Create new backup job (5-step wizard)
+  1) Create new backup job (6-step wizard)
   2) Edit existing job
   3) Enable / Disable a job
   4) Delete a job (keeps backup files on disk)
@@ -262,7 +266,7 @@ weekly-full      full         weekly (dow=0 01:30) 4      2     yes  (default: /
 Select [0-6]:
 ```
 
-#### Tạo Job mới nhanh chóng qua 5 bước (Bấm `1`):
+#### Tạo Job mới nhanh chóng qua 6 bước (Bấm `1`):
 1. **Bước 1: Nhập Job ID & Tên gợi nhớ**: Nhập mã định danh không dấu (ví dụ `prod-daily-incr`).
 2. **Bước 2: Chọn Chế độ sao lưu**:
    - `1` — `full`: Bản sao lưu độc lập, đầy đủ 100% dữ liệu.
@@ -277,11 +281,17 @@ Select [0-6]:
    - `4` — `custom`: Nhập biểu thức Cron 5 trường chuẩn Linux.
    - `5` — `off`: Tắt lịch tự động (chỉ chạy bằng tay).
 5. **Bước 5: Số bản lưu giữ & Số luồng chạy song song**:
-   - Nhập số bản giữ lại (`KEEP_COUNT`, mặc định `7` cho Full, `2` chuỗi cho Incremental).
+   - Nhập số bản giữ lại tại cục bộ (`KEEP_COUNT`, mặc định `7` cho Full, `2` chuỗi cho Incremental).
    - Nhập số luồng song song (`PARALLEL_JOBS`, khuyến nghị `2` đến `4`).
+6. **Bước 6: Cấu hình Lưu trữ Từ xa FTP / SFTP (Tùy chọn)**:
+   - Chọn `yes` nếu muốn tự động đẩy snapshot sang server FTP/SFTP dự phòng ngoài site, hoặc `no` nếu chỉ lưu cục bộ.
+   - Nếu chọn `yes`: Chọn giao thức (`ftp` hoặc `sftp`), Host/IP, Port (21 hoặc 22), Username, Password (ẩn ký tự), Thư mục từ xa (mặc định `/<job_id>`), mã hóa FTPS SSL, **Số bản lưu giữ trên FTP (`FTP_KEEP_COUNT`, mặc định 7, độc lập với local)**, và kiểm tra kết nối ngay.
 
 #### Chỉnh sửa Job 1 chạm (Bấm `2`):
-Màn hình hiển thị toàn bộ 10 trường dữ liệu hiện tại đánh số `1..10`. Muốn đổi giờ chạy chỉ cần bấm `4`, muốn đổi số bản lưu chỉ cần bấm `7`, sau đó bấm `s` để lưu và đồng bộ Crontab ngay lập tức.
+Màn hình hiển thị toàn bộ 11 trường dữ liệu hiện tại đánh số `1..11`:
+- Mục `1..10`: Tên Job, Bật/tắt, Loại sao lưu, Lịch chạy, Thư mục lưu, Kiểm tra mount, Số bản lưu local, Số luồng song song, Domain, Danh sách User.
+- Mục `11`: Cấu hình Remote FTP Upload (Bật/tắt, Protocol, Server, Port, User, Password, Remote Dir, FTPS SSL, Retention `FTP_KEEP_COUNT`, Test kết nối tức thì).
+Bấm số mục cần sửa và bấm `s` để lưu và đồng bộ Crontab ngay lập tức.
 
 ---
 
@@ -336,7 +346,7 @@ Bấm phím **`6`**:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.7) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.8) - mail.hdll.vn
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup
@@ -346,34 +356,33 @@ Bấm phím **`6`**:
   5) Server label (alerts)    : (auto: mail.hdll.vn)
   6) Telegram Bot alerts      : yes
   7) Email alerts             : yes [all]
-  8) Remote FTP / SFTP Storage: yes [sftp://backup.server.com:22]
-  9) Send test Telegram alert
- 10) Send test Email alert
- 11) Test Remote Storage connection now
+  8) Send test Telegram alert
+  9) Send test Email alert
   0) Back to main menu
 ============================================================
+Select [0-9]:
 ```
-- **Cấu hình Remote Storage FTP / SFTP (Mục 8 & 11)**: Mở menu riêng cấu hình lưu trữ từ xa. Bấm mục `11` để kiểm tra kết nối FTP/SFTP tức thời.
-- **Cấu hình Telegram Bot (Mục 6 & 9)**: Nhập Bot Token và Chat ID. Bấm mục `9` để gửi tin nhắn thử nghiệm ngay trên điện thoại.
-- **Cấu hình Email Alerts (Mục 7 & 10)**: Bật/tắt gửi email và chọn mức kích hoạt `EMAIL_ALERT_LEVEL` (`all` để gửi mọi bản sao lưu bao gồm thành công, hoặc `failure` để chỉ gửi khi có cảnh báo/lỗi). Bấm mục `10` để kiểm tra khả năng gửi thư của Postfix/sendmail trên máy chủ.
+- **Cấu hình Telegram Bot (Mục 6 & 8)**: Nhập Bot Token và Chat ID. Bấm mục `8` để gửi tin nhắn thử nghiệm ngay trên điện thoại.
+- **Cấu hình Email Alerts (Mục 7 & 9)**: Bật/tắt gửi email và chọn mức kích hoạt `EMAIL_ALERT_LEVEL` (`all` để gửi mọi bản sao lưu bao gồm thành công, hoặc `failure` để chỉ gửi khi có cảnh báo/lỗi). Bấm mục `9` để kiểm tra khả năng gửi thư của Postfix/sendmail trên máy chủ.
 - **Bảo vệ ổ đĩa (Mục 4)**: Cảnh báo khi đĩa vượt ngưỡng 85% và từ chối chạy nếu dung lượng trống dưới 1024 MB (tránh làm đầy ổ đĩa 100%).
+- *(Lưu ý: Kể từ v0.3.8, tính năng Lưu trữ từ xa FTP / SFTP được phân quyền cấu hình độc lập theo từng Job tại Menu 1 › Mục 11 hoặc Bước 6 khi tạo Job, giúp mỗi Job có thể gửi tới một server FTP và thư mục lưu khác nhau).*
 
-#### Submenu Cấu hình Lưu trữ từ xa (FTP / SFTP) (Bấm `8` từ Menu 6):
+#### Cấu hình Lưu trữ từ xa (FTP / SFTP) riêng của từng Job (Menu 1 › Mục 2 › Chọn Job › Mục 11):
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.7) - mail.hdll.vn
-  >> REMOTE STORAGE CONFIGURATION (FTP / SFTP)
+  REMOTE FTP/SFTP CONFIGURATION: daily-full
 ============================================================
   1) Enable Remote Storage    : yes / no
   2) Protocol                 : ftp / sftp (auto-toggles port 21 / 22)
   3) Server Host / IP         : backup.server.com
   4) Port                     : 22 (hoặc 21 cho FTP)
-  5) Remote Directory Path    : /backups/zimbra
+  5) Remote Directory Path    : /backups/daily-full
   6) Username                 : backup_user
   7) Password                 : ******** (nhập an toàn không hiện ký tự)
   8) FTPS (SSL encryption)    : yes / no (chỉ cho FTP: --ssl-reqd)
-  9) Test connection now      : kiểm tra kết nối tức thì
-  0) Back to Global Settings
+  9) Retention Keep on FTP    : 7 remote archives (độc lập với local)
+ 10) Test connection now      : kiểm tra kết nối tới server FTP
+  0) Done (return to Job editor)
 ============================================================
 ```
 
@@ -472,10 +481,25 @@ zimbra-backup job add daily-incr \
   --full-cycle weekly --full-cycle-value 0 \
   --keep 2 --parallel 4
 
-# 3. Sửa giờ chạy của Job daily-full sang 00:30:
+# 3. Tạo Job Full kèm sao lưu từ xa qua SFTP (port 22), giữ 7 bản local và 14 bản trên SFTP:
+zimbra-backup job add offsite-full \
+  --name "Offsite Full Backup" \
+  --type full \
+  --schedule daily --hour 3 --minute 0 \
+  --keep 7 \
+  --ftp-upload yes \
+  --ftp-protocol sftp \
+  --ftp-host "backup.server.com" \
+  --ftp-port 22 \
+  --ftp-user "backup_user" \
+  --ftp-password "secret_pass" \
+  --ftp-dir "/backups/mail" \
+  --ftp-keep 14
+
+# 4. Sửa giờ chạy của Job daily-full sang 00:30:
 zimbra-backup job edit daily-full --hour 0 --minute 30
 
-# 4. Kích hoạt chạy ngay một Job Incremental nhưng ép mở chuỗi Full mới:
+# 5. Kích hoạt chạy ngay một Job Incremental nhưng ép mở chuỗi Full mới:
 zimbra-backup job run daily-incr --force-full
 ```
 
@@ -596,8 +620,8 @@ zimbra-backup notify test-email
 # Gửi tin nhắn thử nghiệm tới Telegram Bot:
 zimbra-backup notify test-telegram
 
-# Kiểm tra kết nối tới máy chủ lưu trữ từ xa (FTP / SFTP):
-zimbra-backup notify test-ftp
+# Kiểm tra kết nối tới máy chủ lưu trữ từ xa (FTP / SFTP) của một Job:
+zimbra-backup notify test-ftp [job_id]
 ```
 
 ---

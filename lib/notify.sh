@@ -103,8 +103,15 @@ zb_test_telegram() {
 }
 
 zb_test_ftp() {
+    local target_job="${1:-}"
+    if [[ -n "$target_job" ]]; then
+        if ! zb_job_load "$target_job"; then
+            zb_err "Cannot load job '$target_job' for FTP test."
+            return 1
+        fi
+    fi
     if [[ -z "${FTP_HOST:-}" || -z "${FTP_USER:-}" ]]; then
-        zb_err "Remote storage is not configured (missing FTP_HOST or FTP_USER)."
+        zb_err "Remote storage is not configured (missing FTP_HOST or FTP_USER). Specify a job: zimbra-backup notify test-ftp <job_id>"
         return 1
     fi
     local proto="${FTP_PROTOCOL:-ftp}"
