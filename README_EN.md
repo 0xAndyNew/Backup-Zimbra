@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.8)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.9)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup_0.3.8-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup_0.3.9-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.8) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.9) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.8 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.9 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -77,6 +77,25 @@ Select [0-7]:
 | **Closed / Inactive Account Handling** | ❌ REST Inactive error | ✅ Supported | **✅ Deferred Account Status mechanism** |
 | **Destructive Mode Safeguard** | ❌ Risky overwrites | Web Prompt | **✅ Strict `--yes` & `RESET` confirmation** |
 | **Integrity Verification** | ⚠️ File size only | Supported | **✅ SHA-256 manifest per mailbox** |
+
+---
+
+## 🌟 Highlights in Version v0.3.9
+
+1. **Definitive Fix for HTTP 401 Unauthorized during Restore of Inactive Accounts (Closed, Locked, Suspended)**:
+   - Zimbra's `UserServlet` and `MailboxServlet` reject REST `/service/home/` mailbox injection on accounts in `closed`, `maintenance`, `locked`, or `suspended` status with `HTTP 401 Unauthorized` (`account.ACCOUNT_INACTIVE`).
+   - `zimbra-backup` v0.3.9 re-engineers the **Deferred Status** mechanism: non-active accounts remain temporarily in `active` state throughout LDAP provisioning and mailbox REST streaming, then automatically transition back to their original target status (`closed`, `locked`, etc.) once the restore chain finishes or if the process is aborted via exit trap.
+
+2. **Smart Email Sender Domain Fallback (RFC 5321 Compliance)**:
+   - When `Server label (alerts)` (`HOST_LABEL`) is configured as a bare IPv4 or IPv6 address (e.g. `1.55.212.58`), the notification engine automatically detects the IP format and substitutes a valid system FQDN (`zmhostname` or `hostname -f`) into the `From:` envelope header.
+   - Completely eliminates MTA email rejections by receiving gateways (Postfix, FPT, Gmail, Office 365) while preserving the friendly IP label in the subject and email body.
+
+3. **Transparent Telegram API Diagnostics**:
+   - Switched Telegram curl requests from silent failure to direct error extraction. When a test alert or job alert fails, `zimbra-backup notify test-telegram` displays the exact Telegram API description (e.g. `Bad Request: chat not found`, `Forbidden: bot is not a member of the channel/supergroup`), expediting bot permissions troubleshooting.
+
+4. **Comprehensive Documentation on `.manifest` Catalogs & Alert Troubleshooting**:
+   - Documented the architectural role of lightweight `.manifest` files on remote FTP/SFTP storage, enabling instant catalog inspection and incremental delta calculation without downloading multi-gigabyte `.tar` archives.
+   - Added step-by-step resolution guides for Telegram Supergroup IDs (`-100...`) and mail queue troubleshooting.
 
 ---
 

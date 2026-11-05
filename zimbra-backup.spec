@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.8
+Version:        0.3.9
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,11 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Thu Nov 05 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.9-1
+- Add smart fallback for email sender From header when HOST_LABEL is configured as an IP address
+- Enhance Telegram Bot error reporting with direct API descriptions (e.g. chat not found, bot permissions)
+- Add comprehensive documentation and troubleshooting guide for .manifest files and notifications
+
 * Thu Nov 05 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.8-1
 - Shift FTP/SFTP remote storage configuration from global settings to per-job configuration
 - Add per-job remote retention management (FTP_KEEP_COUNT) independent of local retention

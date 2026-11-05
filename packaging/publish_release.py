@@ -101,6 +101,14 @@ def main():
     body = f"""## Zimbra Backup & Restore (`zimbra-backup` v{version})
 
 ### Key Highlights in v{version}
+- **Smart Email Sender Domain Fallback (RFC 5321 Compliance)**:
+  - When `Server label (alerts)` (`HOST_LABEL`) is configured as an IP address (e.g. `1.55.212.58`), the notification engine automatically substitutes a valid system FQDN (`zmhostname` or `hostname -f`) into the `From:` envelope header.
+  - Completely prevents receiving MTAs and enterprise mail filters (Postfix, FPT, Gmail, Microsoft 365) from rejecting alerts due to missing MX/SPF on raw IP domains, while preserving the IP label in the alert subject and body.
+- **Transparent Telegram API Diagnostics**:
+  - Direct JSON error description extraction (e.g. `Bad Request: chat not found`, `Forbidden: bot is not a member of the supergroup chat`), instantly exposing channel/group permission and ID misconfigurations.
+- **Comprehensive `.manifest` & Notification Documentation**:
+  - Detailed architectural guide explaining the role of lightweight `.manifest` files (`zb-backup-v2`) on remote FTP/SFTP storage, enabling instant catalog queries and incremental deltas without downloading multi-gigabyte `.tar` archives.
+  - Step-by-step troubleshooting guide for Telegram Supergroup IDs (`-100...`) and Postfix mail queues.
 - **Per-Job Remote Storage Configuration (FTP / SFTP)**:
   - Configure remote storage directly per backup job instead of global settings.
   - Interactive selection during Job Creation Wizard (Step 6) and Job Editor (Field 11).
@@ -110,9 +118,6 @@ def main():
   - Remote archive retention is managed completely independently from local retention (`KEEP_COUNT`).
   - Automated remote pruning (`zb_prune_remote_storage`): automatically purges expired `.tar` and `.manifest` pairs via standard `DELE` (FTP) or `rm` (SFTP).
   - **Zero Local Snapshot Deletion**: Remote backups serve as offsite disaster-recovery replicas. Local snapshots are never wiped upon upload.
-- **Refined ASCII TUI & CLI Experience**:
-  - Direct connection test CLI: `zimbra-backup notify test-ftp [job_id]`.
-  - Cleaned up Menu 6 (Global Settings) to focus purely on local storage defaults, disk thresholds, and alert destinations.
 - **Automated Test Suite**:
   - 208/208 automated end-to-end tests passing with 0 errors.
   - 100% pure 7-bit ASCII and Unix LF line endings preserved across all packages.

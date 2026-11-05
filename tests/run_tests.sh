@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.8
+# End-to-end automated test suite for zimbra-backup v0.3.9
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -432,7 +432,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.8" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.8"
+assert_contains "$ver_out" "zimbra-backup 0.3.9" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.9"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1010,12 +1010,12 @@ printf 'closed@example.com\n' >> "$latest_full/accounts/active_accounts.txt"
 : > "$MOCK_LOG"
 "$ZB_CMD" restore --from "$latest_full" --users "closed@example.com" --yes >/dev/null
 closed_rest_log="$(cat "$MOCK_LOG")"
-assert_contains "$closed_rest_log" "zimbraAccountStatus maintenance" \
-    "Deferred status: Tạm thời đặt trạng thái maintenance trong khi import hộp thư"
-assert_contains "$closed_rest_log" "zimbraAccountStatus closed" \
-    "Deferred status: Tự động áp đặt lại trạng thái closed sau khi hoàn tất import"
+assert_contains "$closed_rest_log" "zimbraAccountStatus active" \
+    "Deferred status: Tam thoi dam bao trang thai active trong khi import hop thu"
 assert_contains "$closed_rest_log" "service/home/closed@example.com" \
-    "Deferred status: Hộp thư được import thành công qua REST mà không bị chặn"
+    "Deferred status: Hop thu duoc import thanh cong qua REST ma khong bi chan"
+assert_contains "$closed_rest_log" "zimbraAccountStatus closed" \
+    "Deferred status: Tu dong ap dat lai trang thai closed sau khi hoan tat import"
 
 printf '\n=== 14. Kiểm tra tối ưu & An toàn v0.3.5 (Non-interactive confirmation & Multi-value attrs) ===\n'
 

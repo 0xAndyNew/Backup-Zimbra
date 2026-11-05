@@ -12,16 +12,32 @@ zb_send_telegram() {
     # Hide bot token URL from process table (ps aux) via curl -K config file
     printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TELEGRAM_TOKEN" > "$cfg"
 
-    local -a args=(--fail --silent --connect-timeout 8 --max-time 20 -K "$cfg" --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=$text")
+    local -a args=(--silent --show-error --connect-timeout 8 --max-time 20 -K "$cfg" --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=$text")
     if [[ -n "${TELEGRAM_THREAD_ID:-}" ]]; then
         args+=(--data-urlencode "message_thread_id=$TELEGRAM_THREAD_ID")
     fi
 
-    local rc=0
-    curl "${args[@]}" >/dev/null 2>&1 || rc=$?
+    local rc=0 tg_resp=""
+    set +e
+    tg_resp="$(curl "${args[@]}" 2>&1)"
+    rc=$?
+    set -e
     rm -f -- "$cfg"
+
+    ZB_LAST_TELEGRAM_ERR=""
     if (( rc != 0 )); then
-        zb_log "WARNING: Failed to send Telegram alert (curl exit code=$rc)."
+        ZB_LAST_TELEGRAM_ERR="Network/curl error (code $rc): ${tg_resp:-connection failed}"
+        zb_log "WARNING: Failed to send Telegram alert: $ZB_LAST_TELEGRAM_ERR"
+        return 1
+    elif [[ -n "$tg_resp" && "$tg_resp" == *'"ok":false'* ]]; then
+        local desc=""
+        if [[ "$tg_resp" =~ \"description\":\"([^\"]+)\" ]]; then
+            desc="${BASH_REMATCH[1]}"
+        else
+            desc="$tg_resp"
+        fi
+        ZB_LAST_TELEGRAM_ERR="Telegram API error: $desc"
+        zb_log "WARNING: Failed to send Telegram alert: $ZB_LAST_TELEGRAM_ERR"
         return 1
     fi
     return 0
@@ -42,10 +58,24 @@ zb_send_email_alert() {
         return 1
     fi
     host_from="$(zb_host_label)"
+    local mail_from_domain="$host_from"
+    # If host label is an IP address, fallback to valid FQDN/hostname so MTAs don't reject the From header
+    if [[ "$mail_from_domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || "$mail_from_domain" =~ : ]]; then
+        local cand=""
+        if [[ -x "$ZB_ZIMBRA_BIN/zmhostname" ]]; then
+            cand="$("$ZB_ZIMBRA_BIN/zmhostname" 2>/dev/null || true)"
+        fi
+        [[ -n "$cand" ]] || cand="$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)"
+        if [[ -n "$cand" && ! "$cand" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            mail_from_domain="$cand"
+        else
+            mail_from_domain="localhost"
+        fi
+    fi
     local sm_err="" sm_rc=0
     set +e
     sm_err="$({
-        printf 'From: zimbra-backup <%s@%s>\n' "$ZB_ZIMBRA_USER" "$host_from"
+        printf 'From: zimbra-backup <%s@%s>\n' "$ZB_ZIMBRA_USER" "$mail_from_domain"
         printf 'To: %s\n' "$EMAIL_ALERT_TO"
         printf 'Subject: %s\n' "$subject"
         printf 'Date: %s\n' "$(LC_ALL=C date -R 2>/dev/null || LC_ALL=C date)"
@@ -55,6 +85,7 @@ zb_send_email_alert() {
     } | "$sm_bin" -t 2>&1)"
     sm_rc=$?
     set -e
+    ZB_LAST_EMAIL_ERR="$sm_err"
     if (( sm_rc != 0 )); then
         zb_log "WARNING: Failed to send email alert to $EMAIL_ALERT_TO via $sm_bin (exit code=$sm_rc): $sm_err"
         return 1
@@ -82,7 +113,7 @@ If you received this email, email notifications for Zimbra Backup are functionin
         zb_info "Test email sent successfully to $EMAIL_ALERT_TO."
         return 0
     else
-        zb_err "Failed to dispatch test email to $EMAIL_ALERT_TO."
+        zb_err "Failed to dispatch test email to $EMAIL_ALERT_TO: ${ZB_LAST_EMAIL_ERR:-check sendmail / Postfix logs}."
         return 1
     fi
 }
@@ -94,10 +125,10 @@ zb_test_telegram() {
     fi
     zb_info "Sending test Telegram message to chat ${TELEGRAM_CHAT_ID}..."
     if zb_send_telegram "[OK] [$(zb_host_label)] Test notification from zimbra-backup v${ZB_VERSION}"; then
-        zb_info "Test Telegram message sent successfully."
+        zb_info "Test Telegram message sent successfully to chat ${TELEGRAM_CHAT_ID}."
         return 0
     else
-        zb_err "Failed to send Telegram message (check token, chat ID, and network connectivity)."
+        zb_err "Failed to send Telegram message: ${ZB_LAST_TELEGRAM_ERR:-check token, chat ID, bot permissions in group, and network connectivity}."
         return 1
     fi
 }

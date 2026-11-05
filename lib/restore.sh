@@ -645,14 +645,16 @@ zb_restore_ldap_metadata() {
             while IFS=$'\t' read -r attr val_b64 <&4; do
                 [[ -n "$attr" && -n "$val_b64" ]] || continue
                 val_decoded="$(printf '%s' "$val_b64" | base64 -d 2>/dev/null || printf '%s' "$val_b64" | base64 --decode 2>/dev/null || true)"
-                if [[ "$attr" == "zimbraAccountStatus" && "$val_decoded" == "closed" ]]; then
-                    # Defer setting 'closed' status until after mailbox import, because Zimbra
-                    # MailboxServlet rejects REST /service/home/ imports on closed accounts (account.ACCOUNT_INACTIVE).
-                    # Temporarily set to 'maintenance' so users cannot log in during restore.
-                    ma_args+=("zimbraAccountStatus" "maintenance")
+                if [[ "$attr" == "zimbraAccountStatus" && "$val_decoded" != "active" ]]; then
+                    # Defer setting non-active status ('closed', 'locked', 'maintenance', 'suspended')
+                    # until after mailbox import, because Zimbra UserServlet/MailboxServlet rejects REST /service/home/
+                    # imports on non-active accounts (HTTP 401 / account.ACCOUNT_INACTIVE).
+                    # The account remains 'active' during restore and is switched to target status at the end.
                     if [[ -n "$deferred_status_file" ]]; then
-                        printf '%s\t%s\n' "$dest_email" "closed" >> "$deferred_status_file"
+                        printf '%s\t%s\n' "$dest_email" "$val_decoded" >> "$deferred_status_file"
                     fi
+                    # If account already existed on server in non-active status, temporarily ensure active for import
+                    zmprov ma "$dest_email" zimbraAccountStatus active </dev/null >/dev/null 2>&1 || true
                 else
                     if [[ -n "${seen_ma_attrs[$attr]:-}" ]]; then
                         ma_args+=("+$attr" "$val_decoded")
@@ -1088,9 +1090,9 @@ zb_run_restore() (
                 [[ -n "$chk_u" ]] || continue
                 d_acc="${target_user:-$chk_u}"
                 cur_st="$(zmprov -l ga "$d_acc" zimbraAccountStatus 2>/dev/null | awk '/^zimbraAccountStatus:/{print $2}' || true)"
-                if [[ "$cur_st" == "closed" ]]; then
-                    zmprov ma "$d_acc" zimbraAccountStatus maintenance </dev/null >/dev/null 2>&1 || true
-                    printf '%s\t%s\n' "$d_acc" "closed" >> "$deferred_status_file"
+                if [[ "$cur_st" != "active" && -n "$cur_st" ]]; then
+                    zmprov ma "$d_acc" zimbraAccountStatus active </dev/null >/dev/null 2>&1 || true
+                    printf '%s\t%s\n' "$d_acc" "$cur_st" >> "$deferred_status_file"
                 fi
             done 3< "$acc_list"
         fi
@@ -1144,9 +1146,9 @@ zb_run_restore() (
         done
     fi
 
-    # Apply final deferred account statuses (e.g. accounts backed up as closed)
+    # Apply final deferred account statuses (e.g. accounts backed up as closed/locked/maintenance)
     if [[ -s "$deferred_status_file" ]]; then
-        zb_log "Restoring final deferred account statuses (closed)..."
+        zb_log "Restoring final deferred account statuses..."
         local fs_email fs_val
         while IFS=$'\t' read -r fs_email fs_val <&3; do
             [[ -n "$fs_email" && -n "$fs_val" ]] || continue

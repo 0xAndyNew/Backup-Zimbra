@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.8)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.9)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup_0.3.8-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup_0.3.9-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.8) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.9) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.8 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.9 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -80,7 +80,26 @@ Select [0-7]:
 
 ---
 
-## 🌟 Điểm nổi bật trong phiên bản v0.3.8
+## 🌟 Điểm nổi bật trong phiên bản v0.3.9
+
+1. **Khắc phục triệt để lỗi HTTP 401 khi Restore tài khoản Non-active (Closed, Locked, Suspended)**:
+   - Zimbra `UserServlet` / `MailboxServlet` từ chối các kết nối REST (`/service/home/`) đến các tài khoản ở trạng thái `closed`, `maintenance`, `locked`, `suspended` với lỗi `HTTP 401 Unauthorized` (`account.ACCOUNT_INACTIVE`).
+   - `zimbra-backup` v0.3.9 cải tiến cơ chế **Deferred Status**: giữ tài khoản ở trạng thái `active` trong suốt quá trình nạp LDAP và stream hộp thư REST, sau đó tự động hoàn trả chính xác về trạng thái ban đầu (`closed`, `locked`, v.v.) sau khi toàn bộ chuỗi khôi phục hoàn tất hoặc khi tiến trình bị hủy đột ngột.
+
+2. **Tự động Fallback Sender Domain cho Email Alerts (Chống chặn Mail RFC 5321)**:
+   - Khi `Server label (alerts)` được người dùng đặt là địa chỉ IP thô (ví dụ `1.55.212.58`), hệ thống tự động nhận diện và fallback trường domain trong `From:` header sang FQDN hợp lệ (`zmhostname` hoặc `hostname -f`).
+   - Ngăn chặn tuyệt đối việc email thông báo bị Postfix hoặc Mail Gateway đối tác (FPT, Gmail, Microsoft 365) từ chối nhận (reject), đồng thời vẫn bảo lưu nhãn IP trong tiêu đề và nội dung để quản trị viên dễ dàng nhận diện máy chủ.
+
+3. **Chẩn đoán Lỗi Telegram API Trực quan (Transparent Diagnostics)**:
+   - Khi gửi thử hoặc gửi thông báo thất bại, lệnh `zimbra-backup notify test-telegram` trích xuất và hiển thị trực tiếp thông báo lỗi từ Telegram API (như `Bad Request: chat not found`, `Forbidden: bot is not a member of the supergroup chat`), giúp giải quyết sự cố phân quyền Bot chỉ trong vài giây.
+
+4. **Tài liệu Hướng dẫn Toàn diện về File `.manifest` và Thông báo Đa kênh**:
+   - Bổ sung tài liệu giải thích chi tiết cơ chế manifest siêu nhẹ (`.manifest`), phục vụ tra cứu danh mục tức thì mà không cần kéo file `.tar` hàng chục GB về máy.
+   - Hướng dẫn step-by-step xử lý các lỗi thường gặp với Telegram Supergroup ID (`-100...`) và hàng đợi Postfix.
+
+---
+
+## 🌟 Kiến trúc cốt lõi từ phiên bản v0.3.8
 
 1. **Cấu hình Lưu trữ Từ xa FTP / SFTP theo từng Job (Per-Job Remote Storage)**:
    - Chuyển hoàn toàn cấu hình FTP từ mức toàn cục vào từng Job riêng biệt: mỗi Job tự chọn có đẩy FTP hay không (`[y/N]`), cấu hình máy chủ FTP/SFTP, port, tài khoản, và thư mục đích riêng (`/<job_id>`).

@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.8)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.9)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.8** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.9** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -152,25 +152,25 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.8):**
+**Tải gói RPM mới nhất (v0.3.9):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.8-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup-0.3.8-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.9-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
 ```
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.8-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.9-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.8-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.9-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.8-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.9-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.8-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.9-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -186,20 +186,20 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.8):**
+**Tải gói DEB mới nhất (v0.3.9):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.8-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.8/zimbra-backup_0.3.8-1_all.deb
+curl -fSL -o zimbra-backup_0.3.9-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup_0.3.9-1_all.deb
 ```
 
 **Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
 ```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.8-1_all.deb
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.9-1_all.deb
 ```
 
 **Hoặc cài đặt qua `dpkg`:**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.8-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.9-1_all.deb
 sudo apt-get install -f -y
 ```
 
@@ -346,7 +346,7 @@ Bấm phím **`6`**:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.8) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.9) - mail.hdll.vn
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup
@@ -624,6 +624,8 @@ zimbra-backup notify test-telegram
 zimbra-backup notify test-ftp [job_id]
 ```
 
+> 💡 **Mẹo:** Lệnh `notify test-telegram` từ v0.3.9 sẽ in ra chính xác phản hồi từ Telegram API (như `Bad Request: chat not found`, `Forbidden: bot is not a member of the supergroup chat`), giúp chẩn đoán sự cố phân quyền Bot chỉ trong vài giây.
+
 ---
 
 ## 5. Các kịch bản thực chiến hay gặp nhất (Step-by-Step)
@@ -736,6 +738,23 @@ Hệ thống tự động nhận diện định dạng LDIF legacy, trích xuấ
      ```bash
      zimbra-backup cron sync
      ```
+5. **Ý nghĩa và vai trò của file `.manifest` trên máy chủ FTP / SFTP từ xa:**
+   - Khi sao lưu đẩy sang FTP/SFTP, bên cạnh file nén `.tar` dung lượng lớn (hàng chục đến hàng trăm GB) luôn xuất hiện một file đi kèm mang đuôi `.manifest` (dung lượng chỉ khoảng vài chục KB, ví dụ `000_backup-full-05-11-2026_143802.manifest`).
+   - **File này có 4 chức năng quan trọng:**
+     1. **Tra cứu mục lục siêu tốc (Instant Catalog Inspection):** File `.manifest` là file văn bản thuần lưu danh sách toàn bộ tài khoản email, dung lượng từng hòm thư và mốc thời gian hoàn thành. Khi cần kiểm tra nội dung bản backup trên FTP, bạn chỉ cần mở file `.manifest` đọc trực tiếp mà không cần tải file `.tar` hàng chục GB về máy.
+     2. **Phục vụ chuỗi sao lưu Incremental:** Bản Incremental tiếp theo cần đọc checkpoint timestamp (`last_checkpoint_to`) từ manifest này để xác định mốc kéo email mới phát sinh.
+     3. **Kiểm tra toàn vẹn dữ liệu (Integrity Verification):** File ghi nhận mã băm SHA-256 của từng tài khoản, giúp lệnh `zimbra-backup catalog verify` đối soát tính toàn vẹn, chống suy hao/lỗi file khi truyền tải qua mạng.
+     4. **Dọn dẹp đồng bộ:** Cơ chế dọn dẹp tự động trên FTP (`zb_prune_remote_storage`) sẽ xóa đồng thời cả cặp `.tar` và `.manifest` tương ứng khi bản sao lưu vượt quá hạn lưu giữ (`FTP_KEEP_COUNT`).
+6. **Hướng dẫn cấu hình & Khắc phục sự cố Thông báo (Email & Telegram):**
+   - **Kênh Telegram Bot:**
+     - Bot Token được cấp từ `@BotFather`, Chat ID cá nhân là số dương, Chat ID của Group/Channel luôn là số âm bắt đầu bằng `-100...` (ví dụ: `-1002416073803`).
+     - **Nguyên nhân phổ biến nhất không nhận được tin nhắn:** Bot **chưa được thêm (Add) vào Group/Channel** hoặc chưa được phân quyền **Administrator** (quyền *Send Messages* / *Post Messages*).
+     - **Cách kiểm tra:** Chạy `zimbra-backup notify test-telegram` hoặc vào Menu 6 bấm phím `8`. Hệ thống sẽ in ra thông báo lỗi chi tiết từ Telegram API nếu Bot bị chặn hoặc chưa vào nhóm.
+   - **Kênh Email Alerts:**
+     - Thiết lập địa chỉ nhận thư tại `EMAIL_ALERT_TO` và chọn mức cảnh báo (`all` - gửi mọi kết quả, hoặc `failure` - chỉ gửi khi có cảnh báo/lỗi).
+     - **Lưu ý về Server Label (Alerts):** Nếu bạn đặt Server Label là địa chỉ IP thô (ví dụ: `1.55.212.58`), hệ thống mail bên ngoài (như FPT, Google, Microsoft 365) hoặc chính Postfix của Zimbra có thể từ chối nhận (reject) do vi phạm chuẩn RFC (địa chỉ người gửi không được dùng IP thuần `@1.55.212.58`).
+     - **Cơ chế tối ưu từ v0.3.9:** Tiêu đề `From:` sẽ tự động sử dụng FQDN/domain hợp lệ của máy chủ (`zmhostname` hoặc `hostname -f`), trong khi nhãn IP vẫn được hiển thị rõ ràng trong tiêu đề và nội dung email thông báo để bạn dễ dàng nhận diện máy chủ.
+     - **Cách kiểm tra:** Chạy `zimbra-backup notify test-email` hoặc vào Menu 6 bấm phím `9`. Nếu không nhận được thư, kiểm tra hàng đợi Postfix bằng lệnh `mailq` hoặc xem log `/var/log/zimbra.log`.
 
 ---
 
