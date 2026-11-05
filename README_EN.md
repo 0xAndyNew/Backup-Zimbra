@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-156%2F156_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-208%2F208_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -179,7 +179,7 @@ zimbra-backup notify test-telegram
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (149 tests):
+Execute end-to-end automated test suite (208 tests):
 ```bash
 bash tests/run_tests.sh
 ```

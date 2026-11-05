@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-156%2F156_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-208%2F208_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -170,7 +170,7 @@ zimbra-backup restore --dir /backup --from 1 --all --mode skip --yes
 
 ## 🛠️ Đóng gói & Kiểm thử từ mã nguồn
 
-Chạy bộ kiểm thử tự động đầu-cuối 149 bài test:
+Chạy bộ kiểm thử tự động đầu-cuối 208 bài test:
 ```bash
 bash tests/run_tests.sh
 ```

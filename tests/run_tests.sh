@@ -1148,6 +1148,9 @@ assert_contains "$mock_sftp_log" "url=sftp://ftp.example.com:22/backups/" "curl 
     --ftp-enabled yes --ftp-protocol ftp --ftp-host "ftp.example.com" --ftp-port 21 \
     --ftp-user "ftpuser" --ftp-password "FTP_SECRET_PW" --ftp-dir "/backups" >/dev/null
 
+"$ZB_CMD" job edit mail-test --ftp-upload yes --ftp-protocol ftp --ftp-host "ftp.example.com" \
+    --ftp-port 21 --ftp-user "ftpuser" --ftp-password "FTP_SECRET_PW" --ftp-dir "/backups" >/dev/null
+
 : > "$MOCK_LOG"
 "$ZB_CMD" job run mail-test >/dev/null
 
@@ -1166,6 +1169,7 @@ assert_contains "$job_ftp_log" "Remote Storage : OK (FTP://ftp.example.com:21" "
 
 # 16d. Sao luu Job thong thuong (FTP disabled) van giu nguyen chuan hoa thong bao
 "$ZB_CMD" init --ftp-enabled no >/dev/null
+"$ZB_CMD" job edit mail-test --ftp-upload no >/dev/null
 : > "$MOCK_LOG"
 "$ZB_CMD" job run mail-test >/dev/null
 
