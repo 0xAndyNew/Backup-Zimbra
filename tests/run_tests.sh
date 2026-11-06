@@ -174,9 +174,9 @@ fi
 sub="${1:-}"
 shift || true
 case "$sub" in
-    gs)
-        # Server SSL port lookup
-        printf 'zimbraMailSSLPort: 8443\n'
+    gs|gcf)
+        # Server SSL/Admin port lookup
+        printf 'zimbraAdminPort: 7071\nzimbraMailSSLPort: 8443\n'
         ;;
     gad)
         printf 'example.com\nsub.example.com\n'
@@ -292,6 +292,14 @@ chmod +x "$MOCK_BIN/zmprov"
 cat > "$MOCK_BIN/zmmailbox" <<'EOF'
 #!/usr/bin/env bash
 printf 'ZMMAILBOX %s\n' "$*" >> "$MOCK_LOG"
+if [[ -n "${MOCK_ZMMAILBOX_FAIL_204:-}" && "$*" == *"query=after:"* ]]; then
+    printf 'ERROR: service.FAILURE (system failure: GET from https://mail.example.com:8443/home/... failed, status=204.  No Content)\n' >&2
+    exit 2
+fi
+if [[ -n "${MOCK_ZMMAILBOX_FAIL_REAL:-}" ]]; then
+    printf 'ERROR: service.FAILURE (system failure: connection refused)\n' >&2
+    exit 1
+fi
 exit 0
 EOF
 chmod +x "$MOCK_BIN/zmmailbox"
@@ -1282,6 +1290,52 @@ assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/b
 assert_not_contains "$prune_log" "backup-full-20261103-010000.tar" \
     "Don dep FTP: Giu lai ban archive moi hon trong pham vi FTP_KEEP_COUNT=3"
 unset MOCK_FTP_LIST_DATA
+
+printf '\n=== 18. Kiểm tra ưu tiên zimbraAdminPort (7071) & xử lý HTTP 204 No Content trên zmmailbox ===\n'
+export ZB_LIB_DIR="$REPO_ROOT/lib"
+. "$REPO_ROOT/lib/common.sh"
+. "$REPO_ROOT/lib/notify.sh"
+. "$REPO_ROOT/lib/zimbra_api.sh"
+. "$REPO_ROOT/lib/jobs.sh"
+. "$REPO_ROOT/lib/backup.sh"
+
+# Test port detection logic prioritizes 7071
+orig_force_port="${ZB_FORCE_REST_PORT:-}"
+orig_rest_port="${ZB_REST_PORT:-}"
+unset ZB_FORCE_REST_PORT ZB_REST_PORT
+detected_p="$(zb_detect_rest_port)"
+[[ "$detected_p" == "7071" ]] && pass "Dò cổng REST ưu tiên zimbraAdminPort 7071 cho ZM_ADMIN_AUTH_TOKEN" \
+    || fail "Dò cổng REST phát hiện sai cổng: $detected_p (kỳ vọng: 7071)"
+[[ -n "$orig_force_port" ]] && export ZB_FORCE_REST_PORT="$orig_force_port"
+ZB_REST_PORT="$orig_rest_port"
+
+# Test zmmailbox fallback handling status=204 No Content
+export MOCK_ZMMAILBOX_FAIL_204=1
+test_out_tgz="$TEST_TMP/zmm_204_test.tgz"
+rm -f -- "$test_out_tgz" "${test_out_tgz%.tgz}.empty"
+# Call with empty auth_cfg so curl is skipped and zmmailbox is tested directly
+if zb_export_mailbox_archive "empty@example.com" "$test_out_tgz" "incr" "1793863982" ""; then
+    pass "zmmailbox fallback: Nhận diện mã 204 No Content (exit code 2) là empty delta hợp lệ"
+else
+    fail "zmmailbox fallback: Xử lý sai mã 204 No Content trên zmmailbox"
+fi
+assert_file_exists "${test_out_tgz%.tgz}.empty" "zmmailbox fallback: Tạo đúng file marker .empty cho delta rỗng"
+[[ ! -f "$test_out_tgz" ]] && pass "zmmailbox fallback: Dọn sạch file .tgz khi không có mail mới" \
+    || fail "zmmailbox fallback: Còn sót file .tgz rỗng"
+rm -f -- "${test_out_tgz%.tgz}.empty"
+unset MOCK_ZMMAILBOX_FAIL_204
+
+# Test zmmailbox fallback failing properly on real error
+export MOCK_ZMMAILBOX_FAIL_REAL=1
+test_fail_tgz="$TEST_TMP/zmm_fail_test.tgz"
+rm -f -- "$test_fail_tgz" "${test_fail_tgz%.tgz}.empty"
+if zb_export_mailbox_archive "empty@example.com" "$test_fail_tgz" "incr" "1793863982" ""; then
+    fail "zmmailbox fallback: Phải thất bại khi zmmailbox gặp lỗi thật"
+else
+    pass "zmmailbox fallback: Báo lỗi chính xác khi zmmailbox gặp lỗi hệ thống thật"
+fi
+rm -f -- "$test_fail_tgz" "${test_fail_tgz%.tgz}.empty"
+unset MOCK_ZMMAILBOX_FAIL_REAL
 
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"

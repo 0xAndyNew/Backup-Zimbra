@@ -61,17 +61,24 @@ zb_detect_rest_port() {
         return 0
     fi
 
-    local p0 p1 p2 cand srv_host
+    local pa0 pa1 p0 p1 p2 cand srv_host
     srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+    # zimbra-backup authenticates using ZM_ADMIN_AUTH_TOKEN, which requires the admin port (default 7071)
+    # on Zimbra Collaboration. Mailbox ports (8443/443) reject admin tokens with HTTP 401.
+    pa0="$(zmprov -l gs "$srv_host" zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
+    pa1="$(zmprov -l gcf zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
     p0="$(zmprov -l gs "$srv_host" zimbraMailSSLPort 2>/dev/null | awk '/^zimbraMailSSLPort:/ {print $2; exit}')" || true
     p1="$(zmprov -l gcf zimbraMailSSLPort 2>/dev/null | awk '/^zimbraMailSSLPort:/ {print $2; exit}')" || true
     p2="$(zmprov -l gcf zimbraMailProxySSLPort 2>/dev/null | awk '/^zimbraMailProxySSLPort:/ {print $2; exit}')" || true
 
     local -a candidates=()
+    [[ "$pa0" =~ ^[0-9]+$ ]] && candidates+=("$pa0")
+    [[ "$pa1" =~ ^[0-9]+$ ]] && candidates+=("$pa1")
+    candidates+=("7071")
     [[ "$p0" =~ ^[0-9]+$ ]] && candidates+=("$p0")
     [[ "$p1" =~ ^[0-9]+$ ]] && candidates+=("$p1")
     [[ "$p2" =~ ^[0-9]+$ ]] && candidates+=("$p2")
-    candidates+=("8443" "443" "7071")
+    candidates+=("8443" "443")
 
     for cand in "${candidates[@]}"; do
         if curl -k -s --connect-timeout 3 --max-time 6 -o /dev/null "https://127.0.0.1:${cand}/" 2>/dev/null; then
@@ -81,7 +88,7 @@ zb_detect_rest_port() {
         fi
     done
 
-    ZB_REST_PORT="${p1:-8443}"
+    ZB_REST_PORT="${pa0:-${pa1:-7071}}"
     printf '%s' "$ZB_REST_PORT"
 }
 
@@ -545,9 +552,17 @@ zb_export_mailbox_archive() {
 
         # Fallback via throttled zmmailbox CLI (max 2 concurrent JVMs)
         rm -f -- "$out_tgz"
-        if zb_run_zmmailbox_throttled -z -m "$email" getRestURL "$rest_query" > "$out_tgz" 2>/dev/null; then
+        local zmm_err_log="$ZB_RUN_DIR/.zmm_err.$$.${attempt}.log"
+        local zmm_rc=0
+        if zb_run_zmmailbox_throttled -z -m "$email" getRestURL "$rest_query" > "$out_tgz" 2>"$zmm_err_log"; then
+            zmm_rc=0
+        else
+            zmm_rc=$?
+        fi
+
+        if (( zmm_rc == 0 )); then
             if [[ ! -s "$out_tgz" && "$mode" == "incr" ]]; then
-                rm -f -- "$out_tgz"
+                rm -f -- "$out_tgz" "$zmm_err_log"
                 empty_delta=1
                 ok=1
                 break
@@ -558,17 +573,26 @@ zb_export_mailbox_archive() {
             if [[ "$mode" == "incr" ]] && [[ "$sz" =~ ^[0-9]+$ ]] && (( sz < 1024 )); then
                 entry_cnt="$(set -o pipefail; tar -tzf "$out_tgz" 2>/dev/null | awk 'END { print NR }')" || true
                 if [[ "$entry_cnt" == "0" ]]; then
-                    rm -f -- "$out_tgz"
+                    rm -f -- "$out_tgz" "$zmm_err_log"
                     empty_delta=1
                     ok=1
                     break
                 fi
             fi
             if [[ -f "$out_tgz" ]] && gzip -t "$out_tgz" 2>/dev/null; then
+                rm -f -- "$zmm_err_log"
                 ok=1
                 break
             fi
+        elif [[ "$mode" == "incr" ]] && [[ -f "$zmm_err_log" ]] && grep -qiE 'status=204|No Content' "$zmm_err_log"; then
+            # zmmailbox treats HTTP 204 (No Content) as a command failure (exit code 2)
+            # Recognize this as an empty incremental delta rather than a failed export
+            rm -f -- "$out_tgz" "$zmm_err_log"
+            empty_delta=1
+            ok=1
+            break
         fi
+        rm -f -- "$zmm_err_log"
 
         attempt=$((attempt + 1))
         sleep 2
