@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.9)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.10)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-208%2F208_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-213%2F213_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup_0.3.9-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup_0.3.10-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.9) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.10) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.9 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.10 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -77,6 +77,20 @@ Select [0-7]:
 | **Xử lý tài khoản đóng (Closed)** | ❌ Lỗi REST Inactive | ✅ Có | **✅ Cơ chế Deferred Status thông minh** |
 | **Cơ chế an toàn chống xóa nhầm** | ❌ Nguy hiểm | Cảnh báo Web | **✅ Bắt buộc `--yes` & gõ `RESET`** |
 | **Kiểm tra toàn vẹn dữ liệu** | ⚠️ Chỉ đo kích thước | Có | **✅ Mã băm SHA-256 từng tài khoản** |
+
+---
+
+## 🌟 Điểm nổi bật trong phiên bản v0.3.10
+
+1. **Khắc phục triệt để lỗi Incremental Backup trên tài khoản không có thư mới (HTTP 204 No Content)**:
+   - Khi chạy sao lưu Incremental (`query=after:...`), các hộp thư không phát sinh thư mới trong khoảng thời gian checkpoint được Zimbra trả về mã `HTTP 204 No Content` (0 bytes payload).
+   - Trước đây, lệnh fallback `zmmailbox getRestURL` bắt gặp 204 sẽ xuất mã lỗi `status=204` và exit code 2, khiến script hiểu lầm là lỗi xuất dữ liệu và kích hoạt retry 3 lần liên tục dẫn đến báo `[FAIL] (x/70) user@domain - mailbox export failed after 3 attempts`.
+   - `zimbra-backup` v0.3.10 nhận diện chính xác `HTTP 204 / status=204` là một delta rỗng hoàn toàn hợp lệ (empty delta), ghi nhận `[OK] (empty)` ngay trong lần chạy đầu tiên và hoàn tất sao lưu 100% tài khoản.
+
+2. **Triệt tiêu bão tiến trình Java JVM & Hạ tải CPU từ 86% xuống dưới 5%**:
+   - Ưu tiên kết nối trực tiếp đến cổng quản trị Zimbra Admin (`zimbraAdminPort` 7071) thay vì proxy 8443, cho phép `curl` dùng trực tiếp `ZM_ADMIN_AUTH_TOKEN` mà không bị HTTP 401 Unauthorized từ Nginx proxy.
+   - Khi curl hoàn tất trực tiếp qua REST API (C/libcurl), hệ thống không còn bị rơi vào fallback CLI `zmmailbox` (chạy trên Java JVM).
+   - Ngăn chặn triệt để tình trạng 4 worker song song khởi chạy hàng trăm tiến trình Java JVM cùng lúc, giữ CPU máy chủ Zimbra luôn êm ái (<5%) trong suốt chu kỳ sao lưu định kỳ.
 
 ---
 

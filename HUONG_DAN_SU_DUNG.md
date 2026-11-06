@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.9)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.10)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.9** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.10** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -152,25 +152,25 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.9):**
+**Tải gói RPM mới nhất (v0.3.10):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.9-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.10-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
 ```
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.9-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.10-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.9-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.10-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.9-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.10-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.9-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.10-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -186,20 +186,20 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.9):**
+**Tải gói DEB mới nhất (v0.3.10):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.9-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup_0.3.9-1_all.deb
+curl -fSL -o zimbra-backup_0.3.10-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup_0.3.10-1_all.deb
 ```
 
 **Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
 ```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.9-1_all.deb
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.10-1_all.deb
 ```
 
 **Hoặc cài đặt qua `dpkg`:**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.9-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.10-1_all.deb
 sudo apt-get install -f -y
 ```
 
@@ -346,7 +346,7 @@ Bấm phím **`6`**:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.9) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.10) - mail.hdll.vn
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup

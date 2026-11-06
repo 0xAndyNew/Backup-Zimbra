@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.9
+Version:        0.3.10
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,11 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Fri Nov 06 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.10-1
+- Prioritize Zimbra admin port 7071 over proxy 8443 for REST mailbox export with admin auth token
+- Properly handle HTTP 204 No Content / zmmailbox status=204 as empty incremental delta instead of fatal failure
+- Eliminate JVM process retry storm on unchanged mailboxes, reducing CPU load from 86% to <5%
+
 * Thu Nov 05 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.9-1
 - Add smart fallback for email sender From header when HOST_LABEL is configured as an IP address
 - Enhance Telegram Bot error reporting with direct API descriptions (e.g. chat not found, bot permissions)

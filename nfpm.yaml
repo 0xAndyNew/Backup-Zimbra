@@ -1,7 +1,7 @@
 name: zimbra-backup
 arch: noarch
 platform: linux
-version: 0.3.9
+version: 0.3.10
 release: 1
 section: System Environment/Base
 priority: optional

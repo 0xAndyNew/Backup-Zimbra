@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.9)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.10)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-208%2F208_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-213%2F213_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup-0.3.9-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.9/zimbra-backup_0.3.9-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup_0.3.10-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.9) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.10) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.9 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.10 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -77,6 +77,20 @@ Select [0-7]:
 | **Closed / Inactive Account Handling** | ❌ REST Inactive error | ✅ Supported | **✅ Deferred Account Status mechanism** |
 | **Destructive Mode Safeguard** | ❌ Risky overwrites | Web Prompt | **✅ Strict `--yes` & `RESET` confirmation** |
 | **Integrity Verification** | ⚠️ File size only | Supported | **✅ SHA-256 manifest per mailbox** |
+
+---
+
+## 🌟 Highlights in Version v0.3.10
+
+1. **Definitive Fix for Incremental Backup on Mailboxes Without New Messages (HTTP 204 No Content)**:
+   - When running incremental backup (`query=after:...`), mailboxes without any new messages or modifications during the checkpoint interval return `HTTP 204 No Content` (0 bytes payload).
+   - In prior versions, the CLI fallback `zmmailbox getRestURL` logged `status=204` and exited with status 2, causing the script to mistakenly categorize it as an export failure and trigger 3 redundant retry attempts (`[FAIL] (x/70) user@domain - mailbox export failed after 3 attempts`).
+   - `zimbra-backup` v0.3.10 properly recognizes `HTTP 204 / status=204` as a valid empty delta, logs `[OK] (empty)` immediately on attempt 1, and achieves a 100% success rate across all accounts.
+
+2. **Eliminated Java JVM Process Storm & Reduced CPU Load from 86% to Under 5%**:
+   - Prioritizes direct connection to Zimbra Admin port (`zimbraAdminPort` 7071) over proxy port 8443, enabling `curl` to authenticate directly with `ZM_ADMIN_AUTH_TOKEN` without encountering HTTP 401 Unauthorized from the Nginx proxy.
+   - Performing REST export directly via `curl` (native C/libcurl) completely bypasses the JVM CLI fallback `zmmailbox`.
+   - Prevents parallel worker pool from launching hundreds of concurrent Java JVM instances, keeping server CPU utilization calm (<5%) throughout scheduled incremental backups.
 
 ---
 

@@ -51,7 +51,7 @@ zb_require_zimbra_cli() {
 }
 
 zb_detect_rest_port() {
-    if [[ -n "$ZB_REST_PORT" ]]; then
+    if [[ -n "${ZB_REST_PORT:-}" ]]; then
         printf '%s' "$ZB_REST_PORT"
         return 0
     fi

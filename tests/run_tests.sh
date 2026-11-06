@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.9
+# End-to-end automated test suite for zimbra-backup v0.3.10
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -440,7 +440,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.9" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.9"
+assert_contains "$ver_out" "zimbra-backup 0.3.10" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.10"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
