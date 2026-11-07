@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-213%2F213_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-229%2F229_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -91,6 +91,10 @@ Select [0-7]:
    - Prioritizes direct connection to Zimbra Admin port (`zimbraAdminPort` 7071) over proxy port 8443, enabling `curl` to authenticate directly with `ZM_ADMIN_AUTH_TOKEN` without encountering HTTP 401 Unauthorized from the Nginx proxy.
    - Performing REST export directly via `curl` (native C/libcurl) completely bypasses the JVM CLI fallback `zmmailbox`.
    - Prevents parallel worker pool from launching hundreds of concurrent Java JVM instances, keeping server CPU utilization calm (<5%) throughout scheduled incremental backups.
+
+3. **Comprehensive Restore Notifications (Single Account vs. Full/Batch Scope)**:
+   - **Single Account Restore**: Clear, targeted notifications detailing the exact email address restored, redirect destination/subfolder (if configured via `--target-user` or `--mode subfolder`), precise data volume restored (`Restored: X MB/GB`), execution status, duration, and log path.
+   - **Full / Batch Restore**: Comprehensive operational summary reporting total accounts count, breakdown of succeeded vs. failed accounts (`X total (Y succeeded, Z failed)`), explicit list of failed accounts (if any), total restored data volume accumulated across all chain steps, execution status, duration, and log path.
 
 ---
 
@@ -212,7 +216,7 @@ zimbra-backup notify test-telegram
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (208 tests):
+Execute end-to-end automated test suite (229 tests):
 ```bash
 bash tests/run_tests.sh
 ```

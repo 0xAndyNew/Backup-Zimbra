@@ -119,8 +119,11 @@ def main():
   - Protocol support for standard FTP, explicit FTPS (SSL/TLS), and SFTP over SSH (port 22).
   - Automated remote pruning (`zb_prune_remote_storage`): automatically purges expired `.tar` and `.manifest` pairs via standard `DELE` (FTP) or `rm` (SFTP).
   - **Zero Local Snapshot Deletion**: Remote backups serve as offsite disaster-recovery replicas. Local snapshots are never wiped upon upload.
+- **Comprehensive Restore Notifications (Single Account vs. Full/Batch Scope)**:
+  - **Single Account Restore**: Clear, targeted notifications detailing the exact email address restored, redirect destination/subfolder (if configured via `--target-user` or `--mode subfolder`), precise data volume restored (`Restored: X MB/GB`), execution status, duration, and log path.
+  - **Full / Batch Restore**: Comprehensive operational summary reporting total accounts count, breakdown of succeeded vs. failed accounts (`X total (Y succeeded, Z failed)`), explicit list of failed accounts (if any), total restored data volume accumulated across all chain steps, execution status, duration, and log path.
 - **Automated Test Suite**:
-  - 213/213 automated end-to-end tests passing with 0 errors.
+  - 229/229 automated end-to-end tests passing with 0 errors.
   - 100% pure 7-bit ASCII and Unix LF line endings preserved across all packages.
 
 ### Package Checksums (SHA-256)

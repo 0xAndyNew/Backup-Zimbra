@@ -331,6 +331,7 @@ upload_file=""
 pos_url=""
 is_post=0
 is_list_only=0
+tg_text=""
 quote_cmds=()
 
 while (( $# > 0 )); do
@@ -342,7 +343,11 @@ while (( $# > 0 )); do
         -T|--data-binary) upload_file="$2"; is_post=1; shift 2 ;;
         -Q|--quote) quote_cmds+=("$2"); shift 2 ;;
         --list-only) is_list_only=1; shift ;;
-        --data-urlencode) shift 2 ;;
+        --data-urlencode)
+            if [[ "$2" == text=* ]]; then
+                tg_text="${2#text=}"
+            fi
+            shift 2 ;;
         --connect-timeout|--max-time) shift 2 ;;
         -k|-s|-sS|-ks|-sk|--ftp-create-dirs|--insecure|--ssl-reqd|--show-error|--fail|--silent) shift ;;
         http://*|https://*|ftp://*|sftp://*) pos_url="$1"; shift ;;
@@ -364,6 +369,7 @@ printf 'CURL post=%d url=%s upload=%s\n' "$is_post" "$effective_url" "$upload_fi
 
 # Telegram endpoint
 if [[ "$effective_url" == *"api.telegram.org"* ]]; then
+    printf 'TELEGRAM_MSG %s\n' "${tg_text:-}" >> "$MOCK_LOG"
     [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && printf '{"ok":true}' > "$out_file"
     [[ -n "$write_fmt" ]] && printf '200'
     exit 0
@@ -1113,6 +1119,33 @@ assert_not_contains "$job_fail_log" "SENDMAIL -t" "Backup thành công KHÔNG g�
 adhoc_mail_log="$(cat "$MOCK_LOG")"
 assert_contains "$adhoc_mail_log" "SENDMAIL -t" "Sao lưu lẻ (Ad-hoc) phát sinh email thông báo khi hoàn tất"
 assert_contains "$adhoc_mail_log" "Ad-hoc account backup succeeded" "Email thông báo ghi nhận thành công cho sao lưu lẻ"
+
+# 15g. Single-account restore dispatches notification with email, size, status, and duration
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --email-enabled yes --email-to "alert@example.com" --email-level all --telegram-enabled yes --telegram-token "mock_tg_token" --telegram-chat "12345678" >/dev/null
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "user1@example.com" --yes >/dev/null
+single_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$single_rest_log" "SENDMAIL -t" "Restore don (Single Account) phat sinh email thong bao khi hoan tat"
+assert_contains "$single_rest_log" "Restore completed - user1@example.com" "Email thong bao restore don ghi nhan tieu de chua email va dung luong"
+assert_contains "$single_rest_log" "Type       : Single Account Restore" "Email thong bao restore don ghi nhan Type la Single Account Restore"
+assert_contains "$single_rest_log" "Account    : user1@example.com" "Email thong bao restore don ghi ro email nguon da restore"
+assert_contains "$single_rest_log" "Restored   :" "Email thong bao restore don bao cao dung luong restored"
+assert_contains "$single_rest_log" "Status     : SUCCESS" "Email thong bao restore don bao cao trang thai SUCCESS"
+assert_contains "$single_rest_log" "TELEGRAM_MSG [OK]" "Restore don dong thoi phat sinh thong bao Telegram [OK]"
+assert_contains "$single_rest_log" "Restore completed - user1@example.com" "Telegram thong bao restore don ghi nhan day du email va dung luong"
+
+# 15h. Batch/Full restore dispatches notification with total, success/fail counts, and size
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --all --yes >/dev/null
+batch_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$batch_rest_log" "SENDMAIL -t" "Restore hang loat (Full/Batch) phat sinh email thong bao khi hoan tat"
+assert_contains "$batch_rest_log" "Restore completed successfully" "Email thong bao restore full ghi nhan thanh cong"
+assert_contains "$batch_rest_log" "Type       : Full / Batch Restore" "Email thong bao restore full ghi nhan Type la Full / Batch Restore"
+assert_contains "$batch_rest_log" "total (" "Email thong bao restore full bao cao tong so luong account"
+assert_contains "$batch_rest_log" "succeeded, 0 failed" "Email thong bao restore full bao cao so luong thanh cong va that bai"
+assert_contains "$batch_rest_log" "Restored   :" "Email thong bao restore full bao cao tong dung luong du lieu da restore"
+assert_contains "$batch_rest_log" "Status     : SUCCESS" "Email thong bao restore full bao cao trang thai SUCCESS"
+assert_contains "$batch_rest_log" "TELEGRAM_MSG [OK]" "Restore full dong thoi phat sinh thong bao Telegram [OK]"
 
 printf '\n=== 16. Kiem tra co che sao luu tu xa FTP / SFTP & Chuan hoa thong bao v0.3.7 ===\n'
 

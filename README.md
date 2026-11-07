@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-213%2F213_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-229%2F229_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -91,6 +91,10 @@ Select [0-7]:
    - Ưu tiên kết nối trực tiếp đến cổng quản trị Zimbra Admin (`zimbraAdminPort` 7071) thay vì proxy 8443, cho phép `curl` dùng trực tiếp `ZM_ADMIN_AUTH_TOKEN` mà không bị HTTP 401 Unauthorized từ Nginx proxy.
    - Khi curl hoàn tất trực tiếp qua REST API (C/libcurl), hệ thống không còn bị rơi vào fallback CLI `zmmailbox` (chạy trên Java JVM).
    - Ngăn chặn triệt để tình trạng 4 worker song song khởi chạy hàng trăm tiến trình Java JVM cùng lúc, giữ CPU máy chủ Zimbra luôn êm ái (<5%) trong suốt chu kỳ sao lưu định kỳ.
+
+3. **Nâng cấp Hệ thống Thông báo Khôi phục Toàn diện (Phân biệt Rõ Single Account & Full/Batch Restore)**:
+   - **Khôi phục tài khoản đơn (`resto đơn`)**: Báo cáo chi tiết và tường minh: email được khôi phục, tài khoản đích và thư mục con chuyển tiếp (nếu có dùng `--target-user` hoặc `--mode subfolder`), chính xác dung lượng dữ liệu đã nạp (`Restored`), trạng thái thành công/thất bại, thời gian thực thi và đường dẫn file log.
+   - **Khôi phục hàng loạt / toàn server (`restore full`)**: Báo cáo tổng thể: tổng số lượng tài khoản xử lý, thống kê chi tiết số tài khoản thành công và số tài khoản thất bại (`X succeeded, Y failed`), danh sách cụ thể các tài khoản bị lỗi (nếu có), tổng dung lượng dữ liệu đã nạp xuyên suốt toàn bộ chuỗi snapshot, trạng thái và file log.
 
 ---
 
@@ -203,7 +207,7 @@ zimbra-backup restore --dir /backup --from 1 --all --mode skip --yes
 
 ## 🛠️ Đóng gói & Kiểm thử từ mã nguồn
 
-Chạy bộ kiểm thử tự động đầu-cuối 208 bài test:
+Chạy bộ kiểm thử tự động đầu-cuối 229 bài test:
 ```bash
 bash tests/run_tests.sh
 ```
