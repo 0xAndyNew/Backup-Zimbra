@@ -1069,11 +1069,12 @@ zb_run_restore() (
         if [[ -f "$step_dir/manifest" ]]; then
             if ! zb_verify_snapshot_dir "$step_dir" "0" "$acc_list"; then
                 local elapsed=$(( $(date +%s) - start_ts ))
-                zb_notify "error" "Restore FAILED - Integrity verification error" "Snapshot: ${target_snap}
-Error: Integrity verification failed on step ${step_dir##*/}
-Accounts: ${acc_count}
-Duration: ${elapsed}s
-Log: ${ZB_CURRENT_LOG}"
+                zb_notify "error" "Restore FAILED - Integrity verification error" "Type       : Restore Integrity Check
+Status     : FAILED (Verification error on ${step_dir##*/})
+Snapshot   : ${target_snap}
+Accounts   : ${acc_count}
+Duration   : ${elapsed}s
+Log        : ${ZB_CURRENT_LOG}"
                 return 1
             fi
         fi
@@ -1089,11 +1090,12 @@ Log: ${ZB_CURRENT_LOG}"
     if [[ "$only_part" == "all" || "$only_part" == "ldap" ]]; then
         if ! zb_restore_ldap_metadata "$target_snap" "$scope_kind" "$acc_list" "$target_user" "$deferred_status_file"; then
             local elapsed=$(( $(date +%s) - start_ts ))
-            zb_notify "error" "Restore FAILED - LDAP metadata restoration error" "Snapshot: ${target_snap}
-Error: Failed to restore LDAP domain/account metadata
-Accounts: ${acc_count}
-Duration: ${elapsed}s
-Log: ${ZB_CURRENT_LOG}"
+            zb_notify "error" "Restore FAILED - LDAP metadata restoration error" "Type       : Restore LDAP Metadata
+Status     : FAILED (Failed restoring LDAP domain and account metadata)
+Snapshot   : ${target_snap}
+Accounts   : ${acc_count}
+Duration   : ${elapsed}s
+Log        : ${ZB_CURRENT_LOG}"
             return 1
         fi
     fi

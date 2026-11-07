@@ -974,7 +974,9 @@ zb_run_job() (
     zb_require_zimbra_cli || return 1
 
     zb_acquire_lock || {
-        (( from_cron == 1 )) && zb_notify "warn" "Job '$JOB_ID' skipped" "Another backup or restore process is currently holding the lock."
+        (( from_cron == 1 )) && zb_notify "warn" "Job '$JOB_ID' skipped" "Job Name   : ${JOB_NAME:-$JOB_ID}
+Status     : SKIPPED
+Reason     : Another backup or restore process is holding operation.lock"
         return 1
     }
     zb_start_run_log "job_${JOB_ID}"
@@ -1009,11 +1011,17 @@ zb_run_job() (
     fi
     target_base="$(zb_job_effective_target_dir)"
     if ! zb_check_backup_dir "$target_base" "$eff_req_mount" "no"; then
-        zb_notify "error" "Backup Job '$JOB_ID' failed" "Target storage check failed: $target_base. Log: $ZB_CURRENT_LOG"
+        zb_notify "error" "Backup Job '$JOB_ID' failed" "Job Name   : ${JOB_NAME:-$JOB_ID}
+Status     : FAILED
+Reason     : Target storage check failed: $target_base
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
     if ! zb_check_disk_space "$target_base" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB"; then
-        zb_notify "error" "Backup Job '$JOB_ID' aborted (low disk space)" "Path: $target_base. Log: $ZB_CURRENT_LOG"
+        zb_notify "error" "Backup Job '$JOB_ID' aborted (low disk space)" "Job Name   : ${JOB_NAME:-$JOB_ID}
+Status     : ABORTED (Low disk space)
+Path       : ${target_base}
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
     if zb_same_filesystem "$target_base" "$ZB_ZIMBRA_HOME"; then

@@ -101,13 +101,19 @@ zb_test_email() {
     local host
     host="$(zb_host_label)"
     local subject="[TEST] Zimbra Backup (${host}): Email notification test"
-    local body="This is a test notification from zimbra-backup v${ZB_VERSION}.
-Host: ${host}
-Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
-Status: OK
-Trigger Level: ${EMAIL_ALERT_LEVEL:-all}
-
-If you received this email, email notifications for Zimbra Backup are functioning properly."
+    local body="[TEST] [${host}] Email notification test
+============================================================
+Event      : Email Alert Delivery Test
+Server     : ${host}
+Recipient  : ${EMAIL_ALERT_TO}
+Alert Level: ${EMAIL_ALERT_LEVEL:-all}
+Status     : OK
+Timestamp  : $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)
+Engine     : zimbra-backup v${ZB_VERSION}
+------------------------------------------------------------
+If you received this email, email notifications for
+Zimbra Backup are configured and functioning properly.
+============================================================"
     zb_info "Dispatching test email to $EMAIL_ALERT_TO..."
     if zb_send_email_alert "$subject" "$body"; then
         zb_info "Test email sent successfully to $EMAIL_ALERT_TO."
@@ -123,8 +129,22 @@ zb_test_telegram() {
         zb_err "Telegram alerts are not enabled or token/chat ID is missing."
         return 1
     fi
+    local host
+    host="$(zb_host_label)"
     zb_info "Sending test Telegram message to chat ${TELEGRAM_CHAT_ID}..."
-    if zb_send_telegram "[OK] [$(zb_host_label)] Test notification from zimbra-backup v${ZB_VERSION}"; then
+    local test_msg="[OK] [${host}] Test notification from zimbra-backup v${ZB_VERSION}
+============================================================
+Event      : Telegram Alert Delivery Test
+Server     : ${host}
+Chat ID    : ${TELEGRAM_CHAT_ID}
+Status     : OK
+Timestamp  : $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)
+Engine     : zimbra-backup v${ZB_VERSION}
+------------------------------------------------------------
+If you received this message, Telegram notifications
+for Zimbra Backup are configured and functioning properly.
+============================================================"
+    if zb_send_telegram "$test_msg"; then
         zb_info "Test Telegram message sent successfully to chat ${TELEGRAM_CHAT_ID}."
         return 0
     else
@@ -207,8 +227,17 @@ zb_notify() {
         warn) icon="[WARN]" ;;
         *) icon="[ERROR]" ;;
     esac
+    local ts
+    ts="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)"
+
     local full_msg="${icon} [${host}] ${title}
-${details}"
+============================================================
+${details}
+------------------------------------------------------------
+Server     : ${host}
+Timestamp  : ${ts}
+Engine     : zimbra-backup v${ZB_VERSION}
+============================================================"
     zb_send_telegram "$full_msg" || true
     local send_email=0
     if [[ "${EMAIL_ALERT_ENABLED:-no}" == "yes" && -n "${EMAIL_ALERT_TO:-}" ]]; then
