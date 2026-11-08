@@ -177,7 +177,7 @@ zb_test_ftp() {
     cfg="$(mktemp "$ZB_RUN_DIR/.ftp_test.XXXXXX")" || return 1
     chmod 600 "$cfg"
     # Technical Invariant #2: Hide credentials from process table
-    printf 'user = "%s:%s"\n' "$FTP_USER" "$FTP_PASSWORD" > "$cfg"
+    printf 'user = "%s:%s"\n' "$(zb_curl_escape "$FTP_USER")" "$(zb_curl_escape "$FTP_PASSWORD")" > "$cfg"
 
     local remote_path="${FTP_REMOTE_DIR:-/}"
     [[ "$remote_path" == /* ]] || remote_path="/$remote_path"

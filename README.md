@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.10)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.11)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup_0.3.10-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup_0.3.11-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.10) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.11) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.10 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.11 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -77,6 +77,24 @@ Select [0-7]:
 | **Xử lý tài khoản đóng (Closed)** | ❌ Lỗi REST Inactive | ✅ Có | **✅ Cơ chế Deferred Status thông minh** |
 | **Cơ chế an toàn chống xóa nhầm** | ❌ Nguy hiểm | Cảnh báo Web | **✅ Bắt buộc `--yes` & gõ `RESET`** |
 | **Kiểm tra toàn vẹn dữ liệu** | ⚠️ Chỉ đo kích thước | Có | **✅ Mã băm SHA-256 từng tài khoản** |
+
+---
+
+## 🌟 Điểm nổi bật trong phiên bản v0.3.11
+
+1. **Rút gọn Cấu trúc Đường dẫn Lưu trữ (Ngắn gọn, Trực quan & Tương thích Ngược 100%)**:
+   - Loại bỏ các cấp thư mục trung gian `<job_id>` / `chain-*` và hậu tố giờ-phút-giây `_HHMMSS`:
+     - **Backup Full**: Lưu trực tiếp tại `<target_dir>/full/full-DD-MM-YYYY` (ví dụ `/backup/full/full-22-10-2026`).
+     - **Backup Incremental**: Lưu phẳng trực tiếp tại `<target_dir>/incremental/full-DD-MM-YYYY` (bản gốc đầu chuỗi) và `<target_dir>/incremental/001-incremental-DD-MM-YYYY`, `002-incremental-DD-MM-YYYY`... (tự động quản lý liên kết chuỗi qua `chain_id` trong `manifest`).
+     - **Backup lẻ tài khoản**: `<target_dir>/account/backup-<email>-DD-MM-YYYY`.
+   - Hỗ trợ đầy đủ việc đọc, kiểm tra mã băm SHA-256 và khôi phục từ các thư mục định dạng cũ.
+
+2. **Tối ưu Dọn dẹp FTP / SFTP Từ xa & Bảo mật Ký tự Đặc biệt trong Mật khẩu**:
+   - Sắp xếp chuẩn xác thứ tự thời gian thực (`DD-MM-YYYY` -> `YYYY-MM-DD`) khi dọn dẹp các bản `.tar` và `.manifest` cũ trên máy chủ FTP/SFTP qua ranh giới tháng/năm, đồng thời bóc tách an toàn tên file từ kết quả `ls -l` của SFTP.
+   - Bổ sung cơ chế escape ký tự `\` và `"` trong thông tin đăng nhập FTP/SFTP khi tạo file cấu hình tạm `curl -K`.
+
+3. **Giao diện Bản tin Thông báo Email & Telegram Chuẩn ASCII Card**:
+   - Thiết kế lại bố cục thông báo dạng thẻ ASCII rõ ràng kèm thông tin chi tiết tiến trình, dung lượng và chân trang thời gian máy chủ.
 
 ---
 
@@ -148,10 +166,10 @@ Select [0-7]:
 3. **Tùy chỉnh ngày tháng & lịch chạy linh hoạt**:
    - Hỗ trợ lịch **Hằng ngày** (`HH:MM`), **Hằng tuần** (chọn thứ `0-6` + `HH:MM`), **Theo ngày/tháng cụ thể** (ngày `1-31`, tháng `*` hoặc `1-12` + `HH:MM`), biểu thức **Cron 5 trường**, hoặc tắt lịch tự động (`off`).
 
-4. **Tách riêng 3 phân vùng lưu trữ dưới thư mục gốc (`/home/backup`)**:
-   - `full/<job_id>/backup-full-DD-MM-YYYY_HHMMSS/`
-   - `incremental/<job_id>/chain-DD-MM-YYYY_HHMMSS/000_backup-full-...` & `001_backup-incremental-...`
-   - `account/backup-<email>-DD-MM-YYYY_HHMMSS/` (sao lưu lẻ từng tài khoản)
+4. **Tách riêng 3 phân vùng lưu trữ rút gọn dưới thư mục gốc (`/home/backup`)**:
+   - `full/full-DD-MM-YYYY/`
+   - `incremental/full-DD-MM-YYYY/` & `incremental/001-incremental-DD-MM-YYYY/`
+   - `account/backup-<email>-DD-MM-YYYY/` (sao lưu lẻ từng tài khoản)
 
 5. **Sao lưu & Khôi phục chuẩn xác 100% dữ liệu Zimbra**:
    - Giải mã dòng gập LDIF chuẩn RFC 2849 + Base64 UTF-8, bảo toàn tên hiển thị tiếng Việt (`displayName`), mật khẩu băm (`userPassword`), hạn ngạch (`zimbraMailQuota`), Alias, thành viên Distribution List (`zmprov -l gdlm`), chữ ký HTML/text (`zmprov -l gsig`), quyền Admin và bộ lọc Sieve nhiều dòng.

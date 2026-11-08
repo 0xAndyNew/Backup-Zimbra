@@ -2,7 +2,7 @@
 
 Tài liệu này hướng dẫn Claude Code (claude.ai/code) khi làm việc với mã nguồn trong repository này.
 
-## Tổng quan kiến trúc (`zimbra-backup` v0.3.10)
+## Tổng quan kiến trúc (`zimbra-backup` v0.3.11)
 
 Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **Ubuntu 18.04, 20.04, 22.04 LTS** (gói DEB `.deb`) và **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** (gói RPM `.rpm` `noarch`), phân phối tại mục GitHub Releases, hợp nhất và khắc phục triệt để các lỗi toàn vẹn dữ liệu của các script sao lưu truyền thống.
 
@@ -16,7 +16,7 @@ Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration
 | `lib/notify.sh` | `/usr/libexec/zimbra-backup/notify.sh` | Gửi cảnh báo Telegram (`curl -K` ẩn Bot Token) và Email (`sendmail`) kèm `HOST_LABEL` |
 | `lib/zimbra_api.sh` | `/usr/libexec/zimbra-backup/zimbra_api.sh` | Dò cổng SSL (`8443`/`443`/`7071`), xoay vòng `ZM_ADMIN_AUTH_TOKEN`, giải mã LDIF RFC 2849 + Base64 UTF-8, xuất/nạp `zmprov`/`zmmailbox`/REST |
 | `lib/jobs.sh` | `/usr/libexec/zimbra-backup/jobs.sh` | CRUD đa Job (`/var/lib/zimbra-backup/jobs/<id>.conf`), bộ lập lịch ngày/tuần/tháng/cron tùy chỉnh, đồng bộ khối `# BEGIN zimbra-backup .. # END zimbra-backup` trong `crontab` của `zimbra` |
-| `lib/backup.sh` | `/usr/libexec/zimbra-backup/backup.sh` | Engine sao lưu tách 3 thư mục `full/<job_id>/backup-full-*`, `incremental/<job_id>/chain-*/000_backup-full-*..NNN_backup-incremental-*`, `account/backup-<email>-*`, chạy song song `PARALLEL_JOBS`, ghi/kiểm tra `manifest` `zb-backup-v2`, xóa bản cũ `after`/`before` |
+| `lib/backup.sh` | `/usr/libexec/zimbra-backup/backup.sh` | Engine sao lưu tách 3 thư mục rút gọn `full/full-DD-MM-YYYY`, `incremental/full-DD-MM-YYYY` + `incremental/NNN-incremental-DD-MM-YYYY`, `account/backup-<email>-DD-MM-YYYY`, chạy song song `PARALLEL_JOBS`, ghi/kiểm tra `manifest` `zb-backup-v2`, xóa bản cũ `after`/`before` |
 | `lib/restore.sh` | `/usr/libexec/zimbra-backup/restore.sh` | Quét kho backup của Job hoặc quét đệ quy thư mục ngoài (`CUSTOM_RESTORE_DIR` / `--dir`), ghép chuỗi `000_full + 001..k_incr`, khôi phục toàn server / domain / danh sách user / sang tài khoản khác / thư mục con |
 | `lib/tui.sh` | `/usr/libexec/zimbra-backup/tui.sh` | Giao diện Menu tương tác tiếng Anh rút gọn (Pure 7-bit ASCII): Wizard thiết lập 2 bước, Tạo Job 6 bước (bắt buộc cấu hình đường dẫn lưu trữ), Sửa Job chọn trường `1..11` |
 | `packaging/preinstall.sh` | *(script `%pre` của RPM)* | Kiểm tra sự tồn tại của user hệ thống `zimbra` trước khi cài gói |
@@ -76,9 +76,9 @@ nfpm package --config nfpm.yaml --packager rpm
 Đóng gói bằng `rpmbuild` trên máy chủ Linux có `rpm-build`:
 
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.10 && \
-cp -r bin lib packaging README.md zimbra-backup-0.3.10/ && \
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.10.tar.gz" zimbra-backup-0.3.10 && \
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.11 && \
+cp -r bin lib packaging README.md zimbra-backup-0.3.11/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.11.tar.gz" zimbra-backup-0.3.11 && \
 rpmbuild -ba zimbra-backup.spec
 ```
 

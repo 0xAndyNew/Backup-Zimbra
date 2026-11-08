@@ -64,11 +64,14 @@ zb_register_catalog_entry() {
 
 zb_scan_job_storage_root() {
     local job_root="$1"
+    local filter_job="${2:-}"
     [[ -d "$job_root" && ! -L "$job_root" ]] || return 0
 
     local p
     shopt -s nullglob
     for p in \
+        "$job_root"/full-* \
+        "$job_root"/[0-9][0-9][0-9]-incremental-* \
         "$job_root"/backup-full-* \
         "$job_root"/snapshots/backup-full-* \
         "$job_root"/snapshots/full_* \
@@ -77,6 +80,11 @@ zb_scan_job_storage_root() {
         "$job_root"/chains/chain-*/[0-9][0-9][0-9]_* \
         "$job_root"/chains/chain_*/[0-9][0-9][0-9]_*; do
         [[ -d "$p" && ! -L "$p" && "${p##*/}" != .pending.* ]] || continue
+        if [[ -n "$filter_job" && -f "$p/manifest" ]] && zb_read_manifest_meta "$p/manifest"; then
+            if [[ -n "${MF_JOB_ID:-}" && "$MF_JOB_ID" != "$filter_job" ]]; then
+                continue
+            fi
+        fi
         zb_register_catalog_entry "$p"
     done
     shopt -u nullglob
@@ -155,25 +163,25 @@ zb_discover_backups() {
         local jroot
         while IFS= read -r jroot; do
             [[ -n "$jroot" ]] || continue
-            zb_scan_job_storage_root "$jroot"
+            zb_scan_job_storage_root "$jroot" "$filter_job"
         done < <(zb_list_job_storage_roots "$filter_job" 1)
     fi
 
     local count="${#ZB_CAT_PATHS[@]}"
     (( count > 1 )) || return 0
 
-    # Sort indices by CREATED_AT descending, then path descending
+    # Sort indices by CREATED_AT descending, then CHAIN_SEQ descending, then path descending
     local sort_tmp
     sort_tmp="$(mktemp "$ZB_RUN_DIR/.cat_sort.XXXXXX")" || return 0
     local i=0
     while (( i < count )); do
-        printf '%s\t%s\t%d\n' "${ZB_CAT_DATES[$i]}" "${ZB_CAT_PATHS[$i]}" "$i" >> "$sort_tmp"
+        printf '%s\t%06d\t%s\t%d\n' "${ZB_CAT_DATES[$i]}" "$((10#${ZB_CAT_SEQS[$i]:-0}))" "${ZB_CAT_PATHS[$i]}" "$i" >> "$sort_tmp"
         i=$((i + 1))
     done
 
     local -a new_paths=() new_ids=() new_jobs=() new_types=() new_dates=() new_accs=() new_bytes=() new_fmts=() new_chains=() new_seqs=()
-    local _d _p orig_idx
-    while IFS=$'\t' read -r _d _p orig_idx; do
+    local _d _s _p orig_idx
+    while IFS=$'\t' read -r _d _s _p orig_idx; do
         new_paths+=("${ZB_CAT_PATHS[$orig_idx]}")
         new_ids+=("${ZB_CAT_IDS[$orig_idx]}")
         new_jobs+=("${ZB_CAT_JOBS[$orig_idx]}")
@@ -292,12 +300,13 @@ zb_resolve_restore_chain() {
     if [[ -f "$target_dir/manifest" ]] && zb_read_manifest_meta "$target_dir/manifest"; then
         if [[ "$MF_BACKUP_TYPE" == "incr" ]]; then
             local chain_parent="${target_dir%/*}"
+            local target_chain_id="${MF_CHAIN_ID:-}"
             local target_seq="$MF_CHAIN_SEQ"
             local -a all_steps=()
             local s
             while IFS= read -r s; do
                 [[ -n "$s" ]] && all_steps+=("$s")
-            done < <(zb_list_chain_steps "$chain_parent")
+            done < <(zb_list_chain_steps "$chain_parent" "$target_chain_id")
 
             (( ${#all_steps[@]} > 0 )) || { zb_err "Chain directory is empty or missing 000_full base: $chain_parent"; return 1; }
             zb_read_manifest_meta "${all_steps[0]}/manifest" || return 1

@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.10
+Version:        0.3.11
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,13 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Sun Nov 08 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.11-1
+- Flatten and shorten backup storage paths: full/full-DD-MM-YYYY, incremental/full-DD-MM-YYYY + incremental/NNN-incremental-DD-MM-YYYY, and account/backup-<email>-DD-MM-YYYY
+- Preserve full backward compatibility for discovering, verifying, and restoring legacy directory layouts
+- Fix chronological sorting of DD-MM-YYYY backup filenames across month boundaries during remote FTP/SFTP pruning and strip SFTP ls -l columns
+- Escape backslashes and double quotes in FTP/SFTP credentials inside temporary curl -K config files
+- Enhance notification design with structured ASCII card layout and metadata footer
+
 * Fri Nov 06 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.10-1
 - Prioritize Zimbra admin port 7071 over proxy 8443 for REST mailbox export with admin auth token
 - Properly handle HTTP 204 No Content / zmmailbox status=204 as empty incremental delta instead of fatal failure
