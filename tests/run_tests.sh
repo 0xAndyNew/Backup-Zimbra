@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.12
+# End-to-end automated test suite for zimbra-backup v0.3.13
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -318,7 +318,7 @@ chmod +x "$MOCK_BIN/sendmail"
 cat > "$MOCK_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 for arg in "$@"; do
-    if [[ "$arg" == *"MOCK_ADMIN_TOKEN_SECRET_999"* || "$arg" == *"TG_SECRET_BOT_TOKEN"* || "$arg" == *"FTP_SECRET_PW"* ]]; then
+    if [[ "$arg" == *"MOCK_ADMIN_TOKEN_SECRET_999"* || "$arg" == *"MOCK_USER_DELEGATED_TOKEN_123"* || "$arg" == *"TG_SECRET_BOT_TOKEN"* || "$arg" == *"FTP_SECRET_PW"* ]]; then
         printf 'SECURITY_LEAK: secret exposed on curl command line: %s\n' "$arg" >&2
         exit 99
     fi
@@ -408,7 +408,27 @@ if [[ "$effective_url" == ftp://* || "$effective_url" == sftp://* ]]; then
     exit 0
 fi
 
-grep -q 'MOCK_ADMIN_TOKEN_SECRET_999' "$cfg_file" || { echo "Missing admin auth cookie" >&2; exit 3; }
+# Zimbra Admin SOAP endpoint (DelegateAuthRequest, etc.)
+if [[ "$effective_url" == */service/admin/soap* ]]; then
+    data_line="$(grep 'data-binary = ' "$cfg_file" | sed -e 's/.*@"//' -e 's/"$//' -e 's/.*@//' || true)"
+    if [[ -n "$data_line" && -f "$data_line" ]]; then
+        grep -q 'MOCK_ADMIN_TOKEN_SECRET_999' "$data_line" || { echo "Missing admin token in SOAP request" >&2; exit 5; }
+    fi
+    cat <<XML
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <soap:Header><context xmlns="urn:zimbra"><change token="1"/></context></soap:Header>
+  <soap:Body>
+    <DelegateAuthResponse xmlns="urn:zimbraAdmin">
+      <authToken>MOCK_USER_DELEGATED_TOKEN_123</authToken>
+      <lifetime>86400000</lifetime>
+    </DelegateAuthResponse>
+  </soap:Body>
+</soap:Envelope>
+XML
+    exit 0
+fi
+
+grep -qE 'MOCK_ADMIN_TOKEN_SECRET_999|MOCK_USER_DELEGATED_TOKEN_123' "$cfg_file" || { echo "Missing auth cookie" >&2; exit 3; }
 
 if [[ -n "${MOCK_EXPIRE_ONCE_FILE:-}" && -f "$MOCK_EXPIRE_ONCE_FILE" && "$is_post" -eq 0 ]]; then
     rm -f -- "$MOCK_EXPIRE_ONCE_FILE"
@@ -455,7 +475,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.12" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.12"
+assert_contains "$ver_out" "zimbra-backup 0.3.13" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.13"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"

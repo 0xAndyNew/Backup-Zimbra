@@ -50,6 +50,25 @@ zb_require_zimbra_cli() {
     return 0
 }
 
+zb_detect_admin_port() {
+    if [[ -n "${ZB_ADMIN_PORT:-}" ]]; then
+        printf '%s' "$ZB_ADMIN_PORT"
+        return 0
+    fi
+    if [[ -n "${ZB_FORCE_ADMIN_PORT:-}" ]]; then
+        ZB_ADMIN_PORT="$ZB_FORCE_ADMIN_PORT"
+        printf '%s' "$ZB_ADMIN_PORT"
+        return 0
+    fi
+
+    local srv_host pa0 pa1
+    srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+    pa0="$(zmprov -l gs "$srv_host" zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
+    pa1="$(zmprov -l gcf zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
+    ZB_ADMIN_PORT="${pa0:-${pa1:-7071}}"
+    printf '%s' "$ZB_ADMIN_PORT"
+}
+
 zb_detect_rest_port() {
     if [[ -n "${ZB_REST_PORT:-}" ]]; then
         printf '%s' "$ZB_REST_PORT"
@@ -119,6 +138,66 @@ zb_fetch_raw_admin_token() {
     token="$(zb_trim "$token")"
     [[ -n "$token" ]] || return 1
     printf '%s' "$token"
+}
+
+# Fetch a delegated user auth token via SOAP DelegateAuthRequest on admin port 7071
+# so curl can stream the user's mailbox (/service/home/) natively at wire speed with 0 JVM instances.
+zb_fetch_delegated_token() {
+    local email="$1"
+    local admin_tok="${2:-}"
+    if [[ -z "$admin_tok" ]]; then
+        admin_tok="$(zb_fetch_raw_admin_token 2>/dev/null || true)"
+    fi
+    [[ -n "$admin_tok" ]] || return 1
+
+    local admin_port
+    admin_port="$(zb_detect_admin_port)"
+    zb_ensure_state_dirs || return 1
+
+    local soap_cfg="" soap_req=""
+    soap_cfg="$(mktemp "$ZB_RUN_DIR/.soap_cfg.XXXXXX" 2>/dev/null || printf '')"
+    soap_req="$(mktemp "$ZB_RUN_DIR/.soap_req.XXXXXX" 2>/dev/null || printf '')"
+    [[ -n "$soap_cfg" && -n "$soap_req" ]] || {
+        rm -f -- "$soap_cfg" "$soap_req"
+        return 1
+    }
+    chmod 600 "$soap_cfg" "$soap_req"
+
+    {
+        printf '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">'
+        printf '<soap:Header><context xmlns="urn:zimbra"><authToken>%s</authToken></context></soap:Header>' "$admin_tok"
+        printf '<soap:Body><DelegateAuthRequest xmlns="urn:zimbraAdmin"><account by="name">%s</account></DelegateAuthRequest></soap:Body>' "$email"
+        printf '</soap:Envelope>'
+    } > "$soap_req"
+
+    {
+        printf 'insecure\n'
+        printf 'silent\n'
+        printf 'header = "Content-Type: application/soap+xml; charset=utf-8"\n'
+        printf 'data-binary = "@%s"\n' "$soap_req"
+    } > "$soap_cfg"
+
+    local resp=""
+    resp="$(curl -K "$soap_cfg" \
+        --connect-timeout 5 --max-time 15 \
+        "https://127.0.0.1:${admin_port}/service/admin/soap" 2>/dev/null || true)"
+
+    rm -f -- "$soap_cfg" "$soap_req"
+
+    local user_tok=""
+    user_tok="$(awk '
+        match($0, /<authToken>[^<]+<\/authToken>/) {
+            s = substr($0, RSTART + 11, RLENGTH - 23)
+            print s
+            exit
+        }
+    ' <<< "$resp")" || true
+    user_tok="$(zb_trim "$user_tok")"
+    if [[ -n "$user_tok" ]]; then
+        printf '%s' "$user_tok"
+        return 0
+    fi
+    return 1
 }
 
 zb_ensure_auth_cfg() {
@@ -456,12 +535,11 @@ zb_list_active_accounts() {
     return 0
 }
 
-# Throttle heavy Java CLI `zmmailbox` fallback to at most 2 concurrent JVMs across workers
-# so a REST outage during parallel backup cannot trigger an OOM storm on mailboxd.
+# Throttle heavy Java CLI `zmmailbox` fallback to serialize execution (at most 1 JVM at a time)
+# so fallback execution across parallel workers cannot cause CPU load spikes on the server.
 zb_run_zmmailbox_throttled() {
     if command -v flock >/dev/null 2>&1 && [[ -d "$ZB_RUN_DIR" && ! -L "$ZB_RUN_DIR" ]]; then
-        local slot=$(( ${BASHPID:-$$} % 2 ))
-        local slot_lock="$ZB_RUN_DIR/.jvm_slot_${slot}.lock"
+        local slot_lock="$ZB_RUN_DIR/.jvm_worker.lock"
         (
             exec 6>"$slot_lock" || exit 1
             flock 6
@@ -483,15 +561,44 @@ zb_export_mailbox_archive() {
     local query_from_epoch="${4:-0}"
     local auth_cfg="${5:-}"      # optional shared curl -K file
 
-    local rest_query="/?fmt=tgz&auth=admin"
+    local rest_query="/?fmt=tgz"
     if [[ "$mode" == "incr" ]]; then
         local epoch_ms="${query_from_epoch}000"
-        rest_query="/?fmt=tgz&query=after:${epoch_ms}&auth=admin"
+        rest_query="/?fmt=tgz&query=after:${epoch_ms}"
     fi
 
     local port attempt=1 http_code="" ok=0 empty_delta=0 entry_cnt=""
-    local cur_auth_cfg="$auth_cfg" priv_auth_cfg=""
+    local cur_auth_cfg="$auth_cfg" priv_auth_cfg="" uauth_cfg=""
     port="$(zb_detect_rest_port)"
+
+    local admin_tok="" user_tok=""
+    if [[ -n "$auth_cfg" && -f "$auth_cfg" ]]; then
+        admin_tok="$(awk -F'ZM_ADMIN_AUTH_TOKEN=' 'NF>1 { split($2, a, ";"); gsub(/[" \t\r\n]/, "", a[1]); print a[1]; exit }' "$auth_cfg" 2>/dev/null || true)"
+        if [[ -z "$admin_tok" ]]; then
+            admin_tok="$(zb_fetch_raw_admin_token 2>/dev/null || true)"
+        fi
+
+        if [[ -n "$admin_tok" ]]; then
+            user_tok="$(zb_fetch_delegated_token "$email" "$admin_tok" 2>/dev/null || true)"
+        fi
+
+        local srv_host
+        srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+
+        if [[ -n "$user_tok" ]]; then
+            uauth_cfg="$(mktemp "$ZB_RUN_DIR/.uauth.XXXXXX" 2>/dev/null || printf '')"
+            if [[ -n "$uauth_cfg" ]]; then
+                chmod 600 "$uauth_cfg"
+                {
+                    printf 'insecure\n'
+                    printf 'silent\n'
+                    printf 'header = "Host: %s"\n' "$srv_host"
+                    printf 'header = "Cookie: ZM_AUTH_TOKEN=%s"\n' "$user_tok"
+                } > "$uauth_cfg"
+                cur_auth_cfg="$uauth_cfg"
+            fi
+        fi
+    fi
 
     while (( attempt <= 3 )); do
         rm -f -- "$out_tgz"
@@ -504,18 +611,27 @@ zb_export_mailbox_archive() {
                 local fresh_tok=""
                 fresh_tok="$(zb_fetch_raw_admin_token 2>/dev/null || true)"
                 if [[ -n "$fresh_tok" ]]; then
-                    local srv_host
-                    srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+                    local fresh_user_tok=""
+                    fresh_user_tok="$(zb_fetch_delegated_token "$email" "$fresh_tok" 2>/dev/null || true)"
                     [[ -n "$priv_auth_cfg" ]] && rm -f -- "$priv_auth_cfg"
                     priv_auth_cfg="$(mktemp "$ZB_RUN_DIR/.zm_auth_w.XXXXXX" 2>/dev/null || printf '')"
                     if [[ -n "$priv_auth_cfg" ]]; then
                         chmod 600 "$priv_auth_cfg"
-                        {
-                            printf 'insecure\n'
-                            printf 'silent\n'
-                            printf 'header = "Host: %s"\n' "$srv_host"
-                            printf 'header = "Cookie: ZM_ADMIN_AUTH_TOKEN=%s; ZM_AUTH_TOKEN=%s"\n' "$fresh_tok" "$fresh_tok"
-                        } > "$priv_auth_cfg"
+                        if [[ -n "$fresh_user_tok" ]]; then
+                            {
+                                printf 'insecure\n'
+                                printf 'silent\n'
+                                printf 'header = "Host: %s"\n' "$srv_host"
+                                printf 'header = "Cookie: ZM_AUTH_TOKEN=%s"\n' "$fresh_user_tok"
+                            } > "$priv_auth_cfg"
+                        else
+                            {
+                                printf 'insecure\n'
+                                printf 'silent\n'
+                                printf 'header = "Host: %s"\n' "$srv_host"
+                                printf 'header = "Cookie: ZM_ADMIN_AUTH_TOKEN=%s; ZM_AUTH_TOKEN=%s"\n' "$fresh_tok" "$fresh_tok"
+                            } > "$priv_auth_cfg"
+                        fi
                         cur_auth_cfg="$priv_auth_cfg"
                         rm -f -- "$out_tgz"
                         http_code="$(curl -K "$cur_auth_cfg" -w '%{http_code}' -o "$out_tgz" \
@@ -556,7 +672,7 @@ zb_export_mailbox_archive() {
             fi
         fi
 
-        # Fallback via throttled zmmailbox CLI (max 2 concurrent JVMs)
+        # Fallback via throttled zmmailbox CLI (serialized to max 1 concurrent JVM)
         rm -f -- "$out_tgz"
         local zmm_err_log="$ZB_RUN_DIR/.zmm_err.$$.${attempt}.log"
         local zmm_rc=0
@@ -604,6 +720,7 @@ zb_export_mailbox_archive() {
         sleep 2
     done
 
+    [[ -n "$uauth_cfg" ]] && rm -f -- "$uauth_cfg"
     [[ -n "$priv_auth_cfg" ]] && rm -f -- "$priv_auth_cfg"
 
     if (( ok == 0 )); then
@@ -630,11 +747,11 @@ zb_import_mailbox_archive() {
         return 1
     fi
 
-    local rest_path="/?fmt=tgz&resolve=skip&auth=admin"
+    local rest_path="/?fmt=tgz&resolve=skip"
     case "$mode" in
-        skip) rest_path="/?fmt=tgz&resolve=skip&auth=admin" ;;
-        modify) rest_path="/?fmt=tgz&resolve=modify&auth=admin" ;;
-        reset) rest_path="/?fmt=tgz&resolve=reset&auth=admin" ;;
+        skip) rest_path="/?fmt=tgz&resolve=skip" ;;
+        modify) rest_path="/?fmt=tgz&resolve=modify" ;;
+        reset) rest_path="/?fmt=tgz&resolve=reset" ;;
         subfolder)
             subfolder_name="${subfolder_name#/}"
             [[ -n "$subfolder_name" ]] || subfolder_name="Restore_$(date +%Y%m%d_%H%M%S)"
@@ -647,7 +764,7 @@ zb_import_mailbox_archive() {
                 zb_run_zmmailbox_throttled -z -m "$dest_email" cf "/$subfolder_name" </dev/null >/dev/null 2>&1 || true
                 touch "$cf_marker" 2>/dev/null || true
             fi
-            rest_path="/${subfolder_name}?fmt=tgz&resolve=skip&auth=admin"
+            rest_path="/${subfolder_name}?fmt=tgz&resolve=skip"
             ;;
         *)
             zb_err "Invalid mailbox restore mode: $mode"
@@ -657,6 +774,30 @@ zb_import_mailbox_archive() {
 
     local port http_code=""
     port="$(zb_detect_rest_port)"
+
+    local user_tok="" srv_host="" uauth_cfg=""
+    user_tok="$(zb_fetch_delegated_token "$dest_email" 2>/dev/null || true)"
+    if [[ -n "$user_tok" ]]; then
+        srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+        uauth_cfg="$(mktemp "$ZB_RUN_DIR/.uimport.XXXXXX" 2>/dev/null || printf '')"
+        if [[ -n "$uauth_cfg" ]]; then
+            chmod 600 "$uauth_cfg"
+            {
+                printf 'insecure\n'
+                printf 'silent\n'
+                printf 'header = "Host: %s"\n' "$srv_host"
+                printf 'header = "Cookie: ZM_AUTH_TOKEN=%s"\n' "$user_tok"
+            } > "$uauth_cfg"
+            http_code="$(curl -K "$uauth_cfg" -w '%{http_code}' -o /dev/null \
+                --connect-timeout 60 --max-time 10800 -X POST -T "$tgz_file" \
+                "https://127.0.0.1:${port}/service/home/${dest_email}${rest_path}" 2>/dev/null || printf '000')"
+            rm -f -- "$uauth_cfg"
+            if [[ "$http_code" == "200" || "$http_code" == "204" ]]; then
+                return 0
+            fi
+        fi
+    fi
+
     if zb_ensure_auth_cfg 0; then
         http_code="$(curl -K "$ZB_AUTH_CFG_FILE" -w '%{http_code}' -o /dev/null \
             --connect-timeout 60 --max-time 10800 -X POST -T "$tgz_file" \
