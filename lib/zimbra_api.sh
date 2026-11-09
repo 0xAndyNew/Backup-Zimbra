@@ -62,10 +62,12 @@ zb_detect_admin_port() {
     fi
 
     local srv_host pa0 pa1
-    srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+    srv_host="${ZB_SERVER_HOST:-}"
+    [[ -n "$srv_host" ]] || srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
     pa0="$(zmprov -l gs "$srv_host" zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
     pa1="$(zmprov -l gcf zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
     ZB_ADMIN_PORT="${pa0:-${pa1:-7071}}"
+    export ZB_ADMIN_PORT
     printf '%s' "$ZB_ADMIN_PORT"
 }
 
@@ -81,7 +83,8 @@ zb_detect_rest_port() {
     fi
 
     local p0 p1 p2 cand srv_host code
-    srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+    srv_host="${ZB_SERVER_HOST:-}"
+    [[ -n "$srv_host" ]] || srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
     # Mailbox REST UserServlet (/service/home/) is hosted on zimbraMailSSLPort (default 8443)
     # or zimbraMailProxySSLPort (default 443). zimbraAdminPort (7071) only hosts Admin Console/SOAP
     # and returns 404 for UserServlet, which would trigger JVM fallback.
@@ -103,12 +106,14 @@ zb_detect_rest_port() {
             "https://127.0.0.1:${cand}/service/home/" 2>/dev/null || printf '000')"
         if [[ "$code" =~ ^(200|302|400|401|403)$ ]]; then
             ZB_REST_PORT="$cand"
+            export ZB_REST_PORT
             printf '%s' "$ZB_REST_PORT"
             return 0
         fi
     done
 
     ZB_REST_PORT="${p0:-${p1:-8443}}"
+    export ZB_REST_PORT
     printf '%s' "$ZB_REST_PORT"
 }
 
@@ -150,8 +155,12 @@ zb_fetch_delegated_token() {
     fi
     [[ -n "$admin_tok" ]] || return 1
 
-    local admin_port
+    local admin_port srv_host
     admin_port="$(zb_detect_admin_port)"
+    srv_host="${ZB_SERVER_HOST:-}"
+    if [[ -z "$srv_host" ]]; then
+        srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+    fi
     zb_ensure_state_dirs || return 1
 
     local soap_cfg="" soap_req=""
@@ -163,17 +172,21 @@ zb_fetch_delegated_token() {
     }
     chmod 600 "$soap_cfg" "$soap_req"
 
+    # Use standard SOAP 1.1 Envelope for Zimbra SoapServlet compatibility
     {
-        printf '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">'
+        printf '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
         printf '<soap:Header><context xmlns="urn:zimbra"><authToken>%s</authToken></context></soap:Header>' "$admin_tok"
         printf '<soap:Body><DelegateAuthRequest xmlns="urn:zimbraAdmin"><account by="name">%s</account></DelegateAuthRequest></soap:Body>' "$email"
         printf '</soap:Envelope>'
     } > "$soap_req"
 
+    # Use standard text/xml; charset=utf-8 MIME type with empty SOAPAction header
     {
         printf 'insecure\n'
         printf 'silent\n'
-        printf 'header = "Content-Type: application/soap+xml; charset=utf-8"\n'
+        printf 'header = "Host: %s"\n' "$srv_host"
+        printf 'header = "Content-Type: text/xml; charset=utf-8"\n'
+        printf 'header = "SOAPAction: \"\""\n'
         printf 'data-binary = "@%s"\n' "$soap_req"
     } > "$soap_cfg"
 
@@ -197,6 +210,25 @@ zb_fetch_delegated_token() {
         printf '%s' "$user_tok"
         return 0
     fi
+
+    # Fallback to zmsoap CLI if curl to SOAP port was blocked or timed out
+    if command -v zmsoap >/dev/null 2>&1; then
+        local zmsoap_xml=""
+        zmsoap_xml="$(zmsoap -z -v DelegateAuthRequest/account=@by="name" account="$email" 2>/dev/null || true)"
+        user_tok="$(awk '
+            match($0, /<authToken>[^<]+<\/authToken>/) {
+                s = substr($0, RSTART + 11, RLENGTH - 23)
+                print s
+                exit
+            }
+        ' <<< "$zmsoap_xml")" || true
+        user_tok="$(zb_trim "$user_tok")"
+        if [[ -n "$user_tok" ]]; then
+            printf '%s' "$user_tok"
+            return 0
+        fi
+    fi
+
     return 1
 }
 
@@ -583,7 +615,8 @@ zb_export_mailbox_archive() {
         fi
 
         local srv_host
-        srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
+        srv_host="${ZB_SERVER_HOST:-}"
+        [[ -n "$srv_host" ]] || srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
 
         if [[ -n "$user_tok" ]]; then
             uauth_cfg="$(mktemp "$ZB_RUN_DIR/.uauth.XXXXXX" 2>/dev/null || printf '')"
@@ -593,7 +626,7 @@ zb_export_mailbox_archive() {
                     printf 'insecure\n'
                     printf 'silent\n'
                     printf 'header = "Host: %s"\n' "$srv_host"
-                    printf 'header = "Cookie: ZM_AUTH_TOKEN=%s"\n' "$user_tok"
+                    printf 'header = "Cookie: ZM_AUTH_TOKEN=%s; ZM_ADMIN_AUTH_TOKEN=%s"\n' "$user_tok" "$admin_tok"
                 } > "$uauth_cfg"
                 cur_auth_cfg="$uauth_cfg"
             fi
@@ -622,7 +655,7 @@ zb_export_mailbox_archive() {
                                 printf 'insecure\n'
                                 printf 'silent\n'
                                 printf 'header = "Host: %s"\n' "$srv_host"
-                                printf 'header = "Cookie: ZM_AUTH_TOKEN=%s"\n' "$fresh_user_tok"
+                                printf 'header = "Cookie: ZM_AUTH_TOKEN=%s; ZM_ADMIN_AUTH_TOKEN=%s"\n' "$fresh_user_tok" "$fresh_tok"
                             } > "$priv_auth_cfg"
                         else
                             {

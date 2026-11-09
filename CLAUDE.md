@@ -2,7 +2,7 @@
 
 Tài liệu này hướng dẫn Claude Code (claude.ai/code) khi làm việc với mã nguồn trong repository này.
 
-## Tổng quan kiến trúc (`zimbra-backup` v0.3.13)
+## Tổng quan kiến trúc (`zimbra-backup` v0.3.14)
 
 Repository đóng gói công cụ sao lưu & khôi phục **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** trên **Ubuntu 18.04, 20.04, 22.04 LTS** (gói DEB `.deb`) và **CentOS/RHEL/AlmaLinux/Rocky 7, 8, 9** (gói RPM `.rpm` `noarch`), phân phối tại mục GitHub Releases, hợp nhất và khắc phục triệt để các lỗi toàn vẹn dữ liệu của các script sao lưu truyền thống.
 
@@ -76,9 +76,9 @@ nfpm package --config nfpm.yaml --packager rpm
 Đóng gói bằng `rpmbuild` trên máy chủ Linux có `rpm-build`:
 
 ```bash
-mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.13 && \
-cp -r bin lib packaging README.md zimbra-backup-0.3.13/ && \
-tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.13.tar.gz" zimbra-backup-0.3.13 && \
+mkdir -p "$HOME/rpmbuild/SOURCES" zimbra-backup-0.3.14 && \
+cp -r bin lib packaging README.md zimbra-backup-0.3.14/ && \
+tar czf "$HOME/rpmbuild/SOURCES/zimbra-backup-0.3.14.tar.gz" zimbra-backup-0.3.14 && \
 rpmbuild -ba zimbra-backup.spec
 ```
 

@@ -621,22 +621,71 @@ zb_export_metadata_stage() {
     local valid_acc_tmp
     valid_acc_tmp="$(mktemp "$ZB_RUN_DIR/.valid_accs.XXXXXX")" || return 1
 
-    while IFS= read -r email <&3; do
-        [[ -n "$email" ]] || continue
-        idx=$((idx + 1))
-        local ldif_path="$stage_dir/accounts/${email}.ldif"
-        if ! zmprov -l ga "$email" > "$ldif_path" 2>/dev/null || [[ ! -s "$ldif_path" ]]; then
-            zb_warn "Skipping non-account address or inaccessible mailbox: $email"
-            rm -f -- "$ldif_path"
-            continue
+    # High-performance batch export via zmprov -l -f
+    # Launches 1 single JVM command for all accounts instead of spawning 140+ separate JVM processes
+    local batch_file batch_out batch_ok=0
+    batch_file="$(mktemp "$ZB_RUN_DIR/.zmprov_ga_batch.XXXXXX")" || return 1
+    batch_out="$(mktemp "$ZB_RUN_DIR/.zmprov_ga_out.XXXXXX")" || { rm -f -- "$batch_file"; return 1; }
+
+    awk '{ print "ga " $1 }' "$stage_dir/accounts/active_accounts.txt" > "$batch_file"
+
+    if zmprov -l -f "$batch_file" > "$batch_out" 2>/dev/null && [[ -s "$batch_out" ]]; then
+        local split_accs_tmp
+        split_accs_tmp="$(mktemp "$ZB_RUN_DIR/.split_accs.XXXXXX")" || return 1
+        awk -v out_dir="$stage_dir/accounts" -v acc_list="$split_accs_tmp" '
+            /^# name / {
+                if (cur_out != "") close(cur_out)
+                cur_email = $3
+                sub(/\r$/, "", cur_email)
+                if (cur_email != "") {
+                    cur_out = out_dir "/" cur_email ".ldif"
+                    print cur_email >> acc_list
+                }
+            }
+            {
+                if (cur_out != "") print > cur_out
+            }
+            END {
+                if (cur_out != "") close(cur_out)
+            }
+        ' "$batch_out"
+
+        if [[ -s "$split_accs_tmp" ]]; then
+            while IFS= read -r email <&3; do
+                [[ -n "$email" ]] || continue
+                local ldif_path="$stage_dir/accounts/${email}.ldif"
+                [[ -s "$ldif_path" ]] || continue
+                if ! zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email"; then
+                    zb_warn "Warning extracting artifacts for account: $email"
+                fi
+                zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+                printf '%s\n' "$email" >> "$valid_acc_tmp"
+                exported_count=$((exported_count + 1))
+            done 3< "$split_accs_tmp"
+            batch_ok=1
         fi
-        if ! zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email"; then
-            zb_warn "Warning extracting artifacts for account: $email"
-        fi
-        zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
-        printf '%s\n' "$email" >> "$valid_acc_tmp"
-        exported_count=$((exported_count + 1))
-    done 3< "$stage_dir/accounts/active_accounts.txt"
+        rm -f -- "$split_accs_tmp"
+    fi
+    rm -f -- "$batch_file" "$batch_out"
+
+    if (( batch_ok == 0 )); then
+        while IFS= read -r email <&3; do
+            [[ -n "$email" ]] || continue
+            idx=$((idx + 1))
+            local ldif_path="$stage_dir/accounts/${email}.ldif"
+            if ! zmprov -l ga "$email" > "$ldif_path" 2>/dev/null || [[ ! -s "$ldif_path" ]]; then
+                zb_warn "Skipping non-account address or inaccessible mailbox: $email"
+                rm -f -- "$ldif_path"
+                continue
+            fi
+            if ! zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email"; then
+                zb_warn "Warning extracting artifacts for account: $email"
+            fi
+            zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+            printf '%s\n' "$email" >> "$valid_acc_tmp"
+            exported_count=$((exported_count + 1))
+        done 3< "$stage_dir/accounts/active_accounts.txt"
+    fi
 
     if (( total_acc > 0 && exported_count == 0 )); then
         rm -f -- "$valid_acc_tmp"
@@ -686,6 +735,12 @@ zb_export_mailboxes_parallel() {
     local acc_file="$stage_dir/accounts/active_accounts.txt"
     local total
     total="$(wc -l < "$acc_file" | awk '{print $1}')"
+
+    # Pre-detect and export port & host configuration once so background worker subshells
+    # never repeatedly spawn `zmprov` or `zmhostname` processes (eliminating 350+ JVM invocations)
+    export ZB_REST_PORT="$(zb_detect_rest_port)"
+    export ZB_ADMIN_PORT="$(zb_detect_admin_port)"
+    export ZB_SERVER_HOST="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
 
     # Prepare shared admin auth config (refreshed per batch / elapsed age)
     zb_ensure_auth_cfg 1 || zb_log "WARNING: Could not acquire ZM_ADMIN_AUTH_TOKEN; falling back to zmmailbox CLI."

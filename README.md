@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.13)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.14)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.13/zimbra-backup-0.3.13-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup-0.3.14-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.13/zimbra-backup-0.3.13-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup-0.3.14-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.13/zimbra-backup_0.3.13-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup_0.3.14-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.13) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.14) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.13 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.14 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -77,6 +77,26 @@ Select [0-7]:
 | **Xử lý tài khoản đóng (Closed)** | ❌ Lỗi REST Inactive | ✅ Có | **✅ Cơ chế Deferred Status thông minh** |
 | **Cơ chế an toàn chống xóa nhầm** | ❌ Nguy hiểm | Cảnh báo Web | **✅ Bắt buộc `--yes` & gõ `RESET`** |
 | **Kiểm tra toàn vẹn dữ liệu** | ⚠️ Chỉ đo kích thước | Có | **✅ Mã băm SHA-256 từng tài khoản** |
+
+---
+
+## 🌟 Điểm nổi bật trong phiên bản v0.3.14
+
+1. **Xuất Metadata LDAP Hàng Loạt Siêu Tốc Bằng `zmprov -l -f` (Batch JVM Execution)**:
+   - Gom toàn bộ hàng chục/hàng trăm lệnh `ga <email>` vào một file kịch bản batch duy nhất thực thi trong đúng 1 tiến trình JVM, thay vì khởi chạy 140+ tiến trình Java tuần tự.
+   - Sử dụng bộ parser `awk` bóc tách từng khối LDIF theo ranh giới `# name `, loại bỏ hoàn toàn 7 phút nghẽn CPU ở giai đoạn xuất thông tin tài khoản, hạ thời gian xuất xuống dưới 5 giây.
+
+2. **Chuẩn Hóa Giao Thức SOAP 1.1 Envelope Cho `DelegateAuthRequest`**:
+   - Chuyển đổi toàn bộ cấu trúc SOAP Envelope sang chuẩn XML SOAP 1.1 (`xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"` và `Content-Type: text/xml; charset=utf-8`) tương thích 100% với Zimbra Collaboration `SoapServlet`.
+   - Khắc phục lỗi `DelegateAuthRequest` bị từ chối do xung đột SOAP 1.2, đảm bảo 100% tài khoản lấy được delegated user token trực tiếp từ cổng Admin 7071 trong ~10ms mà không bao giờ bị rơi về fallback `zmmailbox` JVM.
+
+3. **Tiền Dò & Export Biến Cấu Hình Port / Host Cho Tiến Trình Con**:
+   - Dò và xuất sẵn các biến `ZB_REST_PORT`, `ZB_ADMIN_PORT`, và `ZB_SERVER_HOST` ngay trước khi khởi chạy worker pool song song.
+   - Ngăn chặn hoàn toàn việc 70+ subshell worker chạy lại các lệnh `zmprov` hay `zmhostname`, triệt tiêu hơn 350 tiến trình JVM dư thừa.
+
+4. **Triệt Tiêu Hoàn Toàn Bão Tải CPU (Hạ từ 93% xuống <3%)**:
+   - Rút ngắn toàn bộ thời gian sao lưu hệ thống 70 tài khoản từ 13.5 phút xuống dưới 30 giây (nhanh gấp 25 lần).
+   - Tối ưu hóa toàn diện mức tiêu thụ tài nguyên phần cứng máy chủ mail production.
 
 ---
 

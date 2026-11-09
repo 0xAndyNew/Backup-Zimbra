@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.13
+# End-to-end automated test suite for zimbra-backup v0.3.14
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -164,13 +164,23 @@ chmod +x "$MOCK_BIN/zmsoap"
 cat > "$MOCK_BIN/zmprov" <<'EOF'
 #!/usr/bin/env bash
 printf 'ZMPROV %s\n' "$*" >> "$MOCK_LOG"
-if [[ "${1:-}" == "-f" ]]; then
-    while IFS= read -r line; do
-        printf 'ZMPROV_BATCH %s\n' "$line" >> "$MOCK_LOG"
-    done < "$2"
-    exit 0
-fi
-[[ "${1:-}" == "-l" ]] && shift
+while [[ "${1:-}" =~ ^- ]]; do
+    if [[ "$1" == "-f" ]]; then
+        batch_file="$2"
+        shift 2
+        if [[ -f "$batch_file" ]]; then
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+                "$0" $line
+            done < "$batch_file"
+        fi
+        exit 0
+    elif [[ "$1" == "-l" ]]; then
+        shift
+    else
+        shift
+    fi
+done
 sub="${1:-}"
 shift || true
 case "$sub" in
@@ -475,7 +485,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.13" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.13"
+assert_contains "$ver_out" "zimbra-backup 0.3.14" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.14"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
