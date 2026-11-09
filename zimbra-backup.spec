@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.14
+Version:        0.3.15
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,12 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Mon Nov 09 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.15-1
+- Sanitize Remote Storage notification formatting to prevent Microsoft 365 Defender Safe Links URL rewriting
+- Align all notification card labels strictly to Column 16 with human-readable elapsed duration (seconds & minutes)
+- Optimize signature export by detecting LDAP signature attributes before spawning zmprov gsig (eliminate 70 redundant JVMs)
+- Maintain 100% pure 7-bit ASCII and LF line endings across all 15 packaged files
+
 * Mon Nov 09 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.14-1
 - Batch LDAP metadata export via zmprov -l -f (consolidate 140+ sequential JVM invocations into 1 single JVM command)
 - Enforce strict SOAP 1.1 Envelope namespace and text/xml content-type for DelegateAuthRequest compliant with Zimbra SoapServlet

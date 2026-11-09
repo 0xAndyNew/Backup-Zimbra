@@ -658,7 +658,9 @@ zb_export_metadata_stage() {
                 if ! zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email"; then
                     zb_warn "Warning extracting artifacts for account: $email"
                 fi
-                zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+                if grep -qiE 'zimbraSignatureId|zimbraPrefMailSignature' "$ldif_path"; then
+                    zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+                fi
                 printf '%s\n' "$email" >> "$valid_acc_tmp"
                 exported_count=$((exported_count + 1))
             done 3< "$split_accs_tmp"
@@ -681,7 +683,9 @@ zb_export_metadata_stage() {
             if ! zb_extract_account_artifacts "$ldif_path" "$stage_dir" "$email"; then
                 zb_warn "Warning extracting artifacts for account: $email"
             fi
-            zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+            if grep -qiE 'zimbraSignatureId|zimbraPrefMailSignature' "$ldif_path"; then
+                zb_export_account_signatures "$email" "$stage_dir/signatures/${email}.sigs" || true
+            fi
             printf '%s\n' "$email" >> "$valid_acc_tmp"
             exported_count=$((exported_count + 1))
         done 3< "$stage_dir/accounts/active_accounts.txt"
@@ -1307,9 +1311,10 @@ Log File   : ${ZB_CURRENT_LOG}"
         if zb_upload_snapshot "$final_dir" "$JOB_ID" "$step_type" "$chain_sub"; then
             local ftp_keep="${FTP_KEEP_COUNT:-7}"
             zb_prune_remote_storage "$JOB_ID" "$BACKUP_TYPE" "$chain_sub" "$ftp_keep" || true
-            ftp_line="Remote Storage : OK (${FTP_PROTOCOL^^}://${FTP_HOST}:${FTP_PORT} - in ${TRANSFER_DURATION}s | Retained: ${ftp_keep} remote)"
+            ftp_line="Remote Storage : OK [${FTP_PROTOCOL^^} ${FTP_HOST}:${FTP_PORT} | in ${TRANSFER_DURATION}s | Retained: ${ftp_keep} remote]"
         else
-            ftp_line="Remote Storage : FAILED (${TRANSFER_ERROR})"
+            local safe_err="${TRANSFER_ERROR//:\/\//: }"
+            ftp_line="Remote Storage : FAILED [${FTP_PROTOCOL^^} ${FTP_HOST}:${FTP_PORT} | Error: ${safe_err}]"
             notify_tag="warn"
         fi
     fi
@@ -1325,12 +1330,17 @@ Log File   : ${ZB_CURRENT_LOG}"
         notify_title="Job '${JOB_NAME:-$JOB_ID}' (${step_type^^}) completed (remote upload failed)"
     fi
 
-    local notify_body="Job Name   : ${JOB_NAME:-$JOB_ID}
-Backup Mode: ${step_type^^}
-Accounts   : ${MF_ACCOUNTS_COUNT} (new/changed: ${MF_ARCHIVES_COUNT}, unchanged: ${MF_EMPTY_DELTA_COUNT})
-Total Size : ${human_sz}
-Duration   : ${duration_sec}s
-Local Path : ${final_dir}"
+    local dur_desc="${duration_sec}s"
+    if (( duration_sec >= 60 )); then
+        dur_desc="${duration_sec}s ($((duration_sec / 60))m $((duration_sec % 60))s)"
+    fi
+
+    local notify_body="Job Name       : ${JOB_NAME:-$JOB_ID}
+Backup Mode    : ${step_type^^}
+Accounts       : ${MF_ACCOUNTS_COUNT} (new/changed: ${MF_ARCHIVES_COUNT}, unchanged: ${MF_EMPTY_DELTA_COUNT})
+Total Size     : ${human_sz}
+Duration       : ${dur_desc}
+Local Path     : ${final_dir}"
 
     if [[ -n "$ftp_line" ]]; then
         notify_body="${notify_body}
@@ -1447,9 +1457,10 @@ Log File   : ${ZB_CURRENT_LOG}"
     local notify_tag="ok"
     if [[ "${FTP_ENABLED:-no}" == "yes" ]]; then
         if zb_upload_snapshot "$final_dir" "account" "full"; then
-            ftp_line="Remote Storage : OK (${FTP_PROTOCOL^^}://${FTP_HOST}:${FTP_PORT} - in ${TRANSFER_DURATION}s)"
+            ftp_line="Remote Storage : OK [${FTP_PROTOCOL^^} ${FTP_HOST}:${FTP_PORT} | in ${TRANSFER_DURATION}s]"
         else
-            ftp_line="Remote Storage : FAILED (${TRANSFER_ERROR})"
+            local safe_err="${TRANSFER_ERROR//:\/\//: }"
+            ftp_line="Remote Storage : FAILED [${FTP_PROTOCOL^^} ${FTP_HOST}:${FTP_PORT} | Error: ${safe_err}]"
             notify_tag="warn"
         fi
     fi
@@ -1462,11 +1473,11 @@ Log File   : ${ZB_CURRENT_LOG}"
         notify_title="Ad-hoc account backup succeeded (remote upload failed)"
     fi
 
-    local notify_body="Job Name   : adhoc-account
-Backup Mode: FULL
-Accounts   : ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT})
-Total Size : ${human_sz}
-Local Path : ${final_dir}"
+    local notify_body="Job Name       : adhoc-account
+Backup Mode    : FULL
+Accounts       : ${MF_ACCOUNTS_COUNT} (archives: ${MF_ARCHIVES_COUNT})
+Total Size     : ${human_sz}
+Local Path     : ${final_dir}"
 
     if [[ -n "$ftp_line" ]]; then
         notify_body="${notify_body}

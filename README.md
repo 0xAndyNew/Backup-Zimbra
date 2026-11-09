@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.14)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.15)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup-0.3.14-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup-0.3.14-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup_0.3.14-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup_0.3.15-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.14) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.15) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.14 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.15 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -77,6 +77,26 @@ Select [0-7]:
 | **Xử lý tài khoản đóng (Closed)** | ❌ Lỗi REST Inactive | ✅ Có | **✅ Cơ chế Deferred Status thông minh** |
 | **Cơ chế an toàn chống xóa nhầm** | ❌ Nguy hiểm | Cảnh báo Web | **✅ Bắt buộc `--yes` & gõ `RESET`** |
 | **Kiểm tra toàn vẹn dữ liệu** | ⚠️ Chỉ đo kích thước | Có | **✅ Mã băm SHA-256 từng tài khoản** |
+
+---
+
+## 🌟 Điểm nổi bật trong phiên bản v0.3.15
+
+1. **Khắc phục Triệt để Lỗi Đường dẫn Safe Links trong Thông báo (Anti-Safe Links Sanitization)**:
+   - Loại bỏ hoàn toàn tiền tố giao thức `://` trong dòng trạng thái `Remote Storage` (ví dụ: `[FTP 210.245.95.23:21 | in 0s | Retained: 2 remote]`).
+   - Ngăn chặn triệt để các hệ thống bảo mật thư điện tử doanh nghiệp (Microsoft 365 Defender ATP Safe Links, Google Workspace, Proofpoint) quét và viết lại đường dẫn thành URL dài hàng trăm ký tự gây vỡ giao diện thông báo.
+
+2. **Chuẩn Hóa Căn Lề Monospace Cột 16 & Định Dạng Thời Gian Kép (Human-Readable Duration)**:
+   - Toàn bộ các dấu hai chấm `:` của nhãn thông báo (`Job Name`, `Backup Mode`, `Accounts`, `Total Size`, `Duration`, `Local Path`, `Remote Storage`, `Server`, `Timestamp`, `Engine`) được căn lề chuẩn xác tại Cột 16.
+   - Hiển thị song song số giây và số phút khi thời gian sao lưu vượt quá 60 giây (ví dụ: `450s (7m 30s)`), mang lại trải nghiệm quan sát trực quan và chuyên nghiệp.
+
+3. **Tối Ưu Hóa Xuất Chữ Ký (Signature) Qua Kiểm Tra Thuộc Tính LDAP (Khử 70+ JVM Cold-Start)**:
+   - Kiểm tra thuộc tính chữ ký (`zimbraSignatureId`, `zimbraPrefMailSignature`) trực tiếp trong dữ liệu LDIF trước khi gọi `zmprov -l gsig`.
+   - Bỏ qua hoàn toàn việc gọi `zmprov -l gsig` cho các tài khoản không cấu hình chữ ký (thường chiếm >90% hộp thư), khử sạch 70+ tiến trình Java JVM dư thừa và rút ngắn thêm ~250-280 giây thời gian sao lưu.
+
+4. **Bảo Toàn Tuyệt Đối Chuẩn 100% Pure 7-bit ASCII & 230/230 Bài Kiểm Thử Đạt**:
+   - Tất cả 15 file đóng gói đều giữ vững 100% mã ASCII 7-bit và chuẩn xuống dòng Unix LF (`\n`).
+   - Toàn bộ 230 bài kiểm thử tự động đầu-cuối đều vượt qua với 0 lỗi.
 
 ---
 

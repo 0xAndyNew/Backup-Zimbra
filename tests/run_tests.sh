@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.14
+# End-to-end automated test suite for zimbra-backup v0.3.15
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -277,6 +277,8 @@ zimbraMailSieveScript: require ["fileinto"];
 LDIF
         if [[ "$email" == "admin@example.com" ]]; then
             printf 'zimbraIsAdminAccount: TRUE\n'
+        elif [[ "$email" == "user1@example.com" ]]; then
+            printf 'zimbraSignatureId: sig-001\n'
         fi
         ;;
     gsig)
@@ -485,7 +487,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.14" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.14"
+assert_contains "$ver_out" "zimbra-backup 0.3.15" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.15"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1240,13 +1242,13 @@ assert_contains "$job_ftp_log" "upload=" "Tien trinh backup thuc hien upload sna
 assert_contains "$job_ftp_log" ".tar" "Upload file archive .tar cua snapshot"
 assert_contains "$job_ftp_log" "manifest" "Upload file manifest cua snapshot"
 assert_contains "$job_ftp_log" "SENDMAIL -t" "Gui email thong bao sau khi upload FTP hoan tat"
-assert_contains "$job_ftp_log" "Job Name   : Scheduled backup mail-test" "Thong bao chua Job Name day du"
-assert_contains "$job_ftp_log" "Backup Mode: FULL" "Thong bao chua Backup Mode FULL"
-assert_contains "$job_ftp_log" "Accounts   :" "Thong bao chua thong tin so luong Accounts"
-assert_contains "$job_ftp_log" "Total Size :" "Thong bao chua Total Size"
-assert_contains "$job_ftp_log" "Duration   :" "Thong bao chua Duration"
-assert_contains "$job_ftp_log" "Local Path :" "Thong bao chua Local Path"
-assert_contains "$job_ftp_log" "Remote Storage : OK (FTP://ftp.example.com:21" "Thong bao xac nhan Remote Storage OK kem host va port"
+assert_contains "$job_ftp_log" "Job Name       : Scheduled backup mail-test" "Thong bao chua Job Name day du"
+assert_contains "$job_ftp_log" "Backup Mode    : FULL" "Thong bao chua Backup Mode FULL"
+assert_contains "$job_ftp_log" "Accounts       :" "Thong bao chua thong tin so luong Accounts"
+assert_contains "$job_ftp_log" "Total Size     :" "Thong bao chua Total Size"
+assert_contains "$job_ftp_log" "Duration       :" "Thong bao chua Duration"
+assert_contains "$job_ftp_log" "Local Path     :" "Thong bao chua Local Path"
+assert_contains "$job_ftp_log" "Remote Storage : OK [FTP ftp.example.com:21" "Thong bao xac nhan Remote Storage OK kem host va port"
 
 # 16d. Sao luu Job thong thuong (FTP disabled) van giu nguyen chuan hoa thong bao
 "$ZB_CMD" init --ftp-enabled no >/dev/null
@@ -1256,12 +1258,12 @@ assert_contains "$job_ftp_log" "Remote Storage : OK (FTP://ftp.example.com:21" "
 
 job_local_log="$(cat "$MOCK_LOG")"
 assert_contains "$job_local_log" "SENDMAIL -t" "Email duoc gui cho job local-only"
-assert_contains "$job_local_log" "Job Name   : Scheduled backup mail-test" "Local job thong bao co Job Name"
-assert_contains "$job_local_log" "Backup Mode: FULL" "Local job thong bao co Backup Mode"
-assert_contains "$job_local_log" "Accounts   :" "Local job thong bao co Accounts"
-assert_contains "$job_local_log" "Total Size :" "Local job thong bao co Total Size"
-assert_contains "$job_local_log" "Duration   :" "Local job thong bao co Duration"
-assert_contains "$job_local_log" "Local Path :" "Local job thong bao co Local Path"
+assert_contains "$job_local_log" "Job Name       : Scheduled backup mail-test" "Local job thong bao co Job Name"
+assert_contains "$job_local_log" "Backup Mode    : FULL" "Local job thong bao co Backup Mode"
+assert_contains "$job_local_log" "Accounts       :" "Local job thong bao co Accounts"
+assert_contains "$job_local_log" "Total Size     :" "Local job thong bao co Total Size"
+assert_contains "$job_local_log" "Duration       :" "Local job thong bao co Duration"
+assert_contains "$job_local_log" "Local Path     :" "Local job thong bao co Local Path"
 assert_not_contains "$job_local_log" "Remote Storage : OK" "Local job khong bao Remote Storage OK khi FTP tat"
 
 # 16e. Kiem tra lenh status hien thi Remote Storage
