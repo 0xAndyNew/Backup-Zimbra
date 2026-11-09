@@ -168,32 +168,45 @@ zb_write_manifest() {
     chmod 600 "$mf"
 }
 
-# Ensure target directory path does not collide if two runs occur within the same second
+# Ensure target directory path does not collide if multiple runs occur on the same day
 zb_unique_path() {
     local candidate="$1"
-    if [[ ! -e "$candidate" ]]; then
+    local max_n=0 p sfx
+    if [[ -e "$candidate" ]]; then
+        max_n=1
+    fi
+    shopt -s nullglob
+    for p in "${candidate}"_[0-9]*; do
+        sfx="${p#"${candidate}_"}"
+        if [[ "$sfx" =~ ^[0-9]+$ ]] && (( 10#$sfx > max_n )); then
+            max_n=$((10#$sfx))
+        fi
+    done
+    shopt -u nullglob
+    if (( max_n == 0 )); then
         printf '%s' "$candidate"
         return 0
     fi
-    local n=2
-    while [[ -e "${candidate}_${n}" ]]; do
-        n=$((n + 1))
-    done
-    printf '%s_%d' "$candidate" "$n"
+    printf '%s_%d' "$candidate" "$((max_n + 1))"
 }
 
 # List valid completed full snapshot directories for a `full` job (oldest -> newest by manifest timestamp)
 zb_list_full_job_snapshots() {
     local job_root="$1"
+    local filter_jid="${2:-}"
     local d cp_num
     [[ -d "$job_root" ]] || return 0
     shopt -s nullglob
     for d in \
+        "$job_root"/full-* \
         "$job_root"/backup-full-* \
         "$job_root"/snapshots/backup-full-* \
         "$job_root"/snapshots/full_*; do
         [[ -d "$d" && ! -L "$d" && -f "$d/manifest" ]] || continue
         if zb_read_manifest_meta "$d/manifest"; then
+            if [[ -n "$filter_jid" && -n "${MF_JOB_ID:-}" && "$MF_JOB_ID" != "$filter_jid" ]]; then
+                continue
+            fi
             cp_num="${MF_CHECKPOINT_TO:-0}"
             [[ "$cp_num" =~ ^[0-9]+$ ]] || cp_num=0
             printf '%012d\t%s\t%s\n' "$cp_num" "${MF_CREATED_AT:-}" "$d"
@@ -202,44 +215,102 @@ zb_list_full_job_snapshots() {
     shopt -u nullglob
 }
 
-# List valid chains (those containing a completed 000_* full base) for an `incremental` job (oldest -> newest)
+# List valid chains (flat base `full-*` or legacy `chain-*` containing a completed 000_* full base)
+# for an `incremental` job (oldest -> newest)
 zb_list_valid_chains() {
     local job_root="$1"
+    local filter_jid="${2:-}"
     local c base_ok f cp_num base_created
     [[ -d "$job_root" ]] || return 0
     shopt -s nullglob
-    for c in \
-        "$job_root"/chain-* \
-        "$job_root"/chain_* \
-        "$job_root"/chains/chain-* \
-        "$job_root"/chains/chain_*; do
-        [[ -d "$c" && ! -L "$c" ]] || continue
-        base_ok=0
-        cp_num=0
-        base_created=""
-        for f in "$c"/000_backup-full-* "$c"/000_full_*; do
-            if [[ -d "$f" && -f "$f/manifest" ]] && zb_read_manifest_meta "$f/manifest"; then
-                base_ok=1
+    {
+        for f in "$job_root"/full-*; do
+            [[ -d "$f" && ! -L "$f" && -f "$f/manifest" ]] || continue
+            if zb_read_manifest_meta "$f/manifest"; then
+                [[ "${MF_BACKUP_TYPE:-}" == "full" && "${MF_CHAIN_SEQ:-0}" == "0" ]] || continue
+                if [[ -n "$filter_jid" && -n "${MF_JOB_ID:-}" && "$MF_JOB_ID" != "$filter_jid" ]]; then
+                    continue
+                fi
                 cp_num="${MF_CHECKPOINT_TO:-0}"
                 [[ "$cp_num" =~ ^[0-9]+$ ]] || cp_num=0
                 base_created="${MF_CREATED_AT:-}"
-                break
+                printf '%012d\t%s\t%s\n' "$cp_num" "$base_created" "$f"
             fi
         done
-        (( base_ok == 1 )) && printf '%012d\t%s\t%s\n' "$cp_num" "$base_created" "$c"
-    done | LC_ALL=C sort | cut -f3-
+        for c in \
+            "$job_root"/chain-* \
+            "$job_root"/chain_* \
+            "$job_root"/chains/chain-* \
+            "$job_root"/chains/chain_*; do
+            [[ -d "$c" && ! -L "$c" ]] || continue
+            base_ok=0
+            cp_num=0
+            base_created=""
+            for f in "$c"/000_backup-full-* "$c"/000_full_*; do
+                if [[ -d "$f" && -f "$f/manifest" ]] && zb_read_manifest_meta "$f/manifest"; then
+                    if [[ -n "$filter_jid" && -n "${MF_JOB_ID:-}" && "$MF_JOB_ID" != "$filter_jid" ]]; then
+                        continue
+                    fi
+                    base_ok=1
+                    cp_num="${MF_CHECKPOINT_TO:-0}"
+                    [[ "$cp_num" =~ ^[0-9]+$ ]] || cp_num=0
+                    base_created="${MF_CREATED_AT:-}"
+                    break
+                fi
+            done
+            (( base_ok == 1 )) && printf '%012d\t%s\t%s\n' "$cp_num" "$base_created" "$c"
+        done
+    } | LC_ALL=C sort | cut -f3-
     shopt -u nullglob
 }
 
-# List valid step directories inside a chain (000_backup-full-*, 001_backup-incremental-*, ...) sorted in order
+# List valid step directories inside a chain (flat `full-*` + `NNN-incremental-*` sharing chain_id,
+# or legacy `000_backup-full-*`, `001_backup-incremental-*` inside `chain-*`) sorted in sequence order.
 zb_list_chain_steps() {
-    local chain_dir="$1"
-    local s
-    [[ -d "$chain_dir" ]] || return 0
+    local chain_ref="$1"
+    local explicit_chain_id="${2:-}"
+    local s parent_dir target_chain_id seq_num
+    [[ -d "$chain_ref" ]] || return 0
     shopt -s nullglob
-    for s in "$chain_dir"/[0-9][0-9][0-9]_*; do
-        [[ -d "$s" && ! -L "$s" && -f "$s/manifest" ]] && printf '%s\n' "$s"
-    done | LC_ALL=C sort
+    if [[ -f "$chain_ref/manifest" ]]; then
+        parent_dir="${chain_ref%/*}"
+        target_chain_id="$explicit_chain_id"
+        if [[ -z "$target_chain_id" ]] && zb_read_manifest_meta "$chain_ref/manifest"; then
+            target_chain_id="${MF_CHAIN_ID:-}"
+        fi
+        [[ -n "$target_chain_id" ]] || target_chain_id="${chain_ref##*/}"
+        for s in \
+            "$parent_dir"/full-* \
+            "$parent_dir"/[0-9][0-9][0-9]-incremental-* \
+            "$parent_dir"/[0-9][0-9][0-9]_*; do
+            [[ -d "$s" && ! -L "$s" && -f "$s/manifest" ]] || continue
+            if zb_read_manifest_meta "$s/manifest"; then
+                if [[ "${MF_CHAIN_ID:-}" == "$target_chain_id" ]]; then
+                    seq_num="${MF_CHAIN_SEQ:-0}"
+                    [[ "$seq_num" =~ ^[0-9]+$ ]] || seq_num=0
+                    printf '%06d\t%s\n' "$((10#$seq_num))" "$s"
+                fi
+            fi
+        done | LC_ALL=C sort | cut -f2-
+    elif [[ -n "$explicit_chain_id" && "$explicit_chain_id" != "${chain_ref##*/}" ]]; then
+        for s in \
+            "$chain_ref"/full-* \
+            "$chain_ref"/[0-9][0-9][0-9]-incremental-* \
+            "$chain_ref"/[0-9][0-9][0-9]_*; do
+            [[ -d "$s" && ! -L "$s" && -f "$s/manifest" ]] || continue
+            if zb_read_manifest_meta "$s/manifest"; then
+                if [[ "${MF_CHAIN_ID:-}" == "$explicit_chain_id" ]]; then
+                    seq_num="${MF_CHAIN_SEQ:-0}"
+                    [[ "$seq_num" =~ ^[0-9]+$ ]] || seq_num=0
+                    printf '%06d\t%s\n' "$((10#$seq_num))" "$s"
+                fi
+            fi
+        done | LC_ALL=C sort | cut -f2-
+    else
+        for s in "$chain_ref"/[0-9][0-9][0-9]_*; do
+            [[ -d "$s" && ! -L "$s" && -f "$s/manifest" ]] && printf '%s\n' "$s"
+        done | LC_ALL=C sort
+    fi
     shopt -u nullglob
 }
 
@@ -249,6 +320,7 @@ zb_prune_job_storage() {
     local btype="$2"
     local keep="$3"
     local phase="$4"   # before | after
+    local filter_jid="${5:-}"
 
     local target_keep="$keep"
     if [[ "$phase" == "before" ]]; then
@@ -265,11 +337,11 @@ zb_prune_job_storage() {
     if [[ "$btype" == "full" ]]; then
         while IFS= read -r it; do
             [[ -n "$it" ]] && items+=("$it")
-        done < <(zb_list_full_job_snapshots "$job_root")
+        done < <(zb_list_full_job_snapshots "$job_root" "$filter_jid")
     else
         while IFS= read -r it; do
             [[ -n "$it" ]] && items+=("$it")
-        done < <(zb_list_valid_chains "$job_root")
+        done < <(zb_list_valid_chains "$job_root" "$filter_jid")
     fi
 
     local total="${#items[@]}"
@@ -281,7 +353,18 @@ zb_prune_job_storage() {
     local idx=0
     while (( idx < remove_cnt )); do
         local victim="${items[$idx]}"
-        if [[ -d "$victim" && ! -L "$victim" ]]; then
+        if [[ "$btype" == "incremental" && -f "$victim/manifest" ]]; then
+            local step_dir
+            while IFS= read -r step_dir; do
+                if [[ -d "$step_dir" && ! -L "$step_dir" ]]; then
+                    zb_log "Pruning expired backup chain step (${phase}, keeping ${keep} chains): $step_dir"
+                    rm -rf -- "$step_dir"
+                fi
+            done < <(zb_list_chain_steps "$victim")
+            if [[ -d "$victim" && ! -L "$victim" ]]; then
+                rm -rf -- "$victim"
+            fi
+        elif [[ -d "$victim" && ! -L "$victim" ]]; then
             zb_log "Pruning expired backup (${phase}, keeping ${keep}): $victim"
             rm -rf -- "$victim"
         fi
@@ -291,20 +374,22 @@ zb_prune_job_storage() {
 }
 
 # Decide whether an `incremental` job should open a new Full chain or append an Incremental step.
-# Sets globals: ZB_PLAN_STEP_TYPE (full|incr), ZB_PLAN_CHAIN_DIR, ZB_PLAN_SEQ, ZB_PLAN_PARENT_ID, ZB_PLAN_CP_FROM
+# Sets globals: ZB_PLAN_STEP_TYPE (full|incr), ZB_PLAN_CHAIN_DIR, ZB_PLAN_CHAIN_ID, ZB_PLAN_SEQ, ZB_PLAN_PARENT_ID, ZB_PLAN_CP_FROM
 zb_plan_incremental_step() {
     local job_root="$1"
     local force_full="${2:-0}"
     local stamp="$3"
+    local filter_jid="${4:-}"
 
     ZB_PLAN_STEP_TYPE="full"
-    ZB_PLAN_CHAIN_DIR="$(zb_unique_path "$job_root/chain-${stamp}")"
+    ZB_PLAN_CHAIN_DIR="$job_root"
+    ZB_PLAN_CHAIN_ID=""
     ZB_PLAN_SEQ=0
     ZB_PLAN_PARENT_ID="none"
     ZB_PLAN_CP_FROM=0
 
     if [[ "$force_full" == "1" ]]; then
-        zb_log "Force-full requested (--force-full): starting new chain ${ZB_PLAN_CHAIN_DIR##*/}."
+        zb_log "Force-full requested (--force-full): starting new Full chain in ${job_root}."
         return 0
     fi
 
@@ -312,10 +397,10 @@ zb_plan_incremental_step() {
     local c
     while IFS= read -r c; do
         [[ -n "$c" ]] && chains+=("$c")
-    done < <(zb_list_valid_chains "$job_root")
+    done < <(zb_list_valid_chains "$job_root" "$filter_jid")
 
     if (( ${#chains[@]} == 0 )); then
-        zb_log "No existing Full base chain found: automatically starting initial Full chain (${ZB_PLAN_CHAIN_DIR##*/})."
+        zb_log "No existing Full base chain found: automatically starting initial Full chain in ${job_root}."
         return 0
     fi
 
@@ -339,6 +424,7 @@ zb_plan_incremental_step() {
     local last_id="$MF_BACKUP_ID"
 
     zb_read_manifest_meta "$base_step/manifest" || return 0
+    local base_chain_id="${MF_CHAIN_ID:-${base_step##*/}}"
     local base_date_ymd
     base_date_ymd="$(date -d "${MF_CREATED_AT:-}" '+%Y-%m-%d' 2>/dev/null || printf '%s' "${MF_CREATED_AT%%T*}")"
     local today_ymd today_dow today_dom
@@ -373,7 +459,12 @@ zb_plan_incremental_step() {
     fi
 
     ZB_PLAN_STEP_TYPE="incr"
-    ZB_PLAN_CHAIN_DIR="$latest_chain"
+    if [[ -f "$latest_chain/manifest" ]]; then
+        ZB_PLAN_CHAIN_DIR="$job_root"
+    else
+        ZB_PLAN_CHAIN_DIR="$latest_chain"
+    fi
+    ZB_PLAN_CHAIN_ID="$base_chain_id"
     ZB_PLAN_SEQ="${#steps[@]}"
     ZB_PLAN_PARENT_ID="$last_id"
     # Overlap buffer of 300 seconds (5 minutes) prevents boundary mail loss across midnight/clock drift
@@ -708,23 +799,24 @@ zb_upload_snapshot() {
         port="22"
     fi
 
-    local rel_path=""
+    local cat_sub="full"
     if [[ "$job_id" == "account" ]]; then
-        rel_path="account/${snap_leaf}"
-    elif [[ -n "$chain_sub" && "$chain_sub" != "standalone" ]]; then
-        rel_path="incremental/${job_id}/${chain_sub}/${snap_leaf}"
-    elif [[ "$step_type" == "incremental" ]]; then
-        rel_path="incremental/${job_id}/${snap_leaf}"
-    else
-        rel_path="full/${job_id}/${snap_leaf}"
+        cat_sub="account"
+    elif [[ "${BACKUP_TYPE:-full}" == "incremental" || "$step_type" == "incr" || "$step_type" == "incremental" ]]; then
+        cat_sub="incremental"
     fi
 
     local remote_base="${FTP_REMOTE_DIR:-/}"
     [[ "$remote_base" == /* ]] || remote_base="/$remote_base"
     remote_base="${remote_base%/}"
 
-    local remote_dir="${remote_base}/${rel_path%/*}"
-    [[ "$remote_dir" == */ ]] || remote_dir="$remote_dir/"
+    local remote_dir=""
+    if [[ "${remote_base##*/}" == "$cat_sub" ]]; then
+        remote_dir="${remote_base}/"
+    else
+        remote_dir="${remote_base}/${cat_sub}/"
+    fi
+    [[ "$remote_dir" == /* ]] || remote_dir="/$remote_dir"
 
     local tar_name="${snap_leaf}.tar"
     local manifest_name="${snap_leaf}.manifest"
@@ -737,7 +829,7 @@ zb_upload_snapshot() {
     zb_ensure_state_dirs || return 1
     cfg="$(mktemp "$ZB_RUN_DIR/.ftp_up.XXXXXX")" || return 1
     chmod 600 "$cfg"
-    printf 'user = "%s:%s"\n' "$FTP_USER" "$FTP_PASSWORD" > "$cfg"
+    printf 'user = "%s:%s"\n' "$(zb_curl_escape "$FTP_USER")" "$(zb_curl_escape "$FTP_PASSWORD")" > "$cfg"
 
     local -a curl_args=(
         --fail --silent --show-error
@@ -796,6 +888,41 @@ zb_upload_snapshot() {
     fi
 }
 
+# Sort backup archive / directory names chronologically (handles DD-MM-YYYY, YYYYMMDD, step prefixes, and _N suffixes)
+zb_sort_backup_names_chronologically() {
+    awk '
+        NF {
+            name = $0
+            stem = name
+            sub(/\.(tar|manifest)$/, "", stem)
+            step = 0
+            if (match(stem, /^[0-9][0-9][0-9][_-]/)) {
+                step = substr(stem, 1, 3) + 0
+            }
+            sfx = 1
+            if (match(stem, /_[0-9]{1,5}$/)) {
+                sfx = substr(stem, RSTART + 1) + 0
+                stem = substr(stem, 1, RSTART - 1)
+            }
+            hms = "000000"
+            if (match(stem, /[_-][0-9]{6}$/)) {
+                hms = substr(stem, RSTART + 1, 6)
+                stem = substr(stem, 1, RSTART - 1)
+            }
+            ymd = "00000000"
+            if (match(stem, /[0-9]{2}-[0-9]{2}-[0-9]{4}$/)) {
+                dd = substr(stem, RSTART, 2)
+                mm = substr(stem, RSTART + 3, 2)
+                yyyy = substr(stem, RSTART + 6, 4)
+                ymd = yyyy mm dd
+            } else if (match(stem, /[0-9]{8}$/)) {
+                ymd = substr(stem, RSTART, 8)
+            }
+            printf "%s_%s_%03d_%06d\t%s\n", ymd, hms, step, sfx, name
+        }
+    ' | LC_ALL=C sort | cut -f2-
+}
+
 # Automatically prune old remote .tar and .manifest files on FTP/SFTP server according to FTP_KEEP_COUNT.
 # Completely independent of local KEEP_COUNT; preserves all local backups untouched.
 zb_prune_remote_storage() {
@@ -827,7 +954,7 @@ zb_prune_remote_storage() {
     zb_ensure_state_dirs || return 1
     cfg="$(mktemp "$ZB_RUN_DIR/.ftp_prune.XXXXXX")" || return 1
     chmod 600 "$cfg"
-    printf 'user = "%s:%s"\n' "$FTP_USER" "$FTP_PASSWORD" > "$cfg"
+    printf 'user = "%s:%s"\n' "$(zb_curl_escape "$FTP_USER")" "$(zb_curl_escape "$FTP_PASSWORD")" > "$cfg"
 
     local -a curl_base=(
         --fail --silent --show-error
@@ -846,14 +973,20 @@ zb_prune_remote_storage() {
         fi
     fi
 
-    local target_dir=""
+    local cat_sub="full"
     if [[ "$job_id" == "account" ]]; then
-        target_dir="${remote_base}/account/"
+        cat_sub="account"
     elif [[ "$btype" == "incremental" ]]; then
-        target_dir="${remote_base}/incremental/${job_id}/"
-    else
-        target_dir="${remote_base}/full/${job_id}/"
+        cat_sub="incremental"
     fi
+
+    local target_dir=""
+    if [[ "${remote_base##*/}" == "$cat_sub" ]]; then
+        target_dir="${remote_base}/"
+    else
+        target_dir="${remote_base}/${cat_sub}/"
+    fi
+    [[ "$target_dir" == /* ]] || target_dir="/$target_dir"
 
     # Query existing entries on remote server
     local list_raw
@@ -863,23 +996,25 @@ zb_prune_remote_storage() {
         return 0
     fi
 
-    if [[ "$btype" == "incremental" && -n "$chain_sub" && "$chain_sub" != "standalone" ]]; then
-        local -a chain_items=()
-        local line
-        while IFS= read -r line; do
-            line="$(zb_trim "$line")"
-            line="${line##*/}"
-            if [[ "$line" == chain-* ]]; then
-                chain_items+=("$line")
-            fi
-        done <<< "$list_raw"
-
-        local -a sorted_chains=()
-        if (( ${#chain_items[@]} > 0 )); then
-            while IFS= read -r line; do
-                [[ -n "$line" ]] && sorted_chains+=("$line")
-            done < <(printf '%s\n' "${chain_items[@]}" | LC_ALL=C sort)
+    local -a chain_items=() tar_items=()
+    local line
+    while IFS= read -r line; do
+        line="$(zb_trim "$line")"
+        line="${line##* }"
+        line="${line##*/}"
+        [[ -n "$line" ]] || continue
+        if [[ "$line" == chain-* ]]; then
+            chain_items+=("$line")
+        elif [[ "$line" == *.tar ]]; then
+            tar_items+=("$line")
         fi
+    done <<< "$list_raw"
+
+    if (( ${#chain_items[@]} > 0 )); then
+        local -a sorted_chains=()
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && sorted_chains+=("$line")
+        done < <(printf '%s\n' "${chain_items[@]}" | zb_sort_backup_names_chronologically)
 
         local total_chains="${#sorted_chains[@]}"
         if (( total_chains > keep )); then
@@ -894,6 +1029,7 @@ zb_prune_remote_storage() {
                     local f
                     while IFS= read -r f; do
                         f="$(zb_trim "$f")"
+                        f="${f##* }"
                         f="${f##*/}"
                         [[ -n "$f" ]] || continue
                         if [[ "$proto" == "sftp" ]]; then
@@ -912,23 +1048,13 @@ zb_prune_remote_storage() {
                 i=$((i + 1))
             done
         fi
-    else
-        local -a tar_items=()
-        local line
-        while IFS= read -r line; do
-            line="$(zb_trim "$line")"
-            line="${line##*/}"
-            if [[ "$line" == *.tar ]]; then
-                tar_items+=("$line")
-            fi
-        done <<< "$list_raw"
+    fi
 
+    if (( ${#tar_items[@]} > 0 )); then
         local -a sorted_tars=()
-        if (( ${#tar_items[@]} > 0 )); then
-            while IFS= read -r line; do
-                [[ -n "$line" ]] && sorted_tars+=("$line")
-            done < <(printf '%s\n' "${tar_items[@]}" | LC_ALL=C sort)
-        fi
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && sorted_tars+=("$line")
+        done < <(printf '%s\n' "${tar_items[@]}" | zb_sort_backup_names_chronologically)
 
         local total_tars="${#sorted_tars[@]}"
         if (( total_tars > keep )); then
@@ -974,7 +1100,9 @@ zb_run_job() (
     zb_require_zimbra_cli || return 1
 
     zb_acquire_lock || {
-        (( from_cron == 1 )) && zb_notify "warn" "Job '$JOB_ID' skipped" "Another backup or restore process is currently holding the lock."
+        (( from_cron == 1 )) && zb_notify "warn" "Job '$JOB_ID' skipped" "Job Name   : ${JOB_NAME:-$JOB_ID}
+Status     : SKIPPED
+Reason     : Another backup or restore process is holding operation.lock"
         return 1
     }
     zb_start_run_log "job_${JOB_ID}"
@@ -1009,11 +1137,17 @@ zb_run_job() (
     fi
     target_base="$(zb_job_effective_target_dir)"
     if ! zb_check_backup_dir "$target_base" "$eff_req_mount" "no"; then
-        zb_notify "error" "Backup Job '$JOB_ID' failed" "Target storage check failed: $target_base. Log: $ZB_CURRENT_LOG"
+        zb_notify "error" "Backup Job '$JOB_ID' failed" "Job Name   : ${JOB_NAME:-$JOB_ID}
+Status     : FAILED
+Reason     : Target storage check failed: $target_base
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
     if ! zb_check_disk_space "$target_base" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB"; then
-        zb_notify "error" "Backup Job '$JOB_ID' aborted (low disk space)" "Path: $target_base. Log: $ZB_CURRENT_LOG"
+        zb_notify "error" "Backup Job '$JOB_ID' aborted (low disk space)" "Job Name   : ${JOB_NAME:-$JOB_ID}
+Status     : ABORTED (Low disk space)
+Path       : ${target_base}
+Log File   : ${ZB_CURRENT_LOG}"
         return 1
     fi
     if zb_same_filesystem "$target_base" "$ZB_ZIMBRA_HOME"; then
@@ -1026,46 +1160,49 @@ zb_run_job() (
     [[ ! -L "$job_root" ]] || { zb_err "Job storage root must not be a symlink: $job_root"; return 1; }
 
     local stamp cp_to final_dir backup_id step_type chain_id chain_seq parent_id cp_from snap_leaf
-    stamp="$(date '+%d-%m-%Y_%H%M%S')"
+    stamp="$(date '+%d-%m-%Y')"
     cp_to="$(date +%s)"
 
     if [[ "$BACKUP_TYPE" == "full" ]]; then
         if [[ "$PRUNE_TIMING" == "before" ]]; then
-            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before"
+            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before" "$JOB_ID"
         fi
         step_type="full"
         chain_id="standalone"
         chain_seq="0"
         parent_id="none"
         cp_from="0"
-        final_dir="$(zb_unique_path "$job_root/backup-full-${stamp}")"
+        final_dir="$(zb_unique_path "$job_root/full-${stamp}")"
         snap_leaf="${final_dir##*/}"
-        backup_id="full/${JOB_ID}/${snap_leaf}"
+        backup_id="full/${snap_leaf}"
         stage_dir="$job_root/.pending.${snap_leaf}.$$"
     else
-        zb_plan_incremental_step "$job_root" "$force_full" "$stamp"
+        zb_plan_incremental_step "$job_root" "$force_full" "$stamp" "$JOB_ID"
         step_type="$ZB_PLAN_STEP_TYPE"
         if [[ "$PRUNE_TIMING" == "before" && "$step_type" == "full" ]]; then
-            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before"
+            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before" "$JOB_ID"
         fi
         zb_check_no_symlinks "$ZB_PLAN_CHAIN_DIR" || return 1
         mkdir -p -m 700 -- "$ZB_PLAN_CHAIN_DIR" || return 1
         [[ ! -L "$ZB_PLAN_CHAIN_DIR" ]] || { zb_err "Chain directory must not be a symlink: $ZB_PLAN_CHAIN_DIR"; return 1; }
-        chain_id="${ZB_PLAN_CHAIN_DIR##*/}"
         chain_seq="$ZB_PLAN_SEQ"
         parent_id="$ZB_PLAN_PARENT_ID"
         cp_from="$ZB_PLAN_CP_FROM"
-        local seq_pad step_label
+        local seq_pad
         seq_pad="$(printf '%03d' "$chain_seq")"
         if [[ "$step_type" == "full" ]]; then
-            step_label="backup-full"
+            final_dir="$(zb_unique_path "$job_root/full-${stamp}")"
+            snap_leaf="${final_dir##*/}"
+            chain_id="$snap_leaf"
+            backup_id="incremental/${snap_leaf}"
+            stage_dir="$job_root/.pending.${snap_leaf}.$$"
         else
-            step_label="backup-incremental"
+            final_dir="$(zb_unique_path "${ZB_PLAN_CHAIN_DIR}/${seq_pad}-incremental-${stamp}")"
+            snap_leaf="${final_dir##*/}"
+            chain_id="${ZB_PLAN_CHAIN_ID:-${ZB_PLAN_CHAIN_DIR##*/}}"
+            backup_id="incremental/${snap_leaf}"
+            stage_dir="${ZB_PLAN_CHAIN_DIR}/.pending.${snap_leaf}.$$"
         fi
-        final_dir="$(zb_unique_path "${ZB_PLAN_CHAIN_DIR}/${seq_pad}_${step_label}-${stamp}")"
-        snap_leaf="${final_dir##*/}"
-        backup_id="incremental/${JOB_ID}/${chain_id}/${snap_leaf}"
-        stage_dir="${ZB_PLAN_CHAIN_DIR}/.pending.${snap_leaf}.$$"
     fi
 
     mkdir -p -m 700 -- "$stage_dir" || return 1
@@ -1093,7 +1230,7 @@ Log File   : ${ZB_CURRENT_LOG}"
     mv -- "$stage_dir" "$final_dir"
     stage_dir="" # committed; prevent cleanup_job_run from deleting
 
-    zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "after"
+    zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "after" "$JOB_ID"
 
     end_epoch="$(date +%s)"
     duration_sec=$((end_epoch - start_epoch))
@@ -1213,7 +1350,7 @@ zb_run_adhoc_users() (
     fi
 
     local stamp cp_to final_dir backup_id snap_leaf
-    stamp="$(date '+%d-%m-%Y_%H%M%S')"
+    stamp="$(date '+%d-%m-%Y')"
     cp_to="$(date +%s)"
     final_dir="$(zb_unique_path "$adhoc_root/backup-${acct_tag}-${stamp}")"
     snap_leaf="${final_dir##*/}"

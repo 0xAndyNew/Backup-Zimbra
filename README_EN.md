@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.10)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.11)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-213%2F213_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-229%2F229_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup_0.3.10-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup_0.3.11-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.10) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.11) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.10 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.11 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -80,6 +80,24 @@ Select [0-7]:
 
 ---
 
+## 🌟 Highlights in Version v0.3.11
+
+1. **Streamlined & Flattened Storage Directory Hierarchy (100% Backward Compatible)**:
+   - Removed intermediate `<job_id>` / `chain-*` subdirectories and `_HHMMSS` suffixes for clean, human-readable paths:
+     - **Full Backups**: `<target_dir>/full/full-DD-MM-YYYY` (e.g. `/backup/full/full-22-10-2026`).
+     - **Incremental Backups**: Flattened directly into `<target_dir>/incremental/full-DD-MM-YYYY` (chain base) and `<target_dir>/incremental/001-incremental-DD-MM-YYYY`, `002-incremental-DD-MM-YYYY`... (chain linkage tracked via `chain_id` in `manifest`).
+     - **Ad-hoc Account Backups**: `<target_dir>/account/backup-<email>-DD-MM-YYYY`.
+   - Preserves 100% compatibility for discovering, verifying, and restoring legacy directory structures.
+
+2. **Chronological Remote FTP / SFTP Pruning & Credential Escaping**:
+   - Properly sorts `DD-MM-YYYY` backup archives chronologically (`YYYY-MM-DD`) across month and year boundaries during remote FTP/SFTP pruning, and cleanly strips SFTP `ls -l` columns.
+   - Escapes `\` and `"` characters in FTP/SFTP credentials inside temporary `0600` `curl -K` config files.
+
+3. **Structured ASCII Card Notifications**:
+   - Enhanced Email and Telegram notification layout with structured ASCII card borders and server timestamp footer.
+
+---
+
 ## 🌟 Highlights in Version v0.3.10
 
 1. **Definitive Fix for Incremental Backup on Mailboxes Without New Messages (HTTP 204 No Content)**:
@@ -91,6 +109,10 @@ Select [0-7]:
    - Prioritizes direct connection to Zimbra Admin port (`zimbraAdminPort` 7071) over proxy port 8443, enabling `curl` to authenticate directly with `ZM_ADMIN_AUTH_TOKEN` without encountering HTTP 401 Unauthorized from the Nginx proxy.
    - Performing REST export directly via `curl` (native C/libcurl) completely bypasses the JVM CLI fallback `zmmailbox`.
    - Prevents parallel worker pool from launching hundreds of concurrent Java JVM instances, keeping server CPU utilization calm (<5%) throughout scheduled incremental backups.
+
+3. **Comprehensive Restore Notifications (Single Account vs. Full/Batch Scope)**:
+   - **Single Account Restore**: Clear, targeted notifications detailing the exact email address restored, redirect destination/subfolder (if configured via `--target-user` or `--mode subfolder`), precise data volume restored (`Restored: X MB/GB`), execution status, duration, and log path.
+   - **Full / Batch Restore**: Comprehensive operational summary reporting total accounts count, breakdown of succeeded vs. failed accounts (`X total (Y succeeded, Z failed)`), explicit list of failed accounts (if any), total restored data volume accumulated across all chain steps, execution status, duration, and log path.
 
 ---
 
@@ -145,10 +167,10 @@ Select [0-7]:
 3. **Flexible Scheduling**:
    - Supports **Daily** (`HH:MM`), **Weekly** (select days `0-6` + `HH:MM`), **Monthly** (specific days `1-31` + `HH:MM`), custom **5-field Cron expressions**, or manual-only (`off`).
 
-4. **Structured Storage Hierarchy**:
-   - `full/<job_id>/backup-full-DD-MM-YYYY_HHMMSS/`
-   - `incremental/<job_id>/chain-DD-MM-YYYY_HHMMSS/000_backup-full-...` & `001_backup-incremental-...`
-   - `account/backup-<email>-DD-MM-YYYY_HHMMSS/` (ad-hoc single account backups)
+4. **Structured Shortened Storage Hierarchy**:
+   - `full/full-DD-MM-YYYY/`
+   - `incremental/full-DD-MM-YYYY/` & `incremental/001-incremental-DD-MM-YYYY/`
+   - `account/backup-<email>-DD-MM-YYYY/` (ad-hoc single account backups)
 
 5. **Complete Data & Metadata Preservation**:
    - **LDAP & Metadata**: Domains, accounts, password hashes (`userPassword`), display names (UTF-8), account quotas, email aliases, Distribution Lists (names, aliases, members), signatures (HTML & plain text), Sieve mail filters, and global admin roles (`zimbraIsAdminAccount TRUE`).
@@ -212,7 +234,7 @@ zimbra-backup notify test-telegram
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (208 tests):
+Execute end-to-end automated test suite (229 tests):
 ```bash
 bash tests/run_tests.sh
 ```

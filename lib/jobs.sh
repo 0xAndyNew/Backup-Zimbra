@@ -69,14 +69,15 @@ zb_job_storage_root() {
     cat_dir="$(zb_job_category_dir)"
     base_leaf="${base##*/}"
     if [[ "${base_leaf,,}" == "$cat_dir" ]]; then
-        printf '%s/%s' "$base" "$JOB_ID"
+        printf '%s' "$base"
     else
-        printf '%s/%s/%s' "$base" "$cat_dir" "$JOB_ID"
+        printf '%s/%s' "$base" "$cat_dir"
     fi
 }
 
-# Emit storage root `<effective_target_dir>/<full|incremental>/<job_id>` for one job ($1) or all configured jobs.
-# When $2 == "1", also emits legacy `<effective_target_dir>/<job_id>` if present on disk for upgrade compatibility.
+# Emit storage root `<effective_target_dir>/<full|incremental>` for one job ($1) or all configured jobs.
+# When $2 == "1", also emits legacy `<effective_target_dir>/<full|incremental>/<job_id>` and
+# `<effective_target_dir>/<job_id>` if present on disk for upgrade compatibility.
 # Runs in a subshell so `zb_job_load` does not overwrite caller's JOB_* state.
 zb_list_job_storage_roots() (
     local filter_jid="${1:-}"
@@ -84,13 +85,19 @@ zb_list_job_storage_roots() (
     zb_load_settings || return 1
 
     _zb_emit_job_roots() {
-        local primary legacy
+        local primary base cat_dir legacy1 legacy2
         primary="$(zb_job_storage_root)"
         printf '%s\n' "$primary"
         if [[ "$include_legacy" == "1" ]]; then
-            legacy="$(zb_job_effective_target_dir)/$JOB_ID"
-            if [[ "$legacy" != "$primary" && -d "$legacy" ]]; then
-                printf '%s\n' "$legacy"
+            base="$(zb_job_effective_target_dir)"
+            cat_dir="$(zb_job_category_dir)"
+            legacy1="$base/$cat_dir/$JOB_ID"
+            if [[ "$legacy1" != "$primary" && -d "$legacy1" ]]; then
+                printf '%s\n' "$legacy1"
+            fi
+            legacy2="$base/$JOB_ID"
+            if [[ "$legacy2" != "$primary" && -d "$legacy2" ]]; then
+                printf '%s\n' "$legacy2"
             fi
         fi
     }
@@ -100,11 +107,18 @@ zb_list_job_storage_roots() (
         _zb_emit_job_roots
         return 0
     fi
-    local jid
+    local jid r
+    local -A seen_roots=()
     while IFS= read -r jid; do
         [[ -n "$jid" ]] || continue
         if zb_job_load "$jid" >/dev/null 2>&1; then
-            _zb_emit_job_roots
+            while IFS= read -r r; do
+                [[ -n "$r" ]] || continue
+                if [[ -z "${seen_roots[$r]:-}" ]]; then
+                    seen_roots["$r"]=1
+                    printf '%s\n' "$r"
+                fi
+            done < <(_zb_emit_job_roots)
         fi
     done < <(zb_job_list_ids)
 )

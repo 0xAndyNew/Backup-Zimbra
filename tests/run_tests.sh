@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.10
+# End-to-end automated test suite for zimbra-backup v0.3.11
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -331,6 +331,7 @@ upload_file=""
 pos_url=""
 is_post=0
 is_list_only=0
+tg_text=""
 quote_cmds=()
 
 while (( $# > 0 )); do
@@ -342,7 +343,11 @@ while (( $# > 0 )); do
         -T|--data-binary) upload_file="$2"; is_post=1; shift 2 ;;
         -Q|--quote) quote_cmds+=("$2"); shift 2 ;;
         --list-only) is_list_only=1; shift ;;
-        --data-urlencode) shift 2 ;;
+        --data-urlencode)
+            if [[ "$2" == text=* ]]; then
+                tg_text="${2#text=}"
+            fi
+            shift 2 ;;
         --connect-timeout|--max-time) shift 2 ;;
         -k|-s|-sS|-ks|-sk|--ftp-create-dirs|--insecure|--ssl-reqd|--show-error|--fail|--silent) shift ;;
         http://*|https://*|ftp://*|sftp://*) pos_url="$1"; shift ;;
@@ -364,6 +369,7 @@ printf 'CURL post=%d url=%s upload=%s\n' "$is_post" "$effective_url" "$upload_fi
 
 # Telegram endpoint
 if [[ "$effective_url" == *"api.telegram.org"* ]]; then
+    printf 'TELEGRAM_MSG %s\n' "${tg_text:-}" >> "$MOCK_LOG"
     [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && printf '{"ok":true}' > "$out_file"
     [[ -n "$write_fmt" ]] && printf '200'
     exit 0
@@ -440,7 +446,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.10" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.10"
+assert_contains "$ver_out" "zimbra-backup 0.3.11" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.11"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -516,26 +522,26 @@ sleep 1
 sleep 1
 "$ZB_CMD" job run full-daily
 
-snap_count="$(find "$STORE_DIR/full/full-daily" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | wc -l | tr -d '[:space:]')"
-[[ "$snap_count" == "2" ]] && pass "Tách thư mục full/full-daily/backup-full-DD-MM-YYYY_HHMMSS & giữ đúng KEEP_COUNT=2 (after)" \
+snap_count="$(find "$STORE_DIR/full" -mindepth 1 -maxdepth 1 -type d -name 'full-*' | wc -l | tr -d '[:space:]')"
+[[ "$snap_count" == "2" ]] && pass "Lưu gọn vào full/full-DD-MM-YYYY & giữ đúng KEEP_COUNT=2 (after)" \
     || fail "Số bản Full thực tế ($snap_count) khác 2"
 
-latest_full="$(find "$STORE_DIR/full/full-daily" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | LC_ALL=C sort | tail -n 1)"
-[[ "${latest_full##*/}" =~ ^backup-full-[0-9]{2}-[0-9]{2}-[0-9]{4}_[0-9]{6}$ ]] \
-    && pass "Đặt tên thư mục Full đúng chuẩn backup-full-ngay-thang-nam (${latest_full##*/})" \
+latest_full="$(find "$STORE_DIR/full" -mindepth 1 -maxdepth 1 -type d -name 'full-*' | LC_ALL=C sort | tail -n 1)"
+[[ "${latest_full##*/}" =~ ^full-[0-9]{2}-[0-9]{2}-[0-9]{4}(_[0-9]+)?$ ]] \
+    && pass "Đặt tên thư mục Full rút gọn đúng chuẩn full-ngay-thang-nam (${latest_full##*/})" \
     || fail "Tên thư mục Full sai định dạng: ${latest_full##*/}"
 
-# Verify chronological pruning across month boundary (28-10-2026 older than 02-11-2026 despite '02' < '28')
-FAKE_OLD_OCT="$STORE_DIR/full/full-daily/backup-full-28-10-2020_010000"
+# Verify chronological pruning across month boundary (28-10-2020 older than current month despite '28' > day)
+FAKE_OLD_OCT="$STORE_DIR/full/full-28-10-2020"
 cp -r -- "$latest_full" "$FAKE_OLD_OCT"
 sed -i 's/^created_at=.*/created_at=2020-10-28T01:00:00Z/; s/^checkpoint_to=.*/checkpoint_to=1603846800/' "$FAKE_OLD_OCT/manifest"
 sleep 1
 "$ZB_CMD" job run full-daily
 [[ ! -d "$FAKE_OLD_OCT" ]] \
-    && pass "Xóa bản cũ theo đúng thứ tự thời gian thực (28-10-2020 bị xóa trước bản tháng 11 mới hơn)" \
+    && pass "Xóa bản cũ theo đúng thứ tự thời gian thực (28-10-2020 bị xóa trước bản mới hơn)" \
     || fail "Bản cũ 28-10-2020 chưa được xóa khi vượt KEEP_COUNT=2"
 latest_full="$("$ZB_CMD" backup list --job full-daily | awk 'NR==3 {print $NF}')"
-latest_full="$STORE_DIR/full/full-daily/${latest_full##*/}"
+latest_full="$STORE_DIR/full/${latest_full##*/}"
 
 assert_file_exists "$latest_full/mailboxes/empty@example.com.tgz" "Không xóa nhầm hộp thư rỗng <200 bytes (empty@example.com.tgz)"
 assert_file_exists "$latest_full/signatures/user1@example.com.sigs" "Xuất chữ ký người dùng bằng zmprov gsig thành công"
@@ -553,21 +559,20 @@ leftover_tokens="$(find "$STATE_DIR/run" -type f 2>/dev/null | wc -l | tr -d '[:
 [[ "$leftover_tokens" == "0" ]] && pass "Tự động dọn sạch file chứa token tạm trong $STATE_DIR/run sau khi chạy" \
     || fail "Còn sót file token trong $STATE_DIR/run"
 
-printf '\n=== 5. Kiểm tra Chuỗi Incremental (000_backup-full -> 001_backup-incremental -> 002_backup-incremental) ===\n'
-"$ZB_CMD" job run incr-main # Chain 1: 000_backup-full
+printf '\n=== 5. Kiểm tra Chuỗi Incremental (full-DD-MM-YYYY -> 001-incremental-DD-MM-YYYY -> 002-incremental-DD-MM-YYYY) ===\n'
+"$ZB_CMD" job run incr-main # Chain 1: full-DD-MM-YYYY
 sleep 1
-"$ZB_CMD" job run incr-main # Chain 1: 001_backup-incremental
+"$ZB_CMD" job run incr-main # Chain 1: 001-incremental-DD-MM-YYYY
 sleep 1
-"$ZB_CMD" job run incr-main # Chain 1: 002_backup-incremental
+"$ZB_CMD" job run incr-main # Chain 1: 002-incremental-DD-MM-YYYY
 
-chain1_dir="$(find "$ALT_STORE_DIR/incremental/incr-main" -mindepth 1 -maxdepth 1 -type d -name 'chain-*' | head -n 1)"
-step_count="$(find "$chain1_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
-[[ "$step_count" == "3" ]] && pass "Tách thư mục incremental/incr-main/chain-* gồm 1 bản Full gốc + 2 bản Incremental" \
+step_count="$(find "$ALT_STORE_DIR/incremental" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
+[[ "$step_count" == "3" ]] && pass "Lưu gọn trực tiếp vào incremental/ gồm 1 bản Full gốc (full-*) + 2 bản Incremental (001-*, 002-*)" \
     || fail "Số bước trong chuỗi 1 ($step_count) khác 3"
 
-incr2_dir="$(find "$chain1_dir" -mindepth 1 -maxdepth 1 -type d -name '002_backup-incremental-*' | head -n 1)"
-[[ "${incr2_dir##*/}" =~ ^002_backup-incremental-[0-9]{2}-[0-9]{2}-[0-9]{4}_[0-9]{6}$ ]] \
-    && pass "Đặt tên bước Incremental đúng chuẩn 002_backup-incremental-ngay-thang-nam (${incr2_dir##*/})" \
+incr2_dir="$(find "$ALT_STORE_DIR/incremental" -mindepth 1 -maxdepth 1 -type d -name '002-incremental-*' | head -n 1)"
+[[ "${incr2_dir##*/}" =~ ^002-incremental-[0-9]{2}-[0-9]{2}-[0-9]{4}(_[0-9]+)?$ ]] \
+    && pass "Đặt tên bước Incremental rút gọn đúng chuẩn 002-incremental-ngay-thang-nam (${incr2_dir##*/})" \
     || fail "Tên thư mục Incremental sai định dạng: ${incr2_dir##*/}"
 assert_file_exists "$incr2_dir/mailboxes/empty@example.com.empty" "Ghi nhận trạng thái empty-delta cho hộp thư không phát sinh mail mới"
 
@@ -608,15 +613,16 @@ assert_not_contains "$sub_log" "ZMPROV ma manager@example.com userPassword" \
 # Now run 4th time on incr-main (max_incr=2 reached -> opens Chain 2, PRUNE_TIMING=before with KEEP_COUNT=1 deletes Chain 1)
 sleep 1
 "$ZB_CMD" job run incr-main
-chains_remaining="$(find "$ALT_STORE_DIR/incremental/incr-main" -mindepth 1 -maxdepth 1 -type d -name 'chain-*' | wc -l | tr -d '[:space:]')"
-[[ "$chains_remaining" == "1" ]] && pass "Chu kỳ tạo chuỗi Full mới + xóa chuỗi cũ theo KEEP_COUNT=1 (before) hoạt động chính xác" \
-    || fail "Số chuỗi còn lại ($chains_remaining) khác 1"
+chains_remaining="$(find "$ALT_STORE_DIR/incremental" -mindepth 1 -maxdepth 1 -type d -name 'full-*' | wc -l | tr -d '[:space:]')"
+old_incr_remaining="$(find "$ALT_STORE_DIR/incremental" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9]-incremental-*' | wc -l | tr -d '[:space:]')"
+[[ "$chains_remaining" == "1" && "$old_incr_remaining" == "0" ]] && pass "Chu kỳ tạo chuỗi Full mới + xóa trọn vẹn chuỗi cũ (Full gốc + các bước Incremental) theo KEEP_COUNT=1 (before)" \
+    || fail "Số chuỗi còn lại ($chains_remaining) khác 1 hoặc còn sót bước Incremental cũ ($old_incr_remaining)"
 
 # Ad-hoc user backup + pending cleanup + job-only discovery isolation + legacy directory restore
 printf '\n=== 7. Kiểm tra Tách thư mục account/, Đặt tên backup-<email>-ngay-thang-nam & Thư mục Restore riêng ===\n'
 "$ZB_CMD" backup user "user1@example.com"
 single_adhoc="$(find "$STORE_DIR/account" -mindepth 1 -maxdepth 1 -type d -name 'backup-user1@example.com-*' | head -n 1)"
-[[ -n "$single_adhoc" && "${single_adhoc##*/}" =~ ^backup-user1@example\.com-[0-9]{2}-[0-9]{2}-[0-9]{4}_[0-9]{6}$ ]] \
+[[ -n "$single_adhoc" && "${single_adhoc##*/}" =~ ^backup-user1@example\.com-[0-9]{2}-[0-9]{2}-[0-9]{4}(_[0-9]+)?$ ]] \
     && pass "Sao lưu lẻ 1 email lưu vào account/backup-user1@example.com-ngay-thang-nam (${single_adhoc##*/})" \
     || fail "Tên thư mục sao lưu lẻ 1 email không đúng: ${single_adhoc:-none}"
 
@@ -644,9 +650,9 @@ assert_not_contains "$single_job_cat" "incr-main" "Lọc theo --job full-daily k
 adhoc_cat="$("$ZB_CMD" backup list --dir "$STORE_DIR/account")"
 assert_contains "$adhoc_cat" "backup-user1@example.com-" "Quét riêng --dir account/ nhận diện đúng bản sao lưu lẻ theo email"
 
-mkdir -p "$STORE_DIR/full/full-daily/.pending.99999"
+mkdir -p "$STORE_DIR/full/.pending.99999"
 "$ZB_CMD" backup clean-pending >/dev/null
-[[ ! -d "$STORE_DIR/full/full-daily/.pending.99999" ]] && pass "Dọn sạch thư mục tạm .pending.* bị dở dang" \
+[[ ! -d "$STORE_DIR/full/.pending.99999" ]] && pass "Dọn sạch thư mục tạm .pending.* bị dở dang" \
     || fail "Chưa xóa được thư mục .pending.99999"
 
 # Legacy auto_full_backup.sh layout compatibility (including nested /backup/full/<timestamp>) & CUSTOM_RESTORE_DIR
@@ -723,9 +729,9 @@ assert_contains "$(cat "$STATE_DIR/jobs/backup-1.conf")" "JOB_REQUIRE_MOUNT=no" 
 [[ -d "$TUI_CUSTOM_STORE" ]] && pass "TUI Wizard tự động tạo thư mục lưu trữ mới khi chưa tồn tại" \
     || fail "TUI Wizard chưa tạo thư mục $TUI_CUSTOM_STORE"
 "$ZB_CMD" job run backup-1 >/dev/null
-tui_snap="$(find "$TUI_CUSTOM_STORE/full/backup-1" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | head -n 1)"
-[[ -n "$tui_snap" ]] && pass "Job tạo từ TUI Wizard chạy lưu đúng vào $TUI_CUSTOM_STORE/full/backup-1/backup-full-*" \
-    || fail "Không tìm thấy bản backup trong $TUI_CUSTOM_STORE/full/backup-1"
+tui_snap="$(find "$TUI_CUSTOM_STORE/full" -mindepth 1 -maxdepth 1 -type d -name 'full-*' | head -n 1)"
+[[ -n "$tui_snap" ]] && pass "Job tạo từ TUI Wizard chạy lưu đúng vào $TUI_CUSTOM_STORE/full/full-*" \
+    || fail "Không tìm thấy bản backup trong $TUI_CUSTOM_STORE/full"
 
 # Test that running TUI with uninitialized state creates settings.conf and goes straight to Main Menu
 TUI_TEST_STATE="$TEST_TMP/tui_test_state"
@@ -812,7 +818,8 @@ leftover_401="$(find "$STATE_DIR/run" -type f 2>/dev/null | wc -l | tr -d '[:spa
 # 10c. Non-active accounts (locked/maintenance/closed) included while system/galsync/spam accounts excluded
 MOCK_SA_EXTRA="locked_user@example.com" "$ZB_CMD" job add sec10-full --type full --target-dir "$STORE_DIR" --schedule daily --hour 4 --minute 0 >/dev/null
 MOCK_SA_EXTRA="locked_user@example.com" "$ZB_CMD" job run sec10-full >/dev/null
-sec10_snap="$(find "$STORE_DIR/full/sec10-full" -mindepth 1 -maxdepth 1 -type d -name 'backup-full-*' | head -n 1)"
+sec10_snap="$("$ZB_CMD" backup list --job sec10-full | awk 'NR==3 {print $NF}')"
+sec10_snap="$STORE_DIR/full/${sec10_snap##*/}"
 sec10_accs="$(cat "$sec10_snap/accounts/active_accounts.txt")"
 assert_contains "$sec10_accs" "locked_user@example.com" "Sao lưu đầy đủ cả tài khoản người dùng đang ở trạng thái locked/maintenance/closed"
 assert_not_contains "$sec10_accs" "spam.xyz@example.com" "Loại bỏ chính xác tài khoản hệ thống spam.*"
@@ -1114,6 +1121,33 @@ adhoc_mail_log="$(cat "$MOCK_LOG")"
 assert_contains "$adhoc_mail_log" "SENDMAIL -t" "Sao lưu lẻ (Ad-hoc) phát sinh email thông báo khi hoàn tất"
 assert_contains "$adhoc_mail_log" "Ad-hoc account backup succeeded" "Email thông báo ghi nhận thành công cho sao lưu lẻ"
 
+# 15g. Single-account restore dispatches notification with email, size, status, and duration
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --email-enabled yes --email-to "alert@example.com" --email-level all --telegram-enabled yes --telegram-token "mock_tg_token" --telegram-chat "12345678" >/dev/null
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --users "user1@example.com" --yes >/dev/null
+single_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$single_rest_log" "SENDMAIL -t" "Restore don (Single Account) phat sinh email thong bao khi hoan tat"
+assert_contains "$single_rest_log" "Restore completed - user1@example.com" "Email thong bao restore don ghi nhan tieu de chua email va dung luong"
+assert_contains "$single_rest_log" "Type       : Single Account Restore" "Email thong bao restore don ghi nhan Type la Single Account Restore"
+assert_contains "$single_rest_log" "Account    : user1@example.com" "Email thong bao restore don ghi ro email nguon da restore"
+assert_contains "$single_rest_log" "Restored   :" "Email thong bao restore don bao cao dung luong restored"
+assert_contains "$single_rest_log" "Status     : SUCCESS" "Email thong bao restore don bao cao trang thai SUCCESS"
+assert_contains "$single_rest_log" "TELEGRAM_MSG [OK]" "Restore don dong thoi phat sinh thong bao Telegram [OK]"
+assert_contains "$single_rest_log" "Restore completed - user1@example.com" "Telegram thong bao restore don ghi nhan day du email va dung luong"
+
+# 15h. Batch/Full restore dispatches notification with total, success/fail counts, and size
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_full" --all --yes >/dev/null
+batch_rest_log="$(cat "$MOCK_LOG")"
+assert_contains "$batch_rest_log" "SENDMAIL -t" "Restore hang loat (Full/Batch) phat sinh email thong bao khi hoan tat"
+assert_contains "$batch_rest_log" "Restore completed successfully" "Email thong bao restore full ghi nhan thanh cong"
+assert_contains "$batch_rest_log" "Type       : Full / Batch Restore" "Email thong bao restore full ghi nhan Type la Full / Batch Restore"
+assert_contains "$batch_rest_log" "total (" "Email thong bao restore full bao cao tong so luong account"
+assert_contains "$batch_rest_log" "succeeded, 0 failed" "Email thong bao restore full bao cao so luong thanh cong va that bai"
+assert_contains "$batch_rest_log" "Restored   :" "Email thong bao restore full bao cao tong dung luong du lieu da restore"
+assert_contains "$batch_rest_log" "Status     : SUCCESS" "Email thong bao restore full bao cao trang thai SUCCESS"
+assert_contains "$batch_rest_log" "TELEGRAM_MSG [OK]" "Restore full dong thoi phat sinh thong bao Telegram [OK]"
+
 printf '\n=== 16. Kiem tra co che sao luu tu xa FTP / SFTP & Chuan hoa thong bao v0.3.7 ===\n'
 
 # 16a. Cau hinh FTP qua CLI init
@@ -1254,41 +1288,41 @@ assert_contains "$job_local_show" "Remote FTP Upload  : Disabled" "Job local hie
 "$ZB_CMD" job run job-ftp-test >/dev/null
 job_run_ftp_log="$(cat "$MOCK_LOG")"
 assert_contains "$job_run_ftp_log" "upload=" "Job backup day thanh cong snapshot len FTP"
-assert_contains "$job_run_ftp_log" "ftp://ftp.remote.org:21/remote/custom/full/job-ftp-test/" \
-    "Snapshot duoc day dung vao thu muc remote cua Job"
+assert_contains "$job_run_ftp_log" "ftp://ftp.remote.org:21/remote/custom/full/" \
+    "Snapshot duoc day dung vao thu muc remote rut gon (/remote/custom/full/)"
 
 # Kiem tra thu muc local van giu nguyen 100% (tuyet doi khong bi xoa)
-local_snaps=( "$STORE_DIR/full/job-ftp-test"/backup-full-* )
+local_snaps=( "$STORE_DIR/full"/full-* )
 [[ ${#local_snaps[@]} -ge 1 && -d "${local_snaps[0]}" ]] \
     && pass "Bao toan 100% ban backup cuc bo tai local sau khi upload FTP (tuyet doi khong xoa)" \
     || fail "Bao toan local that bai: snapshot cuc bo bi mat sau khi upload FTP"
 assert_file_exists "${local_snaps[0]}/manifest" "Snapshot cuc bo van con nguyen ven manifest tai local"
 
-# 17e. Kiem tra co che tu dong don dep FTP (zb_prune_remote_storage) theo FTP_KEEP_COUNT
-export MOCK_FTP_LIST_DATA="backup-full-20261101-010000.tar
-backup-full-20261101-010000.manifest
-backup-full-20261102-010000.tar
-backup-full-20261102-010000.manifest
-backup-full-20261103-010000.tar
-backup-full-20261103-010000.manifest
-backup-full-20261104-010000.tar
-backup-full-20261104-010000.manifest
-backup-full-20261105-010000.tar
-backup-full-20261105-010000.manifest"
+# 17e. Kiem tra co che tu dong don dep FTP (zb_prune_remote_storage) theo FTP_KEEP_COUNT (sap xep dung thu tu DD-MM-YYYY qua ranh gioi thang)
+export MOCK_FTP_LIST_DATA="-rw-r--r-- 1 ftp ftp 1024 Oct 28 01:00 full-28-10-2026.tar
+-rw-r--r-- 1 ftp ftp  256 Oct 28 01:00 full-28-10-2026.manifest
+-rw-r--r-- 1 ftp ftp 1024 Oct 29 01:00 full-29-10-2026.tar
+-rw-r--r-- 1 ftp ftp  256 Oct 29 01:00 full-29-10-2026.manifest
+full-01-11-2026.tar
+full-01-11-2026.manifest
+full-02-11-2026.tar
+full-02-11-2026.manifest
+full-05-11-2026.tar
+full-05-11-2026.manifest"
 
 : > "$MOCK_LOG"
 "$ZB_CMD" job run job-ftp-test >/dev/null
 prune_log="$(cat "$MOCK_LOG")"
-assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261101-010000.tar" \
-    "Don dep FTP: Goi DELE xoa file .tar cu nhat (#1) tren FTP server"
-assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261101-010000.manifest" \
-    "Don dep FTP: Goi DELE xoa file .manifest cu nhat (#1) tren FTP server"
-assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261102-010000.tar" \
-    "Don dep FTP: Goi DELE xoa file .tar cu nhat (#2) tren FTP server"
-assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/job-ftp-test/backup-full-20261102-010000.manifest" \
-    "Don dep FTP: Goi DELE xoa file .manifest cu nhat (#2) tren FTP server"
-assert_not_contains "$prune_log" "backup-full-20261103-010000.tar" \
-    "Don dep FTP: Giu lai ban archive moi hon trong pham vi FTP_KEEP_COUNT=3"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/full-28-10-2026.tar" \
+    "Don dep FTP: Goi DELE xoa file .tar cu nhat (28-10-2026) tren FTP server"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/full-28-10-2026.manifest" \
+    "Don dep FTP: Goi DELE xoa file .manifest cu nhat (28-10-2026) tren FTP server"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/full-29-10-2026.tar" \
+    "Don dep FTP: Goi DELE xoa file .tar cu thu 2 (29-10-2026) tren FTP server"
+assert_contains "$prune_log" "FTP_QUOTE: DELE /remote/custom/full/full-29-10-2026.manifest" \
+    "Don dep FTP: Goi DELE xoa file .manifest cu thu 2 (29-10-2026) tren FTP server"
+assert_not_contains "$prune_log" "full-01-11-2026.tar" \
+    "Don dep FTP: Giu lai ban archive thang 11 moi hon trong pham vi FTP_KEEP_COUNT=3"
 unset MOCK_FTP_LIST_DATA
 
 printf '\n=== 18. Kiểm tra ưu tiên zimbraAdminPort (7071) & xử lý HTTP 204 No Content trên zmmailbox ===\n'

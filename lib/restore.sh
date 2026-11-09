@@ -64,11 +64,14 @@ zb_register_catalog_entry() {
 
 zb_scan_job_storage_root() {
     local job_root="$1"
+    local filter_job="${2:-}"
     [[ -d "$job_root" && ! -L "$job_root" ]] || return 0
 
     local p
     shopt -s nullglob
     for p in \
+        "$job_root"/full-* \
+        "$job_root"/[0-9][0-9][0-9]-incremental-* \
         "$job_root"/backup-full-* \
         "$job_root"/snapshots/backup-full-* \
         "$job_root"/snapshots/full_* \
@@ -77,6 +80,11 @@ zb_scan_job_storage_root() {
         "$job_root"/chains/chain-*/[0-9][0-9][0-9]_* \
         "$job_root"/chains/chain_*/[0-9][0-9][0-9]_*; do
         [[ -d "$p" && ! -L "$p" && "${p##*/}" != .pending.* ]] || continue
+        if [[ -n "$filter_job" && -f "$p/manifest" ]] && zb_read_manifest_meta "$p/manifest"; then
+            if [[ -n "${MF_JOB_ID:-}" && "$MF_JOB_ID" != "$filter_job" ]]; then
+                continue
+            fi
+        fi
         zb_register_catalog_entry "$p"
     done
     shopt -u nullglob
@@ -155,25 +163,25 @@ zb_discover_backups() {
         local jroot
         while IFS= read -r jroot; do
             [[ -n "$jroot" ]] || continue
-            zb_scan_job_storage_root "$jroot"
+            zb_scan_job_storage_root "$jroot" "$filter_job"
         done < <(zb_list_job_storage_roots "$filter_job" 1)
     fi
 
     local count="${#ZB_CAT_PATHS[@]}"
     (( count > 1 )) || return 0
 
-    # Sort indices by CREATED_AT descending, then path descending
+    # Sort indices by CREATED_AT descending, then CHAIN_SEQ descending, then path descending
     local sort_tmp
     sort_tmp="$(mktemp "$ZB_RUN_DIR/.cat_sort.XXXXXX")" || return 0
     local i=0
     while (( i < count )); do
-        printf '%s\t%s\t%d\n' "${ZB_CAT_DATES[$i]}" "${ZB_CAT_PATHS[$i]}" "$i" >> "$sort_tmp"
+        printf '%s\t%06d\t%s\t%d\n' "${ZB_CAT_DATES[$i]}" "$((10#${ZB_CAT_SEQS[$i]:-0}))" "${ZB_CAT_PATHS[$i]}" "$i" >> "$sort_tmp"
         i=$((i + 1))
     done
 
     local -a new_paths=() new_ids=() new_jobs=() new_types=() new_dates=() new_accs=() new_bytes=() new_fmts=() new_chains=() new_seqs=()
-    local _d _p orig_idx
-    while IFS=$'\t' read -r _d _p orig_idx; do
+    local _d _s _p orig_idx
+    while IFS=$'\t' read -r _d _s _p orig_idx; do
         new_paths+=("${ZB_CAT_PATHS[$orig_idx]}")
         new_ids+=("${ZB_CAT_IDS[$orig_idx]}")
         new_jobs+=("${ZB_CAT_JOBS[$orig_idx]}")
@@ -292,12 +300,13 @@ zb_resolve_restore_chain() {
     if [[ -f "$target_dir/manifest" ]] && zb_read_manifest_meta "$target_dir/manifest"; then
         if [[ "$MF_BACKUP_TYPE" == "incr" ]]; then
             local chain_parent="${target_dir%/*}"
+            local target_chain_id="${MF_CHAIN_ID:-}"
             local target_seq="$MF_CHAIN_SEQ"
             local -a all_steps=()
             local s
             while IFS= read -r s; do
                 [[ -n "$s" ]] && all_steps+=("$s")
-            done < <(zb_list_chain_steps "$chain_parent")
+            done < <(zb_list_chain_steps "$chain_parent" "$target_chain_id")
 
             (( ${#all_steps[@]} > 0 )) || { zb_err "Chain directory is empty or missing 000_full base: $chain_parent"; return 1; }
             zb_read_manifest_meta "${all_steps[0]}/manifest" || return 1
@@ -960,6 +969,8 @@ zb_run_restore() (
 
     local acc_list
     acc_list="$(mktemp "$ZB_RUN_DIR/.rest_accs.XXXXXX")" || return 1
+    local failed_accs_file
+    failed_accs_file="$(mktemp "$ZB_RUN_DIR/.rest_failed.XXXXXX")" || return 1
     cleanup_restore() {
         local rc=$?
         trap - EXIT INT TERM HUP
@@ -975,7 +986,7 @@ zb_run_restore() (
             ZB_RESTORE_DEFERRED_STATUS_FILE=""
         fi
         [[ -n "${ZB_RESTORE_LEGACY_TMP:-}" && -d "$ZB_RESTORE_LEGACY_TMP" ]] && rm -rf -- "$ZB_RESTORE_LEGACY_TMP"
-        rm -f -- "$acc_list"
+        rm -f -- "$acc_list" "${failed_accs_file:-}"
         zb_close_run_log
         return "$rc"
     }
@@ -1065,7 +1076,16 @@ zb_run_restore() (
     zb_log "Verifying backup chain integrity before restore ($chain_len step(s))..."
     for step_dir in "${ZB_RESTORE_CHAIN_DIRS[@]}"; do
         if [[ -f "$step_dir/manifest" ]]; then
-            zb_verify_snapshot_dir "$step_dir" "0" "$acc_list" || return 1
+            if ! zb_verify_snapshot_dir "$step_dir" "0" "$acc_list"; then
+                local elapsed=$(( $(date +%s) - start_ts ))
+                zb_notify "error" "Restore FAILED - Integrity verification error" "Type       : Restore Integrity Check
+Status     : FAILED (Verification error on ${step_dir##*/})
+Snapshot   : ${target_snap}
+Accounts   : ${acc_count}
+Duration   : ${elapsed}s
+Log        : ${ZB_CURRENT_LOG}"
+                return 1
+            fi
         fi
     done
 
@@ -1077,10 +1097,20 @@ zb_run_restore() (
 
     # Restore LDAP metadata from the target point-in-time snapshot (latest state in chain)
     if [[ "$only_part" == "all" || "$only_part" == "ldap" ]]; then
-        zb_restore_ldap_metadata "$target_snap" "$scope_kind" "$acc_list" "$target_user" "$deferred_status_file" || return 1
+        if ! zb_restore_ldap_metadata "$target_snap" "$scope_kind" "$acc_list" "$target_user" "$deferred_status_file"; then
+            local elapsed=$(( $(date +%s) - start_ts ))
+            zb_notify "error" "Restore FAILED - LDAP metadata restoration error" "Type       : Restore LDAP Metadata
+Status     : FAILED (Failed restoring LDAP domain and account metadata)
+Snapshot   : ${target_snap}
+Accounts   : ${acc_count}
+Duration   : ${elapsed}s
+Log        : ${ZB_CURRENT_LOG}"
+            return 1
+        fi
     fi
 
     local fail_mbox=0
+    local total_restored_bytes=0
     if [[ "$only_part" == "all" || "$only_part" == "mailbox" ]]; then
         # If only restoring mailbox (skipping LDAP), check destination account status once upfront.
         # If 'closed', temporarily switch to 'maintenance' and record in deferred_status_file to re-close at the end.
@@ -1130,6 +1160,13 @@ zb_run_restore() (
                     continue
                 fi
 
+                local tgz_bytes=0
+                if [[ -f "$tgz" ]]; then
+                    tgz_bytes="$(wc -c < "$tgz" 2>/dev/null || printf '0')"
+                    tgz_bytes="${tgz_bytes//[[:space:]]/}"
+                    [[ "$tgz_bytes" =~ ^[0-9]+$ ]] || tgz_bytes=0
+                fi
+
                 if ! zb_account_exists "$dest_u"; then
                     zb_log "  + Destination account '$dest_u' missing; creating automatically before mailbox import..."
                     if zmprov ca "$dest_u" "Tmp$(date +%s)$$Aa1!" </dev/null >/dev/null 2>&1; then
@@ -1137,10 +1174,13 @@ zb_run_restore() (
                     fi
                 fi
 
-                zb_log "  ($u_idx/$acc_count) Importing ${tgz##*/} -> $dest_u ..."
+                zb_log "  ($u_idx/$acc_count) Importing ${tgz##*/} -> $dest_u ($(zb_human_bytes "$tgz_bytes")) ..."
                 if ! zb_import_mailbox_archive "$dest_u" "$tgz" "$step_mode" "$subfolder_name"; then
                     zb_warn "Failed importing mailbox $src_u (step $step_num)."
                     fail_mbox=$((fail_mbox + 1))
+                    printf '%s\n' "$src_u" >> "$failed_accs_file"
+                else
+                    total_restored_bytes=$((total_restored_bytes + tgz_bytes))
                 fi
             done 3< "$acc_list"
         done
@@ -1160,22 +1200,128 @@ zb_run_restore() (
     ZB_RESTORE_DEFERRED_STATUS_FILE=""
 
     local elapsed=$(( $(date +%s) - start_ts ))
-    if (( fail_mbox > 0 )); then
-        zb_log "FINISHED RESTORE WITH $fail_mbox MAILBOX ERROR(S) (${elapsed}s). Log: $ZB_CURRENT_LOG"
-        zb_notify "warn" "Restore completed with warnings (${fail_mbox} error(s))" "Snapshot: ${target_snap}
-Accounts: ${acc_count}
-Log: ${ZB_CURRENT_LOG}"
-        return 1
+    local human_sz
+    if [[ "$only_part" == "ldap" ]]; then
+        human_sz="0 B (LDAP metadata only)"
+    else
+        human_sz="$(zb_human_bytes "$total_restored_bytes")"
     fi
 
-    zb_log "============================================================"
-    zb_log "RESTORE COMPLETED SUCCESSFULLY ($acc_count account(s), ${elapsed}s)"
-    zb_log "Log: $ZB_CURRENT_LOG"
-    zb_log "============================================================"
-    zb_notify "ok" "Restore completed successfully" "Snapshot: ${target_snap}
-Accounts: ${acc_count}
-Mode: ${mode} (${only_part})
-Duration: ${elapsed}s"
+    local failed_cnt=0 failed_list_str=""
+    if [[ -s "$failed_accs_file" ]]; then
+        local failed_unique
+        failed_unique="$(sort -u "$failed_accs_file")"
+        if [[ -n "$failed_unique" ]]; then
+            failed_cnt="$(grep -c . <<< "$failed_unique" || true)"
+            if (( failed_cnt > 10 )); then
+                local first_ten
+                first_ten="$(awk 'NR<=10' <<< "$failed_unique" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')"
+                failed_list_str="${first_ten}, ... (and $((failed_cnt - 10)) more)"
+            else
+                failed_list_str="$(echo "$failed_unique" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')"
+            fi
+        fi
+    fi
+    local success_cnt=$((acc_count - failed_cnt))
+    (( success_cnt < 0 )) && success_cnt=0
+
+    local notify_tag="ok"
+    local notify_title=""
+    local notify_body=""
+
+    if (( acc_count == 1 )); then
+        local single_email=""
+        if [[ -s "$acc_list" ]]; then
+            read -r single_email < "$acc_list"
+            single_email="$(zb_trim "$single_email")"
+        fi
+        if (( fail_mbox > 0 )); then
+            notify_tag="warn"
+            notify_title="Restore completed with warnings - ${single_email} (${fail_mbox} error(s))"
+            notify_body="Type       : Single Account Restore
+Account    : ${single_email}"
+            if [[ -n "$target_user" && "$target_user" != "$single_email" ]]; then
+                notify_body="${notify_body}
+Destination: ${target_user}"
+            fi
+            if [[ "$mode" == "subfolder" || -n "$subfolder_name" ]]; then
+                notify_body="${notify_body}
+Subfolder  : /${subfolder_name}"
+            fi
+            notify_body="${notify_body}
+Restored   : ${human_sz}
+Status     : FAILED (${fail_mbox} mailbox error(s))
+Mode       : ${mode} (${only_part})
+Duration   : ${elapsed}s
+Snapshot   : ${target_snap}
+Log        : ${ZB_CURRENT_LOG}"
+
+            zb_log "FINISHED RESTORE FOR ${single_email} WITH $fail_mbox MAILBOX ERROR(S) (${elapsed}s). Log: $ZB_CURRENT_LOG"
+        else
+            notify_tag="ok"
+            notify_title="Restore completed - ${single_email} (${human_sz})"
+            notify_body="Type       : Single Account Restore
+Account    : ${single_email}"
+            if [[ -n "$target_user" && "$target_user" != "$single_email" ]]; then
+                notify_body="${notify_body}
+Destination: ${target_user}"
+            fi
+            if [[ "$mode" == "subfolder" || -n "$subfolder_name" ]]; then
+                notify_body="${notify_body}
+Subfolder  : /${subfolder_name}"
+            fi
+            notify_body="${notify_body}
+Restored   : ${human_sz}
+Status     : SUCCESS
+Mode       : ${mode} (${only_part})
+Duration   : ${elapsed}s
+Snapshot   : ${target_snap}
+Log        : ${ZB_CURRENT_LOG}"
+
+            zb_log "============================================================"
+            zb_log "RESTORE COMPLETED SUCCESSFULLY: ${single_email} (${human_sz}, ${elapsed}s)"
+            zb_log "Log: $ZB_CURRENT_LOG"
+            zb_log "============================================================"
+        fi
+    else
+        # Full / Batch restore
+        if (( fail_mbox > 0 )); then
+            notify_tag="warn"
+            notify_title="Restore completed with warnings - ${success_cnt}/${acc_count} succeeded, ${failed_cnt} failed (${human_sz})"
+            notify_body="Type       : Full / Batch Restore
+Accounts   : ${acc_count} total (${success_cnt} succeeded, ${failed_cnt} failed)
+Failed Accs: ${failed_list_str}
+Restored   : ${human_sz}
+Status     : COMPLETED WITH WARNINGS (${fail_mbox} error(s))
+Mode       : ${mode} (${only_part})
+Duration   : ${elapsed}s
+Snapshot   : ${target_snap}
+Log        : ${ZB_CURRENT_LOG}"
+
+            zb_log "FINISHED RESTORE WITH $fail_mbox ERROR(S) (${success_cnt}/${acc_count} succeeded, ${failed_cnt} failed, ${elapsed}s). Log: $ZB_CURRENT_LOG"
+        else
+            notify_tag="ok"
+            notify_title="Restore completed successfully - ${acc_count} accounts (${human_sz})"
+            notify_body="Type       : Full / Batch Restore
+Accounts   : ${acc_count} total (${acc_count} succeeded, 0 failed)
+Restored   : ${human_sz}
+Status     : SUCCESS
+Mode       : ${mode} (${only_part})
+Duration   : ${elapsed}s
+Snapshot   : ${target_snap}
+Log        : ${ZB_CURRENT_LOG}"
+
+            zb_log "============================================================"
+            zb_log "RESTORE COMPLETED SUCCESSFULLY: ${acc_count} account(s) (${human_sz}, ${elapsed}s)"
+            zb_log "Log: $ZB_CURRENT_LOG"
+            zb_log "============================================================"
+        fi
+    fi
+
+    zb_notify "$notify_tag" "$notify_title" "$notify_body"
+    if (( fail_mbox > 0 )); then
+        return 1
+    fi
     return 0
 )
 

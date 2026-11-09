@@ -444,7 +444,7 @@ zb_tui_job_create() {
 
     zb_msg ""
     zb_msg "3. Backup Storage Directory:"
-    zb_msg "   (Snapshots are stored under <dir>/$(zb_job_category_dir)/${JOB_ID})"
+    zb_msg "   (Snapshots are stored under <dir>/$(zb_job_category_dir))"
     zb_tui_prompt_job_storage_dir 0
 
     zb_msg ""
@@ -1021,7 +1021,7 @@ zb_tui_catalog_menu() {
         if [[ -n "$view_dir" ]]; then
             zb_msg "Catalog Source: Custom Directory ($view_dir)"
         else
-            zb_msg "Catalog Source: Configured Backup Jobs (<target_dir>/<full|incremental>/<job_id>)"
+            zb_msg "Catalog Source: Configured Backup Jobs (<target_dir>/<full|incremental>)"
         fi
         zb_msg ""
         zb_print_backup_catalog "$view_dir"

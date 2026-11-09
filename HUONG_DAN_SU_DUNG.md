@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.10)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.11)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.10** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.11** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -87,23 +87,20 @@ Khi cài đặt gói RPM/DEB, hệ thống phân tách rành mạch thành các 
 
 /home/backup/                           # Thư mục lưu trữ backup mặc định (DEFAULT_BACKUP_DIR)
   ├── full/                             # [1] Phân loại các bản Backup FULL độc lập
-  │     └── <job_id>/                   # Ví dụ: /home/backup/full/prod-full/
-  │           ├── backup-full-01-11-2026_013000/
-  │           └── backup-full-02-11-2026_013000/
+  │     ├── full-01-11-2026/
+  │     └── full-02-11-2026/
   ├── incremental/                      # [2] Phân loại các chuỗi Backup INCREMENTAL
-  │     └── <job_id>/                   # Ví dụ: /home/backup/incremental/prod-incr/
-  │           └── chain-01-11-2026_020000/
-  │                 ├── 000_backup-full-01-11-2026_020000/        # Bản Full gốc đầu chuỗi
-  │                 ├── 001_backup-incremental-02-11-2026_020000/ # Bản Incr ngày 1
-  │                 └── 002_backup-incremental-03-11-2026_020000/ # Bản Incr ngày 2
+  │     ├── full-01-11-2026/                  # Bản Full gốc đầu chuỗi
+  │     ├── 001-incremental-02-11-2026/       # Bản Incr ngày 1
+  │     └── 002-incremental-03-11-2026/       # Bản Incr ngày 2
   └── account/                          # [3] Phân loại các bản Backup LẺ theo Email người dùng
-        ├── backup-giamdoc@hdll.vn-02-11-2026_101500/             # Sao lưu 1 email
-        └── backup-giamdoc@hdll.vn+1more-02-11-2026_103000/       # Sao lưu nhiều email gộp
+        ├── backup-giamdoc@hdll.vn-02-11-2026/             # Sao lưu 1 email
+        └── backup-giamdoc@hdll.vn+1more-02-11-2026/       # Sao lưu nhiều email gộp
 ```
 
 > **Quy tắc phân loại và đặt tên:**
-> - Tên thư mục luôn mang mốc thời gian **`DD-MM-YYYY_HHMMSS`** theo giờ địa phương, dễ quan sát qua `ls`.
-> - Cơ chế xoay vòng dọn dẹp (`KEEP_COUNT`) đối chiếu trực tiếp `timestamp` trong `manifest`, không phụ thuộc vào thứ tự chữ cái, đảm bảo an toàn tuyệt đối khi bước qua năm mới.
+> - Tên thư mục luôn mang mốc ngày tháng rút gọn **`DD-MM-YYYY`** theo giờ địa phương, không kèm chuỗi giờ phút giây hay thư mục trung gian `<job_id>` / `chain-*`, cực kỳ ngắn gọn và dễ quan sát qua `ls`. (Nếu chạy nhiều lần trong cùng một ngày sẽ tự động đánh hậu tố `_2`, `_3`...).
+> - Cơ chế xoay vòng dọn dẹp (`KEEP_COUNT` và `FTP_KEEP_COUNT`) đối chiếu trực tiếp mốc thời gian thực (YYYY-MM-DD / `manifest`), không phụ thuộc vào thứ tự chữ cái, đảm bảo an toàn tuyệt đối khi bước qua tháng mới hoặc năm mới.
 
 ---
 
@@ -152,25 +149,25 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.10):**
+**Tải gói RPM mới nhất (v0.3.11):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.10-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup-0.3.10-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.11-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
 ```
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.10-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.11-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.10-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.11-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.10-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.11-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.10-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.11-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -186,20 +183,20 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.10):**
+**Tải gói DEB mới nhất (v0.3.11):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.10-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.10/zimbra-backup_0.3.10-1_all.deb
+curl -fSL -o zimbra-backup_0.3.11-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup_0.3.11-1_all.deb
 ```
 
 **Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
 ```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.10-1_all.deb
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.11-1_all.deb
 ```
 
 **Hoặc cài đặt qua `dpkg`:**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.10-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.11-1_all.deb
 sudo apt-get install -f -y
 ```
 
@@ -299,7 +296,7 @@ Bấm số mục cần sửa và bấm `s` để lưu và đồng bộ Crontab n
 
 Bấm phím **`2`** từ Main Menu khi muốn sao lưu ngay mà không cần đợi lịch Cron:
 - **Mục 1 (`Run a configured backup job`)**: Chọn Job muốn chạy ngay.
-- **Mục 2 (`Force FULL run on an incremental job`)**: Ép buộc Job Incremental mở ngay chuỗi Full mới (`000_backup-full-...`).
+- **Mục 2 (`Force FULL run on an incremental job`)**: Ép buộc Job Incremental mở ngay chuỗi Full mới (`full-DD-MM-YYYY`).
 - **Mục 3 (`Ad-hoc single account backup`)**: Sao lưu riêng 1 hoặc vài email quan trọng trước khi nâng cấp hòm thư hoặc xử lý sự cố.
 
 ---
@@ -739,7 +736,7 @@ Hệ thống tự động nhận diện định dạng LDIF legacy, trích xuấ
      zimbra-backup cron sync
      ```
 5. **Ý nghĩa và vai trò của file `.manifest` trên máy chủ FTP / SFTP từ xa:**
-   - Khi sao lưu đẩy sang FTP/SFTP, bên cạnh file nén `.tar` dung lượng lớn (hàng chục đến hàng trăm GB) luôn xuất hiện một file đi kèm mang đuôi `.manifest` (dung lượng chỉ khoảng vài chục KB, ví dụ `000_backup-full-05-11-2026_143802.manifest`).
+   - Khi sao lưu đẩy sang FTP/SFTP, bên cạnh file nén `.tar` dung lượng lớn (hàng chục đến hàng trăm GB) luôn xuất hiện một file đi kèm mang đuôi `.manifest` (dung lượng chỉ khoảng vài chục KB, ví dụ `full-05-11-2026.manifest`).
    - **File này có 4 chức năng quan trọng:**
      1. **Tra cứu mục lục siêu tốc (Instant Catalog Inspection):** File `.manifest` là file văn bản thuần lưu danh sách toàn bộ tài khoản email, dung lượng từng hòm thư và mốc thời gian hoàn thành. Khi cần kiểm tra nội dung bản backup trên FTP, bạn chỉ cần mở file `.manifest` đọc trực tiếp mà không cần tải file `.tar` hàng chục GB về máy.
      2. **Phục vụ chuỗi sao lưu Incremental:** Bản Incremental tiếp theo cần đọc checkpoint timestamp (`last_checkpoint_to`) từ manifest này để xác định mốc kéo email mới phát sinh.
