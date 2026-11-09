@@ -2,7 +2,7 @@
 # Core utilities, configuration parser, privilege switching, locking, and storage guards.
 # Compatible with Bash 4.2+ (CentOS/RHEL 7, 8, 9).
 
-ZB_VERSION="0.3.11"
+ZB_VERSION="0.3.12"
 ZB_STATE_DIR="${ZB_STATE_DIR:-/var/lib/zimbra-backup}"
 ZB_SETTINGS_FILE="$ZB_STATE_DIR/settings.conf"
 ZB_JOBS_DIR="$ZB_STATE_DIR/jobs"
@@ -502,3 +502,17 @@ zb_close_run_log() {
         exec 1>&7 2>&8 7>&- 8>&- 2>/dev/null || true
     fi
 }
+
+# Lower CPU and I/O scheduling priority (nice 19, ionice class 2 priority 7)
+# for background backup and restore operations so production services (mailboxd, slapd, postfix)
+# never suffer from CPU or disk starvation.
+zb_lower_process_priority() {
+    local pid="${BASHPID:-$$}"
+    if command -v renice >/dev/null 2>&1; then
+        renice -n 19 -p "$pid" >/dev/null 2>&1 || true
+    fi
+    if command -v ionice >/dev/null 2>&1; then
+        ionice -c 2 -n 7 -p "$pid" >/dev/null 2>&1 || true
+    fi
+}
+

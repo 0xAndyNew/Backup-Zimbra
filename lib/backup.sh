@@ -1106,6 +1106,7 @@ Reason     : Another backup or restore process is holding operation.lock"
         return 1
     }
     zb_start_run_log "job_${JOB_ID}"
+    zb_lower_process_priority
 
     local start_epoch end_epoch duration_sec
     start_epoch="$(date +%s)"
@@ -1300,6 +1301,7 @@ zb_run_adhoc_users() (
     local stage_dir=""
     zb_acquire_lock || return 1
     zb_start_run_log "adhoc_user"
+    zb_lower_process_priority
 
     cleanup_adhoc() {
         local rc=$?

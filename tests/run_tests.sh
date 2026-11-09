@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.11
+# End-to-end automated test suite for zimbra-backup v0.3.12
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -358,6 +358,15 @@ done
 # Unauthenticated port probe (no -K required)
 if [[ -z "$cfg_file" && "$pos_url" == https://127.0.0.1:* ]]; then
     [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && : > "$out_file"
+    if [[ "$pos_url" == */service/home/* ]]; then
+        if [[ "$pos_url" == https://127.0.0.1:7071/* ]]; then
+            [[ -n "$write_fmt" ]] && printf '404'
+            exit 0
+        else
+            [[ -n "$write_fmt" ]] && printf '401'
+            exit 0
+        fi
+    fi
     [[ -n "$write_fmt" ]] && printf '200'
     exit 0
 fi
@@ -446,7 +455,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.11" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.11"
+assert_contains "$ver_out" "zimbra-backup 0.3.12" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.12"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1325,7 +1334,7 @@ assert_not_contains "$prune_log" "full-01-11-2026.tar" \
     "Don dep FTP: Giu lai ban archive thang 11 moi hon trong pham vi FTP_KEEP_COUNT=3"
 unset MOCK_FTP_LIST_DATA
 
-printf '\n=== 18. Kiểm tra ưu tiên zimbraAdminPort (7071) & xử lý HTTP 204 No Content trên zmmailbox ===\n'
+printf '\n=== 18. Kiểm tra ưu tiên cổng REST mailbox (8443) & xử lý HTTP 204 No Content trên zmmailbox ===\n'
 export ZB_LIB_DIR="$REPO_ROOT/lib"
 . "$REPO_ROOT/lib/common.sh"
 . "$REPO_ROOT/lib/notify.sh"
@@ -1333,15 +1342,22 @@ export ZB_LIB_DIR="$REPO_ROOT/lib"
 . "$REPO_ROOT/lib/jobs.sh"
 . "$REPO_ROOT/lib/backup.sh"
 
-# Test port detection logic prioritizes 7071
+# Test port detection logic prioritizes 8443 for UserServlet
 orig_force_port="${ZB_FORCE_REST_PORT:-}"
 orig_rest_port="${ZB_REST_PORT:-}"
 unset ZB_FORCE_REST_PORT ZB_REST_PORT
 detected_p="$(zb_detect_rest_port)"
-[[ "$detected_p" == "7071" ]] && pass "Dò cổng REST ưu tiên zimbraAdminPort 7071 cho ZM_ADMIN_AUTH_TOKEN" \
-    || fail "Dò cổng REST phát hiện sai cổng: $detected_p (kỳ vọng: 7071)"
+[[ "$detected_p" == "8443" ]] && pass "Dò cổng REST mailbox: Nhận diện cổng UserServlet 8443 thay vì cổng admin 7071" \
+    || fail "Dò cổng REST mailbox phát hiện sai cổng: $detected_p (kỳ vọng: 8443)"
 [[ -n "$orig_force_port" ]] && export ZB_FORCE_REST_PORT="$orig_force_port"
 ZB_REST_PORT="$orig_rest_port"
+
+# Test zb_lower_process_priority executes cleanly without error
+if zb_lower_process_priority; then
+    pass "zb_lower_process_priority: Thiết lập nice 19 / ionice thành công hoặc bỏ qua an toàn"
+else
+    fail "zb_lower_process_priority: Lỗi khi thiết lập độ ưu tiên tiến trình"
+fi
 
 # Test zmmailbox fallback handling status=204 No Content
 export MOCK_ZMMAILBOX_FAIL_204=1

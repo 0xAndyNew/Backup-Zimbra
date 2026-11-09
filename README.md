@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.11)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.12)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-229%2F229_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-230%2F230_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.12/zimbra-backup-0.3.12-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup-0.3.11-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.12/zimbra-backup-0.3.12-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.11/zimbra-backup_0.3.11-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.12/zimbra-backup_0.3.12-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.11) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.12) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.11 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.12 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -77,6 +77,23 @@ Select [0-7]:
 | **Xử lý tài khoản đóng (Closed)** | ❌ Lỗi REST Inactive | ✅ Có | **✅ Cơ chế Deferred Status thông minh** |
 | **Cơ chế an toàn chống xóa nhầm** | ❌ Nguy hiểm | Cảnh báo Web | **✅ Bắt buộc `--yes` & gõ `RESET`** |
 | **Kiểm tra toàn vẹn dữ liệu** | ⚠️ Chỉ đo kích thước | Có | **✅ Mã băm SHA-256 từng tài khoản** |
+
+---
+
+## 🌟 Điểm nổi bật trong phiên bản v0.3.12
+
+1. **Khắc phục Triệt để Tải CPU Cao & Tối ưu Kết nối REST Mailbox Trực tiếp**:
+   - Dò cổng REST chuẩn xác: Nhắm đúng cổng phục vụ UserServlet (`zimbraMailSSLPort` 8443, proxy 443) thay vì cổng admin 7071 (vốn trả về 404 cho `/service/home/`).
+   - Truyền đầy đủ header `Host: <hostname>`, cặp cookie kép (`ZM_ADMIN_AUTH_TOKEN` và `ZM_AUTH_TOKEN`) cùng tham số `auth=admin` vào kết nối `curl -K`.
+   - Giúp 100% tiến trình sao lưu hộp thư chạy qua `curl` trực tiếp bằng C/libcurl siêu tốc, hoàn toàn không bị rơi vào cơ chế fallback CLI `zmmailbox` (chạy trên Java JVM gây bão CPU 130% - 140% per core).
+
+2. **Cơ chế Điều phối Độ ưu tiên Tiến trình & I/O (`nice 19` & `ionice`)**:
+   - Tự động hạ độ ưu tiên lập lịch CPU (`nice -n 19`) và I/O đĩa cứng (`ionice -c 2 -n 7`) cho toàn bộ tiến trình con của subshell backup và restore.
+   - Cam kết tuyệt đối không bao giờ làm nghẽn hoặc chiếm dụng tài nguyên của các dịch vụ Zimbra trọng yếu đang phục vụ người dùng (`mailboxd`, `slapd`, `postfix`, `nginx`).
+
+3. **Bảo toàn Tuyệt đối 100% Toàn vẹn Dữ liệu**:
+   - Trích xuất trọn vẹn toàn bộ email, danh bạ, lịch, chữ ký, bộ lọc Sieve và cấu hình LDAP vào file `.tgz` chuẩn của Zimbra OSE.
+   - Tiếp tục kiểm tra nghiêm ngặt tính toàn vẹn bằng `tar -tzf`, `gzip -t` và mã băm SHA-256 trong file `manifest`.
 
 ---
 

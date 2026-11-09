@@ -1070,6 +1070,7 @@ zb_run_restore() (
 
     zb_acquire_lock || return 1
     zb_start_run_log "restore"
+    zb_lower_process_priority
 
     local start_ts step_dir
     start_ts="$(date +%s)"

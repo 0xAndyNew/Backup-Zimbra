@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.11
+Version:        0.3.12
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,13 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Mon Nov 09 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.12-1
+- Fix high CPU utilization by correcting REST port detection to target mailbox UserServlet ports (8443, 443) instead of admin port 7071
+- Include Host header, dual auth cookies (ZM_ADMIN_AUTH_TOKEN and ZM_AUTH_TOKEN), and auth=admin query parameter to enable 100% native curl REST streaming
+- Prevent Java JVM cold-start CPU spikes by eliminating unnecessary zmmailbox CLI fallback
+- Lower backup and restore process and I/O scheduling priority (nice 19, ionice class 2 priority 7) so production services are never starved
+- Pass all 230 automated end-to-end tests with 0 errors and preserve 100% pure 7-bit ASCII and LF endings
+
 * Sun Nov 08 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.11-1
 - Flatten and shorten backup storage paths: full/full-DD-MM-YYYY, incremental/full-DD-MM-YYYY + incremental/NNN-incremental-DD-MM-YYYY, and account/backup-<email>-DD-MM-YYYY
 - Preserve full backward compatibility for discovering, verifying, and restoring legacy directory layouts

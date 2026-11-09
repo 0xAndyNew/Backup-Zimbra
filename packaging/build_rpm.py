@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build zimbra-backup RPM package for v0.3.11."""
+"""Build zimbra-backup RPM package for v0.3.12."""
 
 import gzip
 import hashlib
@@ -8,7 +8,7 @@ import struct
 import subprocess
 import time
 
-VERSION = "0.3.11"
+VERSION = "0.3.12"
 RELEASE = "1"
 RPM_FILENAME = f"zimbra-backup-{VERSION}-{RELEASE}.noarch.rpm"
 BUILD_TIME = 1730635200  # 2026-11-03 12:00:00 UTC (reproducible build)

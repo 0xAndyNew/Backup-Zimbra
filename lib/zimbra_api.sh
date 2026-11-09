@@ -61,34 +61,35 @@ zb_detect_rest_port() {
         return 0
     fi
 
-    local pa0 pa1 p0 p1 p2 cand srv_host
+    local p0 p1 p2 cand srv_host code
     srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
-    # zimbra-backup authenticates using ZM_ADMIN_AUTH_TOKEN, which requires the admin port (default 7071)
-    # on Zimbra Collaboration. Mailbox ports (8443/443) reject admin tokens with HTTP 401.
-    pa0="$(zmprov -l gs "$srv_host" zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
-    pa1="$(zmprov -l gcf zimbraAdminPort 2>/dev/null | awk '/^zimbraAdminPort:/ {print $2; exit}')" || true
+    # Mailbox REST UserServlet (/service/home/) is hosted on zimbraMailSSLPort (default 8443)
+    # or zimbraMailProxySSLPort (default 443). zimbraAdminPort (7071) only hosts Admin Console/SOAP
+    # and returns 404 for UserServlet, which would trigger JVM fallback.
     p0="$(zmprov -l gs "$srv_host" zimbraMailSSLPort 2>/dev/null | awk '/^zimbraMailSSLPort:/ {print $2; exit}')" || true
     p1="$(zmprov -l gcf zimbraMailSSLPort 2>/dev/null | awk '/^zimbraMailSSLPort:/ {print $2; exit}')" || true
     p2="$(zmprov -l gcf zimbraMailProxySSLPort 2>/dev/null | awk '/^zimbraMailProxySSLPort:/ {print $2; exit}')" || true
 
     local -a candidates=()
-    [[ "$pa0" =~ ^[0-9]+$ ]] && candidates+=("$pa0")
-    [[ "$pa1" =~ ^[0-9]+$ ]] && candidates+=("$pa1")
-    candidates+=("7071")
     [[ "$p0" =~ ^[0-9]+$ ]] && candidates+=("$p0")
     [[ "$p1" =~ ^[0-9]+$ ]] && candidates+=("$p1")
+    candidates+=("8443")
     [[ "$p2" =~ ^[0-9]+$ ]] && candidates+=("$p2")
-    candidates+=("8443" "443")
+    candidates+=("443")
 
     for cand in "${candidates[@]}"; do
-        if curl -k -s --connect-timeout 3 --max-time 6 -o /dev/null "https://127.0.0.1:${cand}/" 2>/dev/null; then
+        # Probe /service/home/ endpoint. A valid mailbox servlet returns 401, 400, 302, 403, or 200.
+        # It must NOT return 404 (endpoint missing) or 000 (port closed/unreachable).
+        code="$(curl -k -s --connect-timeout 3 --max-time 6 -o /dev/null -w '%{http_code}' \
+            "https://127.0.0.1:${cand}/service/home/" 2>/dev/null || printf '000')"
+        if [[ "$code" =~ ^(200|302|400|401|403)$ ]]; then
             ZB_REST_PORT="$cand"
             printf '%s' "$ZB_REST_PORT"
             return 0
         fi
     done
 
-    ZB_REST_PORT="${pa0:-${pa1:-7071}}"
+    ZB_REST_PORT="${p0:-${p1:-8443}}"
     printf '%s' "$ZB_REST_PORT"
 }
 
@@ -132,8 +133,9 @@ zb_ensure_auth_cfg() {
     fi
 
     zb_cleanup_auth_token
-    local token
+    local token srv_host
     token="$(zb_fetch_raw_admin_token)" || return 1
+    srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
     zb_ensure_state_dirs || return 1
 
     ZB_AUTH_CFG_FILE="$(mktemp "$ZB_RUN_DIR/.zm_auth.XXXXXX")" || return 1
@@ -141,7 +143,8 @@ zb_ensure_auth_cfg() {
     {
         printf 'insecure\n'
         printf 'silent\n'
-        printf 'header = "Cookie: ZM_ADMIN_AUTH_TOKEN=%s"\n' "$token"
+        printf 'header = "Host: %s"\n' "$srv_host"
+        printf 'header = "Cookie: ZM_ADMIN_AUTH_TOKEN=%s; ZM_AUTH_TOKEN=%s"\n' "$token" "$token"
     } > "$ZB_AUTH_CFG_FILE"
     ZB_AUTH_TOKEN_TIME="$now"
     ZB_AUTH_TOKEN_USES=1
@@ -480,10 +483,10 @@ zb_export_mailbox_archive() {
     local query_from_epoch="${4:-0}"
     local auth_cfg="${5:-}"      # optional shared curl -K file
 
-    local rest_query="/?fmt=tgz"
+    local rest_query="/?fmt=tgz&auth=admin"
     if [[ "$mode" == "incr" ]]; then
         local epoch_ms="${query_from_epoch}000"
-        rest_query="/?fmt=tgz&query=after:${epoch_ms}"
+        rest_query="/?fmt=tgz&query=after:${epoch_ms}&auth=admin"
     fi
 
     local port attempt=1 http_code="" ok=0 empty_delta=0 entry_cnt=""
@@ -501,6 +504,8 @@ zb_export_mailbox_archive() {
                 local fresh_tok=""
                 fresh_tok="$(zb_fetch_raw_admin_token 2>/dev/null || true)"
                 if [[ -n "$fresh_tok" ]]; then
+                    local srv_host
+                    srv_host="$(zmhostname 2>/dev/null || hostname -f 2>/dev/null || printf 'localhost')"
                     [[ -n "$priv_auth_cfg" ]] && rm -f -- "$priv_auth_cfg"
                     priv_auth_cfg="$(mktemp "$ZB_RUN_DIR/.zm_auth_w.XXXXXX" 2>/dev/null || printf '')"
                     if [[ -n "$priv_auth_cfg" ]]; then
@@ -508,7 +513,8 @@ zb_export_mailbox_archive() {
                         {
                             printf 'insecure\n'
                             printf 'silent\n'
-                            printf 'header = "Cookie: ZM_ADMIN_AUTH_TOKEN=%s"\n' "$fresh_tok"
+                            printf 'header = "Host: %s"\n' "$srv_host"
+                            printf 'header = "Cookie: ZM_ADMIN_AUTH_TOKEN=%s; ZM_AUTH_TOKEN=%s"\n' "$fresh_tok" "$fresh_tok"
                         } > "$priv_auth_cfg"
                         cur_auth_cfg="$priv_auth_cfg"
                         rm -f -- "$out_tgz"
@@ -624,11 +630,11 @@ zb_import_mailbox_archive() {
         return 1
     fi
 
-    local rest_path="/?fmt=tgz&resolve=skip"
+    local rest_path="/?fmt=tgz&resolve=skip&auth=admin"
     case "$mode" in
-        skip) rest_path="/?fmt=tgz&resolve=skip" ;;
-        modify) rest_path="/?fmt=tgz&resolve=modify" ;;
-        reset) rest_path="/?fmt=tgz&resolve=reset" ;;
+        skip) rest_path="/?fmt=tgz&resolve=skip&auth=admin" ;;
+        modify) rest_path="/?fmt=tgz&resolve=modify&auth=admin" ;;
+        reset) rest_path="/?fmt=tgz&resolve=reset&auth=admin" ;;
         subfolder)
             subfolder_name="${subfolder_name#/}"
             [[ -n "$subfolder_name" ]] || subfolder_name="Restore_$(date +%Y%m%d_%H%M%S)"
@@ -641,7 +647,7 @@ zb_import_mailbox_archive() {
                 zb_run_zmmailbox_throttled -z -m "$dest_email" cf "/$subfolder_name" </dev/null >/dev/null 2>&1 || true
                 touch "$cf_marker" 2>/dev/null || true
             fi
-            rest_path="/${subfolder_name}?fmt=tgz&resolve=skip"
+            rest_path="/${subfolder_name}?fmt=tgz&resolve=skip&auth=admin"
             ;;
         *)
             zb_err "Invalid mailbox restore mode: $mode"
