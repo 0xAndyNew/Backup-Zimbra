@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.14)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.15)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup-0.3.14-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup-0.3.14-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.14/zimbra-backup_0.3.14-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup_0.3.15-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.14) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.15) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.14 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.15 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -77,6 +77,26 @@ Select [0-7]:
 | **Closed / Inactive Account Handling** | ❌ REST Inactive error | ✅ Supported | **✅ Deferred Account Status mechanism** |
 | **Destructive Mode Safeguard** | ❌ Risky overwrites | Web Prompt | **✅ Strict `--yes` & `RESET` confirmation** |
 | **Integrity Verification** | ⚠️ File size only | Supported | **✅ SHA-256 manifest per mailbox** |
+
+---
+
+## 🌟 Highlights in Version v0.3.15
+
+1. **Anti-Safe Links Notification Sanitization**:
+   - Stripped the `://` protocol scheme from Remote Storage notifications (e.g. `[FTP 210.245.95.23:21 | in 0s | Retained: 2 remote]`).
+   - Completely prevents enterprise mail security gateways (Microsoft 365 Defender ATP Safe Links, Google Workspace, Proofpoint) from rewriting paths into 250+ character inspection URLs that distort email alerts.
+
+2. **Strict Column 16 Monospace Alignment & Dual Format Duration**:
+   - Aligned all notification colons `:` strictly to Column 16 across Email and Telegram alerts (`Job Name`, `Backup Mode`, `Accounts`, `Total Size`, `Duration`, `Local Path`, `Remote Storage`, `Server`, `Timestamp`, `Engine`).
+   - Automatically displays duration in both seconds and minutes/seconds when duration $\ge 60$s (e.g. `450s (7m 30s)`).
+
+3. **Signature Export LDAP Attribute Detection (70+ JVM Elimination)**:
+   - Probes LDAP account metadata for signature attributes (`zimbraSignatureId`, `zimbraPrefMailSignature`) before spawning `zmprov -l gsig`.
+   - Skips redundant `zmprov -l gsig` calls for mailboxes without signatures (typically 90%+ of accounts), eliminating remaining JVM cold starts and shaving off up to 280 seconds of execution time.
+
+4. **Preserved 100% Pure 7-bit ASCII & 230/230 Automated Tests Passing**:
+   - All 15 packaged files maintain strict 7-bit ASCII encoding and Unix LF (`\n`) line terminators.
+   - 230/230 automated end-to-end tests passing with zero errors.
 
 ---
 

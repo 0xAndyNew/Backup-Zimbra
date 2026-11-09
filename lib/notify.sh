@@ -234,9 +234,9 @@ zb_notify() {
 ============================================================
 ${details}
 ------------------------------------------------------------
-Server     : ${host}
-Timestamp  : ${ts}
-Engine     : zimbra-backup v${ZB_VERSION}
+Server         : ${host}
+Timestamp      : ${ts}
+Engine         : zimbra-backup v${ZB_VERSION}
 ============================================================"
     zb_send_telegram "$full_msg" || true
     local send_email=0
