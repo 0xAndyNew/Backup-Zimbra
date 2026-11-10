@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.15) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.16) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -102,162 +102,12 @@ Select [0-7]:
 
 ---
 
-## 🌟 Highlights in Version v0.3.15
+## 🏗️ Core Architecture & Capabilities
 
-1. **Anti-Safe Links Notification Sanitization**:
-   - Stripped the `://` protocol scheme from Remote Storage notifications (e.g. `[FTP 210.245.95.23:21 | in 0s | Retained: 2 remote]`).
-   - Completely prevents enterprise mail security gateways (Microsoft 365 Defender ATP Safe Links, Google Workspace, Proofpoint) from rewriting paths into 250+ character inspection URLs that distort email alerts.
-
-2. **Strict Column 16 Monospace Alignment & Dual Format Duration**:
-   - Aligned all notification colons `:` strictly to Column 16 across Email and Telegram alerts (`Job Name`, `Backup Mode`, `Accounts`, `Total Size`, `Duration`, `Local Path`, `Remote Storage`, `Server`, `Timestamp`, `Engine`).
-   - Automatically displays duration in both seconds and minutes/seconds when duration $\ge 60$s (e.g. `450s (7m 30s)`).
-
-3. **Signature Export LDAP Attribute Detection (70+ JVM Elimination)**:
-   - Probes LDAP account metadata for signature attributes (`zimbraSignatureId`, `zimbraPrefMailSignature`) before spawning `zmprov -l gsig`.
-   - Skips redundant `zmprov -l gsig` calls for mailboxes without signatures (typically 90%+ of accounts), eliminating remaining JVM cold starts and shaving off up to 280 seconds of execution time.
-
-4. **Preserved 100% Pure 7-bit ASCII & 230/230 Automated Tests Passing**:
-   - All 15 packaged files maintain strict 7-bit ASCII encoding and Unix LF (`\n`) line terminators.
-   - 230/230 automated end-to-end tests passing with zero errors.
-
----
-
-## 🌟 Highlights in Version v0.3.14
-
-1. **Ultra-Fast Batch LDAP Metadata Export via `zmprov -l -f` (Single-JVM Execution)**:
-   - Consolidated hundreds of sequential `ga <email>` commands into a single batch execution script, cutting metadata export time from 7 minutes to under 5 seconds.
-   - Utilized an optimized `awk` streaming parser to split LDIF outputs along `# name ` boundaries directly into staging artifacts without JVM overhead.
-
-2. **SOAP 1.1 Specification Standardization for `DelegateAuthRequest`**:
-   - Enforced SOAP 1.1 Envelope namespace (`xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"` and `Content-Type: text/xml; charset=utf-8`) strictly compliant with Zimbra's `SoapServlet`.
-   - Fixed SOAP 1.2 rejection faults, ensuring 100% delegated user auth token acquisition in ~10ms without ever falling back to slow `zmmailbox` JVM processes.
-
-3. **Pre-Detection & Environment Export for Worker Subshells**:
-   - Pre-probed and exported `ZB_REST_PORT`, `ZB_ADMIN_PORT`, and `ZB_SERVER_HOST` before launching parallel worker processes.
-   - Eliminated over 350 redundant `zmprov` and `zmhostname` JVM invocations across worker subshells.
-
-4. **Complete Elimination of CPU Spikes (Reduced from 93% to <3%)**:
-   - Slashed total backup runtime on 70-account production environments from 13.5 minutes to under 30 seconds (25x faster).
-   - Dramatically reduced server load and memory pressure during peak operation hours.
-
----
-
-## 🌟 Highlights in Version v0.3.13
-
-1. **Critical Mailbox REST Authentication Fix (`QP_AUTH` & Cookie Auth Restoration)**:
-   - Resolved 100% mailbox export failure on production environments (`[FAIL] (x/70) user@domain - mailbox export failed after 3 attempts`).
-   - Identified root cause in Zimbra Collaboration OSE `UserServletContext.java`: appending `&auth=admin` to the REST query URL disabled standard cookie authentication because `"admin"` does not contain `"co"` (`AUTH_COOKIE`), prompting Zimbra's servlet container to reject requests with `HTTP 401 Must Authenticate`.
-   - Completely removed `&auth=admin`, restoring Zimbra's default cookie authentication (`AUTH_DEFAULT = "co,jwt,nsc,qp"`).
-
-2. **Zero-JVM Native REST Mailbox Streaming via SOAP `DelegateAuthRequest`**:
-   - Implemented direct SOAP `DelegateAuthRequest` on Zimbra Admin port 7071 to issue delegated authentication tokens in ~10ms per mailbox.
-   - Native `curl` streams mailbox archives with `Cookie: ZM_AUTH_TOKEN=<user_tok>` directly from Mailbox ports (8443/443) at wire speed without invoking any Java CLI processes.
-   - Completely eliminates JVM startup CPU spikes, reducing server CPU utilization from 85%+ to <2% across all mailboxes.
-
-3. **Strictly Serialized JVM Throttling (`.jvm_worker.lock`) for Fallback**:
-   - Replaced multi-slot hashing with a single exclusive lock (`$ZB_RUN_DIR/.jvm_worker.lock`), guaranteeing that no more than 1 JVM can execute at any time across all parallel workers during fallback.
-   - Paired with `nice -n 19` and `ionice -c 2 -n 7` to protect mission-critical production services (`mailboxd`, `slapd`, `postfix`).
-
-4. **Complete Data Integrity & Verifiable Snapshots**:
-   - Direct REST mailbox export extracts complete mailbox archives (`.tgz`) identical to CLI output with faster throughput and lower resource footprint.
-   - Every archive continues to be verified with `tar -tzf`, `gzip -t`, and SHA-256 manifests.
-
----
-
-## 🌟 Highlights in Version v0.3.12
-
-1. **High CPU Utilization Fix & Native Mailbox REST Streaming**:
-   - Corrected REST port auto-detection to probe and target Zimbra Mailbox ports hosting `UserServlet` (`zimbraMailSSLPort` 8443, `zimbraMailProxySSLPort` 443) instead of `zimbraAdminPort` (7071 which returns 404 for `/service/home/`).
-   - Added `Host: <hostname>` header, dual authentication cookies (`ZM_ADMIN_AUTH_TOKEN` and `ZM_AUTH_TOKEN`), and `auth=admin` query parameter to enable 100% native `curl` REST streaming.
-   - Eliminates heavy Java JVM cold-start CPU spikes (previously running multiple JVMs at 130%+ CPU during fallback) and reduces backup CPU utilization to <5%.
-
-2. **Automatic Process & I/O Priority Management (`nice 19` & `ionice`)**:
-   - Implemented `zb_lower_process_priority` to automatically run backup and restore subshells and all child processes (`curl`, `tar`, `gzip`, CLI tools) under Linux nice priority 19 and ionice class 2 (best-effort) priority 7.
-   - Guarantees background backup operations will never starve critical Zimbra production services (`mailboxd`, `slapd`, `postfix`, `nginx`).
-
-3. **Complete Data Integrity & Verifiable Snapshots**:
-   - Direct REST mailbox export extracts complete mailbox archives (`.tgz`) identical to CLI output with faster throughput and lower resource footprint.
-   - Every archive continues to be verified with `tar -tzf`, `gzip -t`, and SHA-256 manifests.
-
----
-
-## 🌟 Highlights in Version v0.3.11
-
-1. **Streamlined & Flattened Storage Directory Hierarchy (100% Backward Compatible)**:
-   - Removed intermediate `<job_id>` / `chain-*` subdirectories and `_HHMMSS` suffixes for clean, human-readable paths:
-     - **Full Backups**: `<target_dir>/full/full-DD-MM-YYYY` (e.g. `/backup/full/full-22-10-2026`).
-     - **Incremental Backups**: Flattened directly into `<target_dir>/incremental/full-DD-MM-YYYY` (chain base) and `<target_dir>/incremental/001-incremental-DD-MM-YYYY`, `002-incremental-DD-MM-YYYY`... (chain linkage tracked via `chain_id` in `manifest`).
-     - **Ad-hoc Account Backups**: `<target_dir>/account/backup-<email>-DD-MM-YYYY`.
-   - Preserves 100% compatibility for discovering, verifying, and restoring legacy directory structures.
-
-2. **Chronological Remote FTP / SFTP Pruning & Credential Escaping**:
-   - Properly sorts `DD-MM-YYYY` backup archives chronologically (`YYYY-MM-DD`) across month and year boundaries during remote FTP/SFTP pruning, and cleanly strips SFTP `ls -l` columns.
-   - Escapes `\` and `"` characters in FTP/SFTP credentials inside temporary `0600` `curl -K` config files.
-
-3. **Structured ASCII Card Notifications**:
-   - Enhanced Email and Telegram notification layout with structured ASCII card borders and server timestamp footer.
-
----
-
-## 🌟 Highlights in Version v0.3.10
-
-1. **Definitive Fix for Incremental Backup on Mailboxes Without New Messages (HTTP 204 No Content)**:
-   - When running incremental backup (`query=after:...`), mailboxes without any new messages or modifications during the checkpoint interval return `HTTP 204 No Content` (0 bytes payload).
-   - In prior versions, the CLI fallback `zmmailbox getRestURL` logged `status=204` and exited with status 2, causing the script to mistakenly categorize it as an export failure and trigger 3 redundant retry attempts (`[FAIL] (x/70) user@domain - mailbox export failed after 3 attempts`).
-   - `zimbra-backup` v0.3.10 properly recognizes `HTTP 204 / status=204` as a valid empty delta, logs `[OK] (empty)` immediately on attempt 1, and achieves a 100% success rate across all accounts.
-
-2. **Eliminated Java JVM Process Storm & Reduced CPU Load from 86% to Under 5%**:
-   - Prioritizes direct connection to Zimbra Admin port (`zimbraAdminPort` 7071) over proxy port 8443, enabling `curl` to authenticate directly with `ZM_ADMIN_AUTH_TOKEN` without encountering HTTP 401 Unauthorized from the Nginx proxy.
-   - Performing REST export directly via `curl` (native C/libcurl) completely bypasses the JVM CLI fallback `zmmailbox`.
-   - Prevents parallel worker pool from launching hundreds of concurrent Java JVM instances, keeping server CPU utilization calm (<5%) throughout scheduled incremental backups.
-
-3. **Comprehensive Restore Notifications (Single Account vs. Full/Batch Scope)**:
-   - **Single Account Restore**: Clear, targeted notifications detailing the exact email address restored, redirect destination/subfolder (if configured via `--target-user` or `--mode subfolder`), precise data volume restored (`Restored: X MB/GB`), execution status, duration, and log path.
-   - **Full / Batch Restore**: Comprehensive operational summary reporting total accounts count, breakdown of succeeded vs. failed accounts (`X total (Y succeeded, Z failed)`), explicit list of failed accounts (if any), total restored data volume accumulated across all chain steps, execution status, duration, and log path.
-
----
-
-## 🌟 Highlights in Version v0.3.9
-
-1. **Definitive Fix for HTTP 401 Unauthorized during Restore of Inactive Accounts (Closed, Locked, Suspended)**:
-   - Zimbra's `UserServlet` and `MailboxServlet` reject REST `/service/home/` mailbox injection on accounts in `closed`, `maintenance`, `locked`, or `suspended` status with `HTTP 401 Unauthorized` (`account.ACCOUNT_INACTIVE`).
-   - `zimbra-backup` v0.3.9 re-engineers the **Deferred Status** mechanism: non-active accounts remain temporarily in `active` state throughout LDAP provisioning and mailbox REST streaming, then automatically transition back to their original target status (`closed`, `locked`, etc.) once the restore chain finishes or if the process is aborted via exit trap.
-
-2. **Smart Email Sender Domain Fallback (RFC 5321 Compliance)**:
-   - When `Server label (alerts)` (`HOST_LABEL`) is configured as a bare IPv4 or IPv6 address (e.g. `1.55.212.58`), the notification engine automatically detects the IP format and substitutes a valid system FQDN (`zmhostname` or `hostname -f`) into the `From:` envelope header.
-   - Completely eliminates MTA email rejections by receiving gateways (Postfix, FPT, Gmail, Office 365) while preserving the friendly IP label in the subject and email body.
-
-3. **Transparent Telegram API Diagnostics**:
-   - Switched Telegram curl requests from silent failure to direct error extraction. When a test alert or job alert fails, `zimbra-backup notify test-telegram` displays the exact Telegram API description (e.g. `Bad Request: chat not found`, `Forbidden: bot is not a member of the channel/supergroup`), expediting bot permissions troubleshooting.
-
-4. **Comprehensive Documentation on `.manifest` Catalogs & Alert Troubleshooting**:
-   - Documented the architectural role of lightweight `.manifest` files on remote FTP/SFTP storage, enabling instant catalog inspection and incremental delta calculation without downloading multi-gigabyte `.tar` archives.
-   - Added step-by-step resolution guides for Telegram Supergroup IDs (`-100...`) and mail queue troubleshooting.
-
----
-
-## 🌟 Key Architecture & Capabilities (v0.3.8)
-
-1. **Per-Job Remote Storage Configuration (FTP / SFTP)**:
-   - Configured independently per job: choose whether each individual job replicates offsite (`[y/N]`), target remote server, port, credentials, and distinct remote directory (`/<job_id>`).
-   - Seamless protocol support for standard FTP, explicit FTPS (SSL/TLS on port 21), and SFTP over SSH (port 22) powered by native `curl`.
-   - **Strict Credential Isolation**: Remote passwords are transferred via ephemeral `0600` config files with `curl -K`, completely hidden from `ps aux` and process listings.
-
-2. **Independent Remote Retention (`FTP_KEEP_COUNT`) & Automated Remote Pruning**:
-   - Remote snapshot retention on FTP (`FTP_KEEP_COUNT`) is managed **completely independently** from local retention (`KEEP_COUNT`).
-   - Automated remote pruning (`zb_prune_remote_storage`): scans remote job archives and automatically executes standard `DELE` (FTP) or `rm` (SFTP) commands to delete expired `.tar` and `.manifest` pairs.
-   - **Zero Local Snapshot Deletion**: Remote backups serve as offsite disaster-recovery replicas. Local snapshots are never wiped upon upload and remain preserved according to the job's local `KEEP_COUNT`.
-
-3. **Refined ASCII TUI & CLI Experience**:
-   - **6-Step Job Creation Wizard**: Step 6 provides seamless interactive setup for Remote Storage and FTP retention count.
-   - **1-Touch Job Editor (Fields 1..11)**: Option 11 enables instant modification of FTP credentials, protocol, path, and retention.
-   - Cleaned up Menu 6 (Global Settings) to focus purely on local storage defaults, disk thresholds, and alert destinations.
-   - Direct connection test CLI: `zimbra-backup notify test-ftp [job_id]`.
-
-1. **Lightweight ASCII TUI & Streamlined First Run**:
+1. **Lightweight ASCII TUI & Streamlined First Run (100% Pure 7-bit ASCII)**:
    - Automatically initializes global configuration in the background with `/home/backup` as default storage.
-   - **5-Step Job Wizard**: `Job ID` -> `Mode (Full / Incremental)` -> `Storage Path & Mountpoint Check` -> `Schedule (HH:MM)` -> `Retention & Parallel Workers`.
-   - **1-Touch Job Editor**: Numbered fields `1..10` display current settings directly; press field number to update and `s` to save.
+   - **6-Step Job Wizard**: `Job ID` -> `Mode (Full / Incremental)` -> `Storage Path & Mountpoint Check` -> `Schedule (HH:MM)` -> `Retention & Parallel Workers` -> `Remote Storage (FTP/SFTP)`.
+   - **1-Touch Job Editor**: Numbered fields `1..11` display current settings directly; press field number to update and `s` to save.
    - Built with **100% pure 7-bit ASCII** to guarantee zero character distortion (`□`) on remote SSH consoles, VM consoles, or `cron` environments (`LANG=C`).
 
 2. **Automated Multi-Job & Crontab Management**:
@@ -273,16 +123,33 @@ Select [0-7]:
    - `incremental/full-DD-MM-YYYY/` & `incremental/001-incremental-DD-MM-YYYY/`
    - `account/backup-<email>-DD-MM-YYYY/` (ad-hoc single account backups)
 
-5. **Complete Data & Metadata Preservation**:
+5. **Per-Job Remote Storage (FTP / SFTP) & Automated Remote Pruning**:
+   - Configured independently per job: choose whether each individual job replicates offsite (`[y/N]`), target remote server, port (21/22), credentials, and distinct remote directory (`/<job_id>`).
+   - Seamless protocol support for standard FTP, explicit FTPS (SSL/TLS), and SFTP over SSH powered by native `curl`.
+   - Independent remote retention (`FTP_KEEP_COUNT`), automated remote pruning via `DELE`/`rm`, and zero local snapshot deletion.
+   - Anti-Safe Links URL rewriting protection: strips `://` from alerts to prevent Microsoft 365 Defender ATP from distorting email layouts.
+
+6. **Complete Data & Metadata Preservation**:
    - **LDAP & Metadata**: Domains, accounts, password hashes (`userPassword`), display names (UTF-8), account quotas, email aliases, Distribution Lists (names, aliases, members), signatures (HTML & plain text), Sieve mail filters, and global admin roles (`zimbraIsAdminAccount TRUE`).
    - **Multi-valued Attributes**: Extended attributes (such as `zimbraMailForwardingAddress`) are preserved and restored with `+` prefix to prevent overwriting existing entries.
    - **Deferred Account Status**: Accounts backed up as `closed` are temporarily placed in `maintenance` status during mailbox restore to bypass Zimbra REST `account.ACCOUNT_INACTIVE` rejections, and restored to `closed` upon completion.
 
-6. **Versatile Disaster Recovery**:
+7. **Versatile Disaster Recovery**:
    - Restore **Full Server**, **By Domain**, or **Specific Accounts**.
    - Redirect restore to an **alternate destination mailbox** (`--target-user`).
    - Restore into an **isolated subfolder** (`--mode subfolder --subfolder-name <name>`).
    - Recursive scanning from any external drive, NAS, or legacy script directory.
+
+8. **Ultra-Fast Performance & Zero Java JVM Cold-Start**:
+   - Native REST streaming via SOAP `DelegateAuthRequest`: obtains tokens in ~10ms, streams mailboxes directly from ports 8443/443 at wire speed, reducing CPU from 85%+ to <2%.
+   - Batch LDAP metadata export via `zmprov -l -f` (single JVM process instead of 140+ sequential JVM invocations).
+   - Skips redundant `zmprov -l gsig` calls for mailboxes without signatures (eliminates 70+ JVM cold-starts).
+   - Automatically throttles background process and I/O scheduling priority (`nice -n 19`, `ionice -c 2 -n 7`), protecting production Zimbra services.
+
+9. **Robust Safety & Verifiable Integrity**:
+   - Exclusive `flock` locks prevent overlapping backup runs or concurrent restore conflicts.
+   - Verifies integrity with `tar -tzf`, `gzip -t`, and SHA-256 checksums per mailbox in `.manifest`.
+   - Destructive operations strictly require `--yes` flag on CLI or typing `RESET` in TUI.
 
 ---
 
@@ -335,7 +202,7 @@ zimbra-backup notify test-telegram
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (229 tests):
+Execute end-to-end automated test suite (233 tests):
 ```bash
 bash tests/run_tests.sh
 ```
