@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.15)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.16)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-230%2F230_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-233%2F233_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup_0.3.15-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.15 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.16 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -77,6 +77,28 @@ Select [0-7]:
 | **Closed / Inactive Account Handling** | ❌ REST Inactive error | ✅ Supported | **✅ Deferred Account Status mechanism** |
 | **Destructive Mode Safeguard** | ❌ Risky overwrites | Web Prompt | **✅ Strict `--yes` & `RESET` confirmation** |
 | **Integrity Verification** | ⚠️ File size only | Supported | **✅ SHA-256 manifest per mailbox** |
+
+---
+
+## 🌟 Highlights in Version v0.3.16
+
+1. **Multi-Recipient Email Alert Support**:
+   - Allows comma-separated lists of alert email addresses in `EMAIL_ALERT_TO` (e.g. `admin@example.com, it-ops@example.com, devops@example.com`).
+   - Automatically normalizes semicolons (`;`) into commas (`,`), trims whitespace, and strips empty tokens.
+   - Validates each individual recipient against RFC email format specifications before committing to `settings.conf`.
+   - Populates RFC 5322-compliant `To:` header for Zimbra's Postfix `sendmail -t` dispatcher.
+
+2. **Upgraded Interactive TUI & CLI Setup**:
+   - Enhanced Setup Wizard (Step 1) and Global Settings Menu (Option 7) to guide administrators on multi-email entry.
+   - Updated CLI documentation with `zimbra-backup init --email-to <addr[,addr2,...]>`.
+
+3. **Clarified Alert Dispatch Engine & Level Policies**:
+   - `zimbra-backup notify test-email` sends an immediate test delivery verifying MTA connectivity.
+   - Scheduled backup jobs strictly follow `EMAIL_ALERT_LEVEL` (`all`: sends alerts on both success and failure; `failure`: only alerts upon backup failure to prevent inbox clutter).
+
+4. **100% Pure 7-bit ASCII & 233/233 Passing Automated Tests**:
+   - Zero non-ASCII characters across all packaged scripts, preserving terminal and cron cleanliness.
+   - 233 automated test assertions passing with 0 defects.
 
 ---
 

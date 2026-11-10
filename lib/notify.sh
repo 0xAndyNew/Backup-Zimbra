@@ -72,11 +72,14 @@ zb_send_email_alert() {
             mail_from_domain="localhost"
         fi
     fi
+    local norm_to
+    norm_to="$(zb_normalize_email_list "$EMAIL_ALERT_TO")"
+    [[ -n "$norm_to" ]] || norm_to="$EMAIL_ALERT_TO"
     local sm_err="" sm_rc=0
     set +e
     sm_err="$({
         printf 'From: zimbra-backup <%s@%s>\n' "$ZB_ZIMBRA_USER" "$mail_from_domain"
-        printf 'To: %s\n' "$EMAIL_ALERT_TO"
+        printf 'To: %s\n' "$norm_to"
         printf 'Subject: %s\n' "$subject"
         printf 'Date: %s\n' "$(LC_ALL=C date -R 2>/dev/null || LC_ALL=C date)"
         printf 'MIME-Version: 1.0\n'
@@ -87,7 +90,7 @@ zb_send_email_alert() {
     set -e
     ZB_LAST_EMAIL_ERR="$sm_err"
     if (( sm_rc != 0 )); then
-        zb_log "WARNING: Failed to send email alert to $EMAIL_ALERT_TO via $sm_bin (exit code=$sm_rc): $sm_err"
+        zb_log "WARNING: Failed to send email alert to $norm_to via $sm_bin (exit code=$sm_rc): $sm_err"
         return 1
     fi
     return 0
@@ -98,6 +101,9 @@ zb_test_email() {
         zb_err "Email alerts are not enabled or EMAIL_ALERT_TO is not set."
         return 1
     }
+    local norm_to
+    norm_to="$(zb_normalize_email_list "$EMAIL_ALERT_TO")"
+    [[ -n "$norm_to" ]] || norm_to="$EMAIL_ALERT_TO"
     local host
     host="$(zb_host_label)"
     local subject="[TEST] Zimbra Backup (${host}): Email notification test"
@@ -105,7 +111,7 @@ zb_test_email() {
 ============================================================
 Event      : Email Alert Delivery Test
 Server     : ${host}
-Recipient  : ${EMAIL_ALERT_TO}
+Recipient  : ${norm_to}
 Alert Level: ${EMAIL_ALERT_LEVEL:-all}
 Status     : OK
 Timestamp  : $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date)
@@ -114,12 +120,12 @@ Engine     : zimbra-backup v${ZB_VERSION}
 If you received this email, email notifications for
 Zimbra Backup are configured and functioning properly.
 ============================================================"
-    zb_info "Dispatching test email to $EMAIL_ALERT_TO..."
+    zb_info "Dispatching test email to $norm_to..."
     if zb_send_email_alert "$subject" "$body"; then
-        zb_info "Test email sent successfully to $EMAIL_ALERT_TO."
+        zb_info "Test email sent successfully to $norm_to."
         return 0
     else
-        zb_err "Failed to dispatch test email to $EMAIL_ALERT_TO: ${ZB_LAST_EMAIL_ERR:-check sendmail / Postfix logs}."
+        zb_err "Failed to dispatch test email to $norm_to: ${ZB_LAST_EMAIL_ERR:-check sendmail / Postfix logs}."
         return 1
     fi
 }

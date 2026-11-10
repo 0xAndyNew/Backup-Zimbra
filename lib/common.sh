@@ -2,7 +2,7 @@
 # Core utilities, configuration parser, privilege switching, locking, and storage guards.
 # Compatible with Bash 4.2+ (CentOS/RHEL 7, 8, 9).
 
-ZB_VERSION="0.3.15"
+ZB_VERSION="0.3.16"
 ZB_STATE_DIR="${ZB_STATE_DIR:-/var/lib/zimbra-backup}"
 ZB_SETTINGS_FILE="$ZB_STATE_DIR/settings.conf"
 ZB_JOBS_DIR="$ZB_STATE_DIR/jobs"
@@ -212,6 +212,53 @@ zb_valid_email() {
     [[ "$e" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]
 }
 
+zb_valid_email_list() {
+    local raw="${1-}"
+    [[ -n "$raw" ]] || return 1
+    raw="${raw//;/,}"
+    local -a arr=()
+    IFS=',' read -r -a arr <<< "$raw"
+    (( ${#arr[@]} > 0 )) || return 1
+    local email trimmed count=0
+    for email in "${arr[@]}"; do
+        trimmed="$(zb_trim "$email")"
+        [[ -n "$trimmed" ]] || continue
+        zb_valid_email "$trimmed" || return 1
+        count=$((count + 1))
+    done
+    (( count > 0 )) || return 1
+    return 0
+}
+
+zb_normalize_email_list() {
+    local raw="${1-}"
+    raw="${raw//;/,}"
+    local -a arr=()
+    IFS=',' read -r -a arr <<< "$raw"
+    local email trimmed
+    local -a clean=()
+    if (( ${#arr[@]} > 0 )); then
+        for email in "${arr[@]}"; do
+            trimmed="$(zb_trim "$email")"
+            [[ -n "$trimmed" ]] || continue
+            clean+=("$trimmed")
+        done
+    fi
+    local out=""
+    local first=1
+    if (( ${#clean[@]} > 0 )); then
+        for email in "${clean[@]}"; do
+            if (( first == 1 )); then
+                out="$email"
+                first=0
+            else
+                out="${out}, ${email}"
+            fi
+        done
+    fi
+    printf '%s' "$out"
+}
+
 zb_valid_domain() {
     local d="${1-}"
     [[ "$d" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]
@@ -304,7 +351,8 @@ zb_validate_settings() {
     [[ "$EMAIL_ALERT_ENABLED" == "yes" || "$EMAIL_ALERT_ENABLED" == "no" ]] || { zb_err "EMAIL_ALERT_ENABLED must be yes or no"; return 1; }
     [[ "$EMAIL_ALERT_LEVEL" == "all" || "$EMAIL_ALERT_LEVEL" == "failure" ]] || { zb_err "EMAIL_ALERT_LEVEL must be all or failure"; return 1; }
     if [[ -n "$EMAIL_ALERT_TO" ]]; then
-        zb_valid_email "$EMAIL_ALERT_TO" || { zb_err "Invalid alert email address: $EMAIL_ALERT_TO"; return 1; }
+        EMAIL_ALERT_TO="$(zb_normalize_email_list "$EMAIL_ALERT_TO")"
+        zb_valid_email_list "$EMAIL_ALERT_TO" || { zb_err "Invalid alert email address: $EMAIL_ALERT_TO"; return 1; }
     fi
     if [[ "$TELEGRAM_ENABLED" == "yes" ]]; then
         [[ -n "$TELEGRAM_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]] || { zb_err "TELEGRAM_ENABLED=yes requires both TELEGRAM_TOKEN and TELEGRAM_CHAT_ID"; return 1; }

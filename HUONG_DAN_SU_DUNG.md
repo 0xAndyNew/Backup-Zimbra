@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.15)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.16)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.15** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.16** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -149,25 +149,25 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.15):**
+**Tải gói RPM mới nhất (v0.3.16):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.15-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.16-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
 ```
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.15-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.16-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.15-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.16-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.15-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.16-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.15-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.16-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -183,20 +183,20 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.15):**
+**Tải gói DEB mới nhất (v0.3.16):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.15-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup_0.3.15-1_all.deb
+curl -fSL -o zimbra-backup_0.3.16-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb
 ```
 
 **Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
 ```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.15-1_all.deb
+sudo apt update && sudo apt install -y ./zimbra-backup_0.3.16-1_all.deb
 ```
 
 **Hoặc cài đặt qua `dpkg`:**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.15-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.16-1_all.deb
 sudo apt-get install -f -y
 ```
 
@@ -748,7 +748,11 @@ Hệ thống tự động nhận diện định dạng LDIF legacy, trích xuấ
      - **Nguyên nhân phổ biến nhất không nhận được tin nhắn:** Bot **chưa được thêm (Add) vào Group/Channel** hoặc chưa được phân quyền **Administrator** (quyền *Send Messages* / *Post Messages*).
      - **Cách kiểm tra:** Chạy `zimbra-backup notify test-telegram` hoặc vào Menu 6 bấm phím `8`. Hệ thống sẽ in ra thông báo lỗi chi tiết từ Telegram API nếu Bot bị chặn hoặc chưa vào nhóm.
    - **Kênh Email Alerts:**
-     - Thiết lập địa chỉ nhận thư tại `EMAIL_ALERT_TO` và chọn mức cảnh báo (`all` - gửi mọi kết quả, hoặc `failure` - chỉ gửi khi có cảnh báo/lỗi).
+     - Thiết lập địa chỉ nhận thư tại `EMAIL_ALERT_TO` và chọn mức cảnh báo (`all` - gửi mọi kết quả dù thành công hay thất bại; hoặc `failure` - chỉ gửi khi có cảnh báo/lỗi sao lưu).
+     - **Gửi thông báo tới nhiều email nhận (từ v0.3.16):** Bạn có thể điền nhiều email phân tách nhau bằng dấu phẩy `,` (ví dụ: `admin@company.com, it-ops@company.com, monitoring@company.com`). Hệ thống sẽ tự động chuẩn hóa dấu chấm phẩy `;` sang dấu phẩy `,` và xác thực từng địa chỉ email theo chuẩn RFC trước khi lưu cấu hình.
+     - **Lưu ý về cơ chế gửi mail thông báo sau khi chạy Job sao lưu:**
+       - Lệnh gửi thử `zimbra-backup notify test-email` luôn gửi email kiểm tra trực tiếp tới danh sách người nhận để xác nhận tính năng gửi thư của Postfix hoạt động.
+       - Các Job sao lưu định kỳ sẽ kiểm tra `EMAIL_ALERT_LEVEL`: Nếu bạn để `failure` (mặc định), khi Job sao lưu thành công hoàn toàn (`[OK]`), hệ thống sẽ **chủ động không gửi email** để tránh làm đầy hộp thư quản trị viên. Nếu muốn nhận email sau mỗi lần sao lưu thành công, bạn chỉ cần đổi `EMAIL_ALERT_LEVEL=all` trong cài đặt (Menu TUI mục 7 hoặc lệnh `zimbra-backup init --email-level all`).
      - **Lưu ý về Server Label (Alerts):** Nếu bạn đặt Server Label là địa chỉ IP thô (ví dụ: `1.55.212.58`), hệ thống mail bên ngoài (như FPT, Google, Microsoft 365) hoặc chính Postfix của Zimbra có thể từ chối nhận (reject) do vi phạm chuẩn RFC (địa chỉ người gửi không được dùng IP thuần `@1.55.212.58`).
      - **Cơ chế tối ưu từ v0.3.9:** Tiêu đề `From:` sẽ tự động sử dụng FQDN/domain hợp lệ của máy chủ (`zmhostname` hoặc `hostname -f`), trong khi nhãn IP vẫn được hiển thị rõ ràng trong tiêu đề và nội dung email thông báo để bạn dễ dàng nhận diện máy chủ.
      - **Cách kiểm tra:** Chạy `zimbra-backup notify test-email` hoặc vào Menu 6 bấm phím `9`. Nếu không nhận được thư, kiểm tra hàng đợi Postfix bằng lệnh `mailq` hoặc xem log `/var/log/zimbra.log`.

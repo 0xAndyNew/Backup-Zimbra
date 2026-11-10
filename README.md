@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.15)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.16)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-230%2F230_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-233%2F233_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup-0.3.15-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.15/zimbra-backup_0.3.15-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -62,7 +62,7 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.15 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.16 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
@@ -77,6 +77,28 @@ Select [0-7]:
 | **Xử lý tài khoản đóng (Closed)** | ❌ Lỗi REST Inactive | ✅ Có | **✅ Cơ chế Deferred Status thông minh** |
 | **Cơ chế an toàn chống xóa nhầm** | ❌ Nguy hiểm | Cảnh báo Web | **✅ Bắt buộc `--yes` & gõ `RESET`** |
 | **Kiểm tra toàn vẹn dữ liệu** | ⚠️ Chỉ đo kích thước | Có | **✅ Mã băm SHA-256 từng tài khoản** |
+
+---
+
+## 🌟 Điểm nổi bật trong phiên bản v0.3.16
+
+1. **Hỗ Trợ Gửi Thông Báo Tới Nhiều Email Người Nhận (Multi-Recipient Email Alerts)**:
+   - Cho phép khai báo danh sách nhiều email nhận cảnh báo phân tách bằng dấu phẩy `,` (ví dụ: `admin@company.com, it-ops@company.com, devops@company.com`).
+   - Tự động chuẩn hóa dấu chấm phẩy `;` sang dấu phẩy `,`, cắt bỏ khoảng trắng thừa và loại bỏ các token rỗng.
+   - Kiểm tra định dạng hợp lệ RFC của từng địa chỉ email trước khi lưu vào `settings.conf`, ngăn chặn hoàn toàn lỗi cấu hình sai làm gián đoạn tiến trình sao lưu.
+   - Nạp toàn bộ danh sách người nhận vào header `To:` tương thích chuẩn RFC 5322 và Postfix `sendmail -t` của Zimbra.
+
+2. **Nâng Cấp Giao Diện Cấu Hình TUI & CLI Cho Nhiều Email**:
+   - Cập nhật Wizard thiết lập ban đầu (Bước 1) và Menu cấu hình chung (Mục 7) hiển thị rõ hướng dẫn nhập danh sách nhiều email.
+   - Bổ sung tài liệu CLI `zimbra-backup init --email-to <addr[,addr2,...]>`.
+
+3. **Làm Rõ Cơ Chế Cảnh Báo `EMAIL_ALERT_LEVEL`**:
+   - Lệnh kiểm tra `zimbra-backup notify test-email` luôn gửi email trực tiếp để kiểm chứng khả năng chuyển phát của Postfix MTA.
+   - Các Job sao lưu định kỳ tuân thủ chính xác mức cảnh báo `EMAIL_ALERT_LEVEL` (`all`: gửi mọi lần sao lưu thành công hoặc thất bại; `failure`: chỉ gửi khi có lỗi, mặc định bảo vệ hộp thư quản trị khỏi bị ngập thông báo).
+
+4. **Bảo Toàn Tuyệt Đối Chuẩn 100% Pure 7-bit ASCII & 233/233 Bài Kiểm Thử Đạt**:
+   - Đạt 233/233 bài kiểm thử tự động đầu-cuối với 0 lỗi.
+   - Toàn bộ 15 file đóng gói giữ vững 100% Pure 7-bit ASCII và chuẩn xuống dòng Unix LF (`\n`).
 
 ---
 
