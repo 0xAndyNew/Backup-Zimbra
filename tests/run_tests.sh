@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.15
+# End-to-end automated test suite for zimbra-backup v0.3.16
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -487,7 +487,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.15" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.15"
+assert_contains "$ver_out" "zimbra-backup 0.3.16" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.16"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1133,6 +1133,33 @@ test_mail_log="$(cat "$MOCK_LOG")"
 assert_contains "$test_mail_log" "SENDMAIL -t" "Lệnh 'zimbra-backup notify test-email' gọi sendmail với cờ -t"
 assert_contains "$test_mail_log" "To: alert@example.com" "Email test gửi đúng địa chỉ alert@example.com"
 assert_contains "$test_mail_log" "Subject: [TEST] Zimbra Backup" "Email test có tiêu đề [TEST] Zimbra Backup"
+
+# 15b2. Multi-email recipients validation, normalization & delivery test
+"$ZB_CMD" init \
+    --backup-dir "$STORE_DIR" \
+    --require-mount yes \
+    --email-enabled yes \
+    --email-to "admin1@example.com, admin2@example.com; admin3@example.com" \
+    --email-level all >/dev/null
+
+multi_cfg="$(cat "$STATE_DIR/settings.conf")"
+assert_contains "$multi_cfg" "EMAIL_ALERT_TO=admin1@example.com, admin2@example.com, admin3@example.com" \
+    "Cấu hình lưu danh sách nhiều email chuẩn hóa phân tách bằng dấu phẩy"
+
+: > "$MOCK_LOG"
+"$ZB_CMD" notify test-email >/dev/null
+multi_mail_log="$(cat "$MOCK_LOG")"
+assert_contains "$multi_mail_log" "To: admin1@example.com, admin2@example.com, admin3@example.com" \
+    "Gửi email test thành công tới nhiều người nhận trong header To"
+
+if "$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --email-enabled yes --email-to "valid@example.com, bad-email" >/dev/null 2>&1; then
+    fail "Phải từ chối danh sách email chứa địa chỉ không hợp lệ"
+else
+    pass "Từ chối chính xác danh sách email chứa địa chỉ không hợp lệ"
+fi
+
+# Restore single email for remaining tests
+"$ZB_CMD" init --backup-dir "$STORE_DIR" --require-mount yes --email-enabled yes --email-to "alert@example.com" --email-level all >/dev/null
 
 # 15c. Test telegram command
 : > "$MOCK_LOG"

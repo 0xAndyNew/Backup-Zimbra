@@ -59,7 +59,7 @@ USAGE:
      zimbra-backup init --backup-dir /home/backup [--restore-dir /mnt/restore|none]
                         [--require-mount yes|no] [--disk-warn 85] [--disk-min-mb 1024]
                         [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
-                        [--email-enabled yes --email-to <addr> --email-level all|failure]
+                        [--email-enabled yes --email-to <addr[,addr2,...]> --email-level all|failure]
                         [--ftp-enabled yes|no] [--ftp-protocol ftp|sftp] [--ftp-host <host>]
                         [--ftp-port 21|22] [--ftp-user <user>] [--ftp-password <pass>]
                         [--ftp-dir <remote_path>] [--ftp-ssl yes|no]

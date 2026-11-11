@@ -90,7 +90,7 @@ zb_tui_edit_advanced_settings() {
 
     EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts?" "$EMAIL_ALERT_ENABLED")"
     if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
-        EMAIL_ALERT_TO="$(zb_tui_prompt_default "  Alert recipient email" "$EMAIL_ALERT_TO")"
+        EMAIL_ALERT_TO="$(zb_tui_prompt_default "  Alert recipient email(s) (comma-separated)" "$EMAIL_ALERT_TO")"
         local lvl_w
         lvl_w="$(zb_tui_prompt_default "  Trigger level: 1) all backups, 2) failures only [1/2]" "$([[ "$EMAIL_ALERT_LEVEL" == "failure" ]] && printf '2' || printf '1')")"
         if [[ "$lvl_w" == "2" ]]; then
@@ -1345,7 +1345,7 @@ zb_tui_settings_menu() {
             7)
                 EMAIL_ALERT_ENABLED="$(zb_tui_prompt_yesno "Enable Email alerts?" "$EMAIL_ALERT_ENABLED")"
                 if [[ "$EMAIL_ALERT_ENABLED" == "yes" ]]; then
-                    EMAIL_ALERT_TO="$(zb_tui_prompt_default "Recipient email address" "$EMAIL_ALERT_TO")"
+                    EMAIL_ALERT_TO="$(zb_tui_prompt_default "Recipient email address(es) (comma-separated)" "$EMAIL_ALERT_TO")"
                     zb_msg ""
                     zb_msg "Email Notification Trigger Level:"
                     zb_msg "  1) all     - Send email for all backup results (success, warnings, and failures)"

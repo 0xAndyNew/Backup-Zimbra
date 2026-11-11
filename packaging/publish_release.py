@@ -101,18 +101,18 @@ def main():
     body = f"""## Zimbra Backup & Restore (`zimbra-backup` v{version})
 
 ### Key Highlights in v{version}
-- **Anti-Safe Links Notification Sanitization**:
-  - Sanitized Remote Storage notifications by eliminating `://` protocol schemes (e.g. `[FTP host:port | in Xs | Retained: N remote]`).
-  - Completely prevents Microsoft 365 Defender Safe Links / ATP and mail security gateways from rewriting the notification into long, broken, distorted URLs.
-- **Strict Column 16 Monospace Alignment & Human-Readable Duration**:
-  - Aligned all notification card colons `:` strictly to Column 16 across Telegram and Email alerts (`Job Name       :`, `Backup Mode    :`, `Accounts       :`, `Total Size     :`, `Duration       :`, `Local Path     :`, `Remote Storage :`, `Server         :`, `Timestamp      :`, `Engine         :`).
-  - Added dual seconds + human-readable minute formatting for elapsed time (e.g. `450s (7m 30s)`).
-- **LDAP Signature Detection Optimization (70+ JVM Elimination)**:
-  - Checks LDAP account metadata for signature attributes (`zimbraSignatureId`, `zimbraPrefMailSignature`) before executing `zmprov -l gsig`.
-  - Skips redundant `zmprov -l gsig` calls for mailboxes without signatures (typically 90%+ of accounts), eliminating remaining JVM cold starts and shaving off up to 280s of execution time.
+- **Multi-Email Recipient Support**:
+  - Full support for multiple notification recipient email addresses separated by commas (`,`).
+  - Automatic normalization of semicolons (`;`) to commas (`,`) and whitespace trimming.
+  - Strict RFC 5322 validation across all recipient addresses before saving configuration.
+  - Standardized `To: user1@domain.com, user2@domain.com` headers fully compatible with Postfix `sendmail -t`.
+  - Updated TUI Setup Wizard and CLI initialization options (`--email-to <addr[,addr2,...]>`).
+- **Notification Troubleshooting & Verification**:
+  - Detailed explanation and verification for `EMAIL_ALERT_LEVEL` (`all` vs `failure`).
+  - Setting `EMAIL_ALERT_LEVEL=all` ensures backup completion emails are dispatched after every successful job.
 - **Strict 7-bit ASCII & Data Integrity**:
   - 100% pure 7-bit ASCII and Unix LF line endings preserved across all 15 packaged files.
-  - 230/230 automated end-to-end tests passing with 0 errors.
+  - 233/233 automated end-to-end tests passing with 0 errors.
 
 ### Package Checksums (SHA-256)
 - `zimbra-backup-{version}-1.noarch.rpm`: `{rpm_sha}`
@@ -124,7 +124,7 @@ def main():
 sudo dnf install -y https://github.com/{REPO}/releases/download/{tag_name}/zimbra-backup-{version}-1.noarch.rpm
 
 # On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
-curl -fSL -o /tmp/zb.deb https://github.com/{REPO}/releases/download/{tag_name}/zimbra-backup_{version}-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/{REPO}/releases/download/{tag_name}/zimbra-backup_{version}-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 """
 

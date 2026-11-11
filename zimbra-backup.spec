@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.15
+Version:        0.3.16
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,13 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Tue Nov 10 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.16-1
+- Support multiple email alert recipients separated by comma with semicolon normalization and trimming
+- Enforce RFC 5322 validation and format To header for Postfix sendmail -t
+- Update TUI Setup Wizard and CLI help for multi-recipient configuration
+- Maintain 100% pure 7-bit ASCII and LF line endings across all 15 packaged files
+- Pass all 233 automated end-to-end tests with 0 errors
+
 * Mon Nov 09 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.15-1
 - Sanitize Remote Storage notification formatting to prevent Microsoft 365 Defender Safe Links URL rewriting
 - Align all notification card labels strictly to Column 16 with human-readable elapsed duration (seconds & minutes)
