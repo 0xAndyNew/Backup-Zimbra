@@ -9,6 +9,8 @@ rpmbuild/
 __pycache__/
 *.pyc
 .tmp_*
+packaging/update_*.py
+.hooks/
 
 # OS & editor artifacts
 .DS_Store
