@@ -27,7 +27,7 @@ sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:

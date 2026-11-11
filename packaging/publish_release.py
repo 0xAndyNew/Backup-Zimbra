@@ -124,7 +124,7 @@ def main():
 sudo dnf install -y https://github.com/{REPO}/releases/download/{tag_name}/zimbra-backup-{version}-1.noarch.rpm
 
 # On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
-curl -fSL -o /tmp/zb.deb https://github.com/{REPO}/releases/download/{tag_name}/zimbra-backup_{version}-1_all.deb && sudo apt update && sudo apt install -y /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/{REPO}/releases/download/{tag_name}/zimbra-backup_{version}-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 """
 

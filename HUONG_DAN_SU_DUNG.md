@@ -189,15 +189,9 @@ curl -fSL -o zimbra-backup_0.3.16-1_all.deb \
   https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb
 ```
 
-**Cài đặt qua `apt` (khuyến nghị tự động nạp dependencies):**
-```bash
-sudo apt update && sudo apt install -y ./zimbra-backup_0.3.16-1_all.deb
-```
-
-**Hoặc cài đặt qua `dpkg`:**
+**Cài đặt hoặc Nâng cấp trực tiếp bằng `dpkg` (an toàn, không chạm vào repo hệ thống):**
 ```bash
 sudo dpkg -i ./zimbra-backup_0.3.16-1_all.deb
-sudo apt-get install -f -y
 ```
 
 **Gỡ cài đặt trên Ubuntu:**
