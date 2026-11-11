@@ -227,16 +227,30 @@ zb_print_backup_catalog() {
         return 0
     fi
 
-    printf '%-4s %-15s %-12s %-21s %-7s %-11s %s\n' "NO." "JOB" "TYPE" "CREATED (UTC)" "USERS" "SIZE" "BACKUP ID / PATH"
-    printf '%s\n' "--------------------------------------------------------------------------------------------------------------------"
+    printf '%-4s %-15s %-15s %-21s %-7s %-11s %s\n' "NO." "JOB" "TYPE" "CREATED (UTC)" "USERS" "SIZE" "BACKUP ID / PATH"
+    printf '%s\n' "----------------------------------------------------------------------------------------------------------------------"
     local i=0
     while (( i < total )); do
         local num=$((i + 1))
         local type_lbl="${ZB_CAT_TYPES[$i]}"
-        if [[ "$type_lbl" == "incr" ]]; then
+        local cat_path="${ZB_CAT_PATHS[$i]}"
+        local chain_id="${ZB_CAT_CHAINS[$i]}"
+        if [[ "$chain_id" == ffi-* || "$cat_path" == *"Forever-Forward-Incremental"* ]]; then
+            if [[ "$type_lbl" == "incr" ]]; then
+                type_lbl="ffi-incr(#${ZB_CAT_SEQS[$i]})"
+            else
+                type_lbl="ffi-full"
+            fi
+        elif [[ "$cat_path" == *"Synthetic-Full-Backup"* ]]; then
+            if [[ "$type_lbl" == "incr" ]]; then
+                type_lbl="sfb-incr(#${ZB_CAT_SEQS[$i]})"
+            else
+                type_lbl="synth-full"
+            fi
+        elif [[ "$type_lbl" == "incr" ]]; then
             type_lbl="incr(#${ZB_CAT_SEQS[$i]})"
         fi
-        printf '%-4s %-15s %-12s %-21s %-7s %-11s %s\n' \
+        printf '%-4s %-15s %-15s %-21s %-7s %-11s %s\n' \
             "[$num]" \
             "${ZB_CAT_JOBS[$i]}" \
             "$type_lbl" \

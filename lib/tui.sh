@@ -156,29 +156,57 @@ zb_tui_configure_schedule() {
 
 zb_tui_edit_backup_mode() {
     local cur="1"
-    [[ "$BACKUP_TYPE" == "incremental" ]] && cur="2"
+    case "$BACKUP_TYPE" in
+        incremental) cur="2" ;;
+        forever_incremental|forever-forward-incremental|ffi) cur="3" ;;
+        synthetic_full|synthetic-full-backup|sfb) cur="4" ;;
+        *) cur="1" ;;
+    esac
     zb_msg "Backup Mode:"
-    zb_msg "  1) full        - Standalone full backup every run (simple, self-contained)"
-    zb_msg "  2) incremental - Chain: 1 Full base + daily Incrementals (saves disk & time)"
+    zb_msg "  1) full                - Standalone full backup every run (simple, self-contained)"
+    zb_msg "  2) incremental         - Traditional Incremental (1 Full + N Incr -> New Active Full)"
+    zb_msg "  3) forever_incremental - Forever Forward Incremental (1 Full base + merge oldest Incr, saves max disk/time)"
+    zb_msg "  4) synthetic_full      - Synthetic Full Backup (1 Full + local synthetic Full, zero Zimbra server load)"
     local t
-    t="$(zb_tui_prompt_default "Select mode (1/2)" "$cur")"
-    if [[ "$t" == "2" || "${t,,}" == "incremental" ]]; then
-        if [[ "$BACKUP_TYPE" != "incremental" ]]; then
-            BACKUP_TYPE="incremental"
-            # Switch smart defaults when changing from full -> incremental
-            [[ "$KEEP_COUNT" == "7" ]] && KEEP_COUNT="2"
-            [[ "$PARALLEL_JOBS" == "2" ]] && PARALLEL_JOBS="4"
-        fi
-    else
-        BACKUP_TYPE="full"
-    fi
+    t="$(zb_tui_prompt_default "Select mode (1/2/3/4)" "$cur")"
+    case "$t" in
+        2|incremental)
+            if [[ "$BACKUP_TYPE" != "incremental" ]]; then
+                BACKUP_TYPE="incremental"
+                [[ "$KEEP_COUNT" == "7" ]] && KEEP_COUNT="2"
+                [[ "$PARALLEL_JOBS" == "2" ]] && PARALLEL_JOBS="4"
+            fi
+            ;;
+        3|forever_incremental|forever-forward-incremental|ffi)
+            if [[ "$BACKUP_TYPE" != "forever_incremental" ]]; then
+                BACKUP_TYPE="forever_incremental"
+                KEEP_COUNT="7"
+                PARALLEL_JOBS="4"
+            fi
+            ;;
+        4|synthetic_full|synthetic-full-backup|sfb)
+            if [[ "$BACKUP_TYPE" != "synthetic_full" ]]; then
+                BACKUP_TYPE="synthetic_full"
+                KEEP_COUNT="2"
+                PARALLEL_JOBS="4"
+                FULL_CYCLE_MODE="max_incr"
+                FULL_CYCLE_VALUE="6"
+            fi
+            ;;
+        *)
+            BACKUP_TYPE="full"
+            ;;
+    esac
 }
 
 zb_tui_edit_retention() {
     local k_in
     while true; do
-        if [[ "$BACKUP_TYPE" == "incremental" ]]; then
-            zb_msg "Note: For Incremental mode, 1 chain = 1 Full base + ${FULL_CYCLE_VALUE} Incremental runs."
+        if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+            zb_msg "Note: For Forever Forward Incremental, 1 point = 1 snapshot (1 Full base + N Incrementals)."
+            k_in="$(zb_tui_prompt_default "Keep how many RESTORE POINTS?" "$KEEP_COUNT")"
+        elif [[ "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "synthetic_full" ]]; then
+            zb_msg "Note: For Incremental / Synthetic Full mode, 1 chain = 1 Full base + ${FULL_CYCLE_VALUE} Incremental runs."
             k_in="$(zb_tui_prompt_default "Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
         else
             k_in="$(zb_tui_prompt_default "Keep how many FULL snapshots?" "$KEEP_COUNT")"
@@ -192,6 +220,11 @@ zb_tui_edit_retention() {
 }
 
 zb_tui_edit_full_cycle() {
+    if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+        zb_info "Full Chain Cycle is disabled for Forever Forward Incremental (FFI maintains a single rolling base full)."
+        zb_pause
+        return 0
+    fi
     zb_msg "Full Chain Cycle (when to start a fresh Full base):"
     zb_msg "  1) After N Incremental runs (recommended: 6 -> 1 Full + 6 Incr = 7 days/chain)"
     zb_msg "  2) Weekly on a fixed weekday (0=Sun .. 6=Sat)"
@@ -335,14 +368,21 @@ zb_tui_job_edit_loop() {
     while true; do
         zb_tui_header "${mode_label} JOB: $JOB_ID"
         local keep_unit="Full snapshots"
-        [[ "$BACKUP_TYPE" == "incremental" ]] && keep_unit="complete chains"
+        case "$BACKUP_TYPE" in
+            incremental|synthetic_full) keep_unit="complete chains" ;;
+            forever_incremental) keep_unit="restore points" ;;
+        esac
         local eff_mount="${JOB_REQUIRE_MOUNT:-inherit}"
         local tgt_disp="${TARGET_DIR:-$DEFAULT_BACKUP_DIR (default)} [mount: $eff_mount] -> $(zb_job_storage_root)"
+        local cycle_disp="$FULL_CYCLE_MODE (value: $FULL_CYCLE_VALUE)"
+        if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+            cycle_disp="disabled (single base full, rolling forward)"
+        fi
 
         zb_msg "  1) Backup Mode        : $BACKUP_TYPE"
         zb_msg "  2) Schedule (Cron)    : $(zb_job_schedule_human)"
         zb_msg "  3) Retention Keep     : $KEEP_COUNT $keep_unit"
-        zb_msg "  4) Full Chain Cycle   : $FULL_CYCLE_MODE (value: $FULL_CYCLE_VALUE)"
+        zb_msg "  4) Full Chain Cycle   : $cycle_disp"
         zb_msg "  5) Target Directory   : $tgt_disp"
         zb_msg "  6) Backup Scope       : $SCOPE_MODE ${SCOPE_VALUES:+($SCOPE_VALUES)}"
         zb_msg "  7) Prune Timing       : $PRUNE_TIMING"
@@ -426,21 +466,40 @@ zb_tui_job_create() {
 
     zb_msg ""
     zb_msg "2. Select Backup Mode:"
-    zb_msg "   1) full        - Standalone full backup every run (simple, self-contained)"
-    zb_msg "   2) incremental - Weekly chain: 1 Full base + 6 daily Incrementals (saves disk/time)"
+    zb_msg "   1) full                - Standalone full backup every run (simple, self-contained)"
+    zb_msg "   2) incremental         - Traditional Incremental (1 Full + N Incr -> New Active Full)"
+    zb_msg "   3) forever_incremental - Forever Forward Incremental (1 Full base + merge oldest Incr, saves max disk/time)"
+    zb_msg "   4) synthetic_full      - Synthetic Full Backup (1 Full + local synthetic Full, zero Zimbra server load)"
     local t_ans
-    t_ans="$(zb_tui_prompt_default "Select mode (1/2)" "1")"
-    if [[ "$t_ans" == "2" || "${t_ans,,}" == "incremental" ]]; then
-        BACKUP_TYPE="incremental"
-        KEEP_COUNT="2"
-        PARALLEL_JOBS="4"
-        FULL_CYCLE_MODE="max_incr"
-        FULL_CYCLE_VALUE="6"
-    else
-        BACKUP_TYPE="full"
-        KEEP_COUNT="7"
-        PARALLEL_JOBS="2"
-    fi
+    t_ans="$(zb_tui_prompt_default "Select mode (1/2/3/4)" "1")"
+    case "$t_ans" in
+        2|incremental)
+            BACKUP_TYPE="incremental"
+            KEEP_COUNT="2"
+            PARALLEL_JOBS="4"
+            FULL_CYCLE_MODE="max_incr"
+            FULL_CYCLE_VALUE="6"
+            ;;
+        3|forever_incremental|forever-forward-incremental|ffi)
+            BACKUP_TYPE="forever_incremental"
+            KEEP_COUNT="7"
+            PARALLEL_JOBS="4"
+            FULL_CYCLE_MODE="max_incr"
+            FULL_CYCLE_VALUE="6"
+            ;;
+        4|synthetic_full|synthetic-full-backup|sfb)
+            BACKUP_TYPE="synthetic_full"
+            KEEP_COUNT="2"
+            PARALLEL_JOBS="4"
+            FULL_CYCLE_MODE="max_incr"
+            FULL_CYCLE_VALUE="6"
+            ;;
+        *)
+            BACKUP_TYPE="full"
+            KEEP_COUNT="7"
+            PARALLEL_JOBS="2"
+            ;;
+    esac
 
     zb_msg ""
     zb_msg "3. Backup Storage Directory:"
@@ -453,7 +512,17 @@ zb_tui_job_create() {
 
     zb_msg ""
     local k_ans
-    if [[ "$BACKUP_TYPE" == "incremental" ]]; then
+    if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+        zb_msg "5. Retention Policy (rolling forward base Full + daily Incrementals):"
+        while true; do
+            k_ans="$(zb_tui_prompt_default "   Keep how many RESTORE POINTS?" "$KEEP_COUNT")"
+            if [[ "$k_ans" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
+                KEEP_COUNT="$k_ans"
+                break
+            fi
+            zb_warn "Invalid retention count '$k_ans'. Enter an integer between 1 and 999."
+        done
+    elif [[ "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "synthetic_full" ]]; then
         zb_msg "5. Retention Policy (1 chain = 1 Full + ${FULL_CYCLE_VALUE} Incrementals):"
         while true; do
             k_ans="$(zb_tui_prompt_default "   Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"

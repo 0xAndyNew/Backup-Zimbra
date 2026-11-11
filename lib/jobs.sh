@@ -12,7 +12,7 @@ zb_job_reset_defaults() {
     JOB_ID=""
     JOB_NAME=""
     ENABLED="yes"
-    BACKUP_TYPE="full"            # full | incremental
+    BACKUP_TYPE="full"            # full | incremental | forever_incremental | synthetic_full
     TARGET_DIR=""                 # empty => inherit DEFAULT_BACKUP_DIR
     JOB_REQUIRE_MOUNT="inherit"   # inherit | yes | no
     SCOPE_MODE="all"              # all | domains | accounts
@@ -56,28 +56,49 @@ zb_job_effective_target_dir() {
 }
 
 zb_job_category_dir() {
-    if [[ "${BACKUP_TYPE:-full}" == "incremental" ]]; then
-        printf 'incremental'
-    else
-        printf 'full'
-    fi
+    case "${BACKUP_TYPE:-full}" in
+        forever_incremental|forever-forward-incremental|ffi)
+            printf 'incremental/Forever-Forward-Incremental'
+            ;;
+        synthetic_full|synthetic-full-backup|sfb)
+            printf 'incremental/Synthetic-Full-Backup'
+            ;;
+        standard_incremental)
+            printf 'incremental/Standard-Incremental'
+            ;;
+        incremental)
+            printf 'incremental'
+            ;;
+        standard_full)
+            printf 'full/Standard-Full'
+            ;;
+        *)
+            printf 'full'
+            ;;
+    esac
 }
 
 zb_job_storage_root() {
-    local base cat_dir base_leaf
+    local base cat_dir base_leaf cat_leaf
     base="$(zb_job_effective_target_dir)"
     cat_dir="$(zb_job_category_dir)"
     base_leaf="${base##*/}"
-    if [[ "${base_leaf,,}" == "$cat_dir" ]]; then
+    cat_leaf="${cat_dir##*/}"
+
+    if [[ "${base,,}" == *"${cat_dir,,}" || "${base_leaf,,}" == "${cat_leaf,,}" ]]; then
         printf '%s' "$base"
+    elif [[ "$cat_dir" == "incremental/"* && "${base_leaf,,}" == "incremental" ]]; then
+        printf '%s/%s' "$base" "${cat_dir#incremental/}"
+    elif [[ "$cat_dir" == "full/"* && "${base_leaf,,}" == "full" ]]; then
+        printf '%s/%s' "$base" "${cat_dir#full/}"
     else
         printf '%s/%s' "$base" "$cat_dir"
     fi
 }
 
-# Emit storage root `<effective_target_dir>/<full|incremental>` for one job ($1) or all configured jobs.
-# When $2 == "1", also emits legacy `<effective_target_dir>/<full|incremental>/<job_id>` and
-# `<effective_target_dir>/<job_id>` if present on disk for upgrade compatibility.
+# Emit storage root `<effective_target_dir>/<category_dir>` for one job ($1) or all configured jobs.
+# When $2 == "1", also emits legacy `<effective_target_dir>/<full|incremental>`,
+# `<effective_target_dir>/<full|incremental>/<job_id>` and `<effective_target_dir>/<job_id>` if present.
 # Runs in a subshell so `zb_job_load` does not overwrite caller's JOB_* state.
 zb_list_job_storage_roots() (
     local filter_jid="${1:-}"
@@ -85,12 +106,19 @@ zb_list_job_storage_roots() (
     zb_load_settings || return 1
 
     _zb_emit_job_roots() {
-        local primary base cat_dir legacy1 legacy2
+        local primary base cat_dir legacy1 legacy2 leg_cat
         primary="$(zb_job_storage_root)"
         printf '%s\n' "$primary"
         if [[ "$include_legacy" == "1" ]]; then
             base="$(zb_job_effective_target_dir)"
             cat_dir="$(zb_job_category_dir)"
+            case "${BACKUP_TYPE:-full}" in
+                incremental*|forever*|synthetic*|ffi|sfb) leg_cat="$base/incremental" ;;
+                *) leg_cat="$base/full" ;;
+            esac
+            if [[ "$leg_cat" != "$primary" && -d "$leg_cat" ]]; then
+                printf '%s\n' "$leg_cat"
+            fi
             legacy1="$base/$cat_dir/$JOB_ID"
             if [[ "$legacy1" != "$primary" && -d "$legacy1" ]]; then
                 printf '%s\n' "$legacy1"
@@ -185,7 +213,15 @@ zb_job_validate() {
     JOB_NAME="$(zb_sanitize_line "${JOB_NAME:-Backup $JOB_ID}")"
     [[ "$JOB_NAME" != *'$('* && "$JOB_NAME" != *'`'* ]] || { zb_err "JOB_NAME contains disallowed characters."; return 1; }
     [[ "$ENABLED" == "yes" || "$ENABLED" == "no" ]] || { zb_err "ENABLED must be yes or no."; return 1; }
-    [[ "$BACKUP_TYPE" == "full" || "$BACKUP_TYPE" == "incremental" ]] || { zb_err "BACKUP_TYPE must be full or incremental."; return 1; }
+    case "${BACKUP_TYPE:-}" in
+        ffi|forever-forward-incremental) BACKUP_TYPE="forever_incremental" ;;
+        sfb|synthetic-full-backup) BACKUP_TYPE="synthetic_full" ;;
+        standard_incremental) BACKUP_TYPE="incremental" ;;
+    esac
+    [[ "$BACKUP_TYPE" == "full" || "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "forever_incremental" || "$BACKUP_TYPE" == "synthetic_full" ]] || {
+        zb_err "BACKUP_TYPE must be full, incremental, forever_incremental, or synthetic_full."
+        return 1
+    }
 
     if [[ -n "$TARGET_DIR" ]]; then
         zb_valid_safe_path "$TARGET_DIR" || { zb_err "Invalid TARGET_DIR path: $TARGET_DIR"; return 1; }
@@ -464,13 +500,17 @@ zb_job_print_summary_table() (
         return 0
     fi
 
-    printf '%-18s %-12s %-7s %-10s %-24s %s\n' "JOB ID" "MODE" "ACTIVE" "RETENTION" "STORAGE DIR" "SCHEDULE"
-    printf '%s\n' "------------------------------------------------------------------------------------------------------------"
+    printf '%-18s %-15s %-7s %-12s %-32s %s\n' "JOB ID" "MODE" "ACTIVE" "RETENTION" "STORAGE DIR" "SCHEDULE"
+    printf '%s\n' "------------------------------------------------------------------------------------------------------------------------------"
     for jid in "${ids[@]}"; do
         if zb_job_load "$jid"; then
             local keep_unit="snaps"
-            [[ "$BACKUP_TYPE" == "incremental" ]] && keep_unit="chains"
-            printf '%-18s %-12s %-7s %-10s %-24s %s\n' \
+            if [[ "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "synthetic_full" ]]; then
+                keep_unit="chains"
+            elif [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+                keep_unit="points"
+            fi
+            printf '%-18s %-15s %-7s %-12s %-32s %s\n' \
                 "$JOB_ID" \
                 "$BACKUP_TYPE" \
                 "$ENABLED" \
@@ -488,6 +528,12 @@ zb_job_print_detail() (
     local keep_desc="${KEEP_COUNT} Full snapshots"
     if [[ "$BACKUP_TYPE" == "incremental" ]]; then
         keep_desc="${KEEP_COUNT} complete chains (each chain = 1 Full + Incrementals)"
+    elif [[ "$BACKUP_TYPE" == "synthetic_full" ]]; then
+        keep_desc="${KEEP_COUNT} complete synthetic chains (each chain = 1 Synthetic Full + Incrementals)"
+    elif [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+        local incr_pts=0
+        (( KEEP_COUNT > 1 )) && incr_pts=$((KEEP_COUNT - 1))
+        keep_desc="${KEEP_COUNT} restore points (1 base Full + ${incr_pts} Incrementals rolled forward)"
     fi
     local ftp_desc="Disabled"
     if [[ "$FTP_UPLOAD" == "yes" ]]; then
@@ -638,8 +684,11 @@ zb_cli_job() {
             JOB_ID="$new_id"
             JOB_NAME="Scheduled backup $new_id"
             zb_parse_job_flags "$@" || return 1
-            if [[ "$BACKUP_TYPE" == "incremental" ]]; then
+            if [[ "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "synthetic_full" ]]; then
                 [[ "$ZB_KEEP_EXPLICIT" == "1" ]] || KEEP_COUNT="2"
+                [[ "$ZB_PARALLEL_EXPLICIT" == "1" ]] || PARALLEL_JOBS="4"
+            elif [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+                [[ "$ZB_KEEP_EXPLICIT" == "1" ]] || KEEP_COUNT="7"
                 [[ "$ZB_PARALLEL_EXPLICIT" == "1" ]] || PARALLEL_JOBS="4"
             fi
             zb_job_save || return 1
@@ -654,8 +703,11 @@ zb_cli_job() {
             zb_job_load "$edit_id" || return 1
             local prev_type="$BACKUP_TYPE"
             zb_parse_job_flags "$@" || return 1
-            if [[ "$BACKUP_TYPE" == "incremental" && "$prev_type" != "incremental" ]]; then
+            if [[ ("$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "synthetic_full") && "$prev_type" == "full" ]]; then
                 [[ "$ZB_KEEP_EXPLICIT" == "1" ]] || KEEP_COUNT="2"
+                [[ "$ZB_PARALLEL_EXPLICIT" == "1" ]] || PARALLEL_JOBS="4"
+            elif [[ "$BACKUP_TYPE" == "forever_incremental" && "$prev_type" == "full" ]]; then
+                [[ "$ZB_KEEP_EXPLICIT" == "1" ]] || KEEP_COUNT="7"
                 [[ "$ZB_PARALLEL_EXPLICIT" == "1" ]] || PARALLEL_JOBS="4"
             fi
             if [[ "$SCOPE_MODE" == "all" ]]; then
@@ -702,7 +754,7 @@ zb_cli_job() {
             zb_info "Deleted job '$del_id' and removed its cron entry (backup data at $(zb_job_storage_root) was kept)."
             ;;
         run)
-            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup job run <job_id> [--cron] [--force-full]"; return 1; }
+            [[ $# -ge 1 ]] || { zb_err "Usage: zimbra-backup job run <job_id> [--cron] [--force-full] [--synthetic-full]"; return 1; }
             local run_id="$1"
             shift
             zb_run_job "$run_id" "$@"

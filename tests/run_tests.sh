@@ -1446,6 +1446,162 @@ fi
 rm -f -- "$test_fail_tgz" "${test_fail_tgz%.tgz}.empty"
 unset MOCK_ZMMAILBOX_FAIL_REAL
 
+printf '\n=== 19. Kiểm tra Forever Forward Incremental (FFI) & Synthetic Full Backup (SFB) v0.3.16 ===\n'
+
+# 19a. Kiểm tra tạo Job & định danh thư mục lưu trữ tự mô tả (self-describing directory)
+"$ZB_CMD" job add job-ffi \
+    --type forever_incremental \
+    --target-dir "$STORE_DIR" \
+    --keep 3 \
+    --schedule off \
+    --parallel 2 >/dev/null
+
+assert_file_exists "$ZB_STATE_DIR/jobs/job-ffi.conf" "Tạo job-ffi.conf thành công"
+ffi_cfg="$(cat "$ZB_STATE_DIR/jobs/job-ffi.conf")"
+assert_contains "$ffi_cfg" "BACKUP_TYPE=forever_incremental" "Job FFI lưu đúng BACKUP_TYPE=forever_incremental"
+assert_contains "$ffi_cfg" "KEEP_COUNT=3" "Job FFI lưu đúng KEEP_COUNT=3"
+
+ffi_show="$("$ZB_CMD" job show job-ffi)"
+assert_contains "$ffi_show" "Forever-Forward-Incremental" \
+    "Job FFI hiển thị đúng thư mục lưu trữ tự mô tả (Forever-Forward-Incremental)"
+
+"$ZB_CMD" job add job-sfb \
+    --type synthetic_full \
+    --target-dir "$STORE_DIR" \
+    --keep 2 \
+    --full-cycle max_incr \
+    --full-cycle-value 2 \
+    --schedule off \
+    --parallel 2 >/dev/null
+
+assert_file_exists "$ZB_STATE_DIR/jobs/job-sfb.conf" "Tạo job-sfb.conf thành công"
+sfb_show="$("$ZB_CMD" job show job-sfb)"
+assert_contains "$sfb_show" "Synthetic-Full-Backup" \
+    "Job SFB hiển thị đúng thư mục lưu trữ tự mô tả (Synthetic-Full-Backup)"
+
+# Kiểm tra tránh trùng lặp segment đường dẫn (deduplication)
+"$ZB_CMD" job add job-ffi-dedup \
+    --type ffi \
+    --target-dir "$STORE_DIR/incremental/Forever-Forward-Incremental" \
+    --schedule off >/dev/null
+dedup_show="$("$ZB_CMD" job show job-ffi-dedup)"
+assert_not_contains "$dedup_show" "Forever-Forward-Incremental/Forever-Forward-Incremental" \
+    "Tránh trùng lặp thư mục khi người dùng chỉ định sẵn thư mục con"
+"$ZB_CMD" job delete job-ffi-dedup --yes >/dev/null
+
+# 19b. Chu trình chạy Forever Forward Incremental (FFI): Base Full -> Increments -> Tự động Merge khi vượt KEEP_COUNT
+# Run 1: Tạo base full
+"$ZB_CMD" job run job-ffi >/dev/null
+ffi_store="$STORE_DIR/incremental/Forever-Forward-Incremental"
+ffi_full1="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d -name 'full-*' | head -n 1)"
+[[ -n "$ffi_full1" && -f "$ffi_full1/manifest" ]] \
+    && pass "FFI Run 1: Tạo thành công bản Full gốc ban đầu trong Forever-Forward-Incremental" \
+    || fail "FFI Run 1: Không tìm thấy bản Full gốc trong $ffi_store"
+ffi_full1_mf="$(cat "$ffi_full1/manifest")"
+assert_contains "$ffi_full1_mf" "backup_type=full" "FFI base full có backup_type=full"
+assert_contains "$ffi_full1_mf" "chain_id=ffi-job-ffi" "FFI base full định danh chain_id=ffi-job-ffi"
+
+# Run 2: Bước Incremental 1
+sleep 1
+"$ZB_CMD" job run job-ffi >/dev/null
+ffi_incr1="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d -name '001-incremental-*' | head -n 1)"
+[[ -n "$ffi_incr1" && -f "$ffi_incr1/manifest" ]] \
+    && pass "FFI Run 2: Tạo thành công bước 001-incremental-*" \
+    || fail "FFI Run 2: Không tìm thấy bước 001-incremental-*"
+assert_contains "$(cat "$ffi_incr1/manifest")" "chain_id=ffi-job-ffi" "001-incremental dùng chung chain_id ffi-job-ffi"
+
+# Run 3: Bước Incremental 2 (đạt ngưỡng KEEP_COUNT=3 restore points: 1 Full + 2 Incr)
+sleep 1
+"$ZB_CMD" job run job-ffi >/dev/null
+ffi_incr2="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d -name '002-incremental-*' | head -n 1)"
+[[ -n "$ffi_incr2" && -f "$ffi_incr2/manifest" ]] \
+    && pass "FFI Run 3: Tạo thành công bước 002-incremental-*" \
+    || fail "FFI Run 3: Không tìm thấy bước 002-incremental-*"
+
+points_before="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
+[[ "$points_before" == "3" ]] \
+    && pass "FFI duy trì đúng 3 restore points trước khi kích hoạt merge (1 Full + 2 Incr)" \
+    || fail "Số lượng restore points ($points_before) khác 3"
+
+# Run 4: Bước Incremental 3 -> Vượt KEEP_COUNT=3 -> Kích hoạt zb_ffi_prune_and_merge
+sleep 1
+"$ZB_CMD" job run job-ffi >/dev/null
+
+points_after="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
+[[ "$points_after" == "3" ]] \
+    && pass "FFI Merge: Tự động gộp delta cũ nhất vào Full gốc và duy trì chính xác KEEP_COUNT=3" \
+    || fail "FFI Merge thất bại: Số lượng restore points sau merge ($points_after) khác 3"
+
+# Kiểm tra các bước còn lại đã được renumber từ 002 -> 001 và 003 -> 002
+assert_file_exists "$ffi_store/001-incremental-"*"/manifest" "Bước 002 cũ được renumber thành 001-incremental"
+assert_file_exists "$ffi_store/002-incremental-"*"/manifest" "Bước 003 mới được renumber thành 002-incremental"
+rem_003="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d -name '003-incremental-*' | wc -l | tr -d '[:space:]')"
+[[ "$rem_003" == "0" ]] \
+    && pass "Không còn bước 003-incremental sau khi renumber chuỗi FFI" \
+    || fail "Vẫn còn sót bước 003-incremental sau renumber"
+
+new_base_full="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d -name 'full-*' | head -n 1)"
+"$ZB_CMD" backup verify "$new_base_full" >/dev/null
+pass "FFI Merge: Bản Full gốc mới được kiểm tra toàn vẹn SHA-256 thành công"
+
+# 19c. Chu trình chạy Synthetic Full Backup (SFB): Base Full -> Increments -> Tổng hợp Full cục bộ (zero Zimbra load)
+sfb_store="$STORE_DIR/incremental/Synthetic-Full-Backup"
+# Run 1: Base Full ban đầu
+"$ZB_CMD" job run job-sfb >/dev/null
+assert_file_exists "$sfb_store/full-"*"/manifest" "SFB Run 1: Tạo bản Full gốc ban đầu trong Synthetic-Full-Backup"
+
+# Run 2: Bước Incremental 1
+sleep 1
+"$ZB_CMD" job run job-sfb >/dev/null
+assert_file_exists "$sfb_store/001-incremental-"*"/manifest" "SFB Run 2: Tạo bước 001-incremental"
+
+# Run 3: Bước Incremental 2 (đạt full-cycle max_incr=2)
+sleep 1
+"$ZB_CMD" job run job-sfb >/dev/null
+assert_file_exists "$sfb_store/002-incremental-"*"/manifest" "SFB Run 3: Tạo bước 002-incremental"
+
+# Run 4: Kích hoạt Synthetic Full. Xác minh: KHÔNG gọi lệnh tải toàn bộ mailbox từ Zimbra
+: > "$MOCK_LOG"
+sleep 1
+"$ZB_CMD" job run job-sfb >/dev/null
+
+mock_sfb_log="$(cat "$MOCK_LOG")"
+assert_not_contains "$mock_sfb_log" "fmt=tgz\"" \
+    "SFB KHÔNG gọi API tải toàn bộ hộp thư từ Zimbra (không có request fmt=tgz tải full)"
+
+sfb_fulls=( "$sfb_store"/full-* )
+(( ${#sfb_fulls[@]} >= 2 )) \
+    && pass "SFB tạo thành công bản Synthetic Full mới độc lập trên ổ cứng" \
+    || fail "SFB không tạo được bản Synthetic Full mới"
+
+latest_sfb_full="${sfb_fulls[$((${#sfb_fulls[@]} - 1))]}"
+assert_contains "$(cat "$latest_sfb_full/manifest")" "backup_type=full" "Bản Synthetic Full có manifest backup_type=full"
+assert_contains "$(cat "$latest_sfb_full/manifest")" "chain_seq=0" "Bản Synthetic Full có chain_seq=0 (bản Full độc lập)"
+
+"$ZB_CMD" backup verify "$latest_sfb_full" >/dev/null
+pass "SFB: Bản Synthetic Full mới đạt kiểm tra toàn vẹn SHA-256 (backup verify)"
+
+# 19d. Kiểm tra Khôi phục (Restore) từ chuỗi FFI và bản Synthetic Full
+ffi_incr_to_restore="$(find "$ffi_store" -mindepth 1 -maxdepth 1 -type d -name '001-incremental-*' | head -n 1)"
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$ffi_incr_to_restore" --users "user1@example.com" --mode reset --yes >/dev/null
+ffi_restore_log="$(cat "$MOCK_LOG")"
+assert_contains "$ffi_restore_log" "resolve=reset" "Restore FFI: Bước Full gốc dùng resolve=reset"
+assert_contains "$ffi_restore_log" "resolve=modify" "Restore FFI: Bước Incremental tự chuyển sang resolve=modify"
+
+: > "$MOCK_LOG"
+"$ZB_CMD" restore --from "$latest_sfb_full" --users "user1@example.com" --mode reset --yes >/dev/null
+sfb_restore_log="$(cat "$MOCK_LOG")"
+assert_contains "$sfb_restore_log" "resolve=reset" "Restore SFB: Khôi phục trực tiếp từ Synthetic Full với resolve=reset"
+
+# 19e. Kiểm tra hiển thị loại sao lưu trong danh mục backup catalog
+cat_ffi="$("$ZB_CMD" backup list --job job-ffi)"
+assert_contains "$cat_ffi" "ffi-full" "Catalog hiển thị đúng nhãn ffi-full cho FFI"
+assert_contains "$cat_ffi" "ffi-incr(#" "Catalog hiển thị đúng nhãn ffi-incr(#seq) cho FFI"
+
+cat_sfb="$("$ZB_CMD" backup list --job job-sfb)"
+assert_contains "$cat_sfb" "synth-full" "Catalog hiển thị đúng nhãn synth-full cho SFB"
+
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"
     "$REPO_ROOT/bin/zimbra-backup"

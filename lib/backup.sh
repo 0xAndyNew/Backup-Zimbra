@@ -322,6 +322,11 @@ zb_prune_job_storage() {
     local phase="$4"   # before | after
     local filter_jid="${5:-}"
 
+    if [[ "$btype" == "forever_incremental" ]]; then
+        zb_ffi_prune_and_merge "$job_root" "$keep" "$phase" "$filter_jid"
+        return $?
+    fi
+
     local target_keep="$keep"
     if [[ "$phase" == "before" ]]; then
         # Never delete the sole remaining valid backup/chain before creating a new one!
@@ -353,7 +358,7 @@ zb_prune_job_storage() {
     local idx=0
     while (( idx < remove_cnt )); do
         local victim="${items[$idx]}"
-        if [[ "$btype" == "incremental" && -f "$victim/manifest" ]]; then
+        if [[ ("$btype" == "incremental" || "$btype" == "synthetic_full") && -f "$victim/manifest" ]]; then
             local step_dir
             while IFS= read -r step_dir; do
                 if [[ -d "$step_dir" && ! -L "$step_dir" ]]; then
@@ -373,13 +378,14 @@ zb_prune_job_storage() {
     return 0
 }
 
-# Decide whether an `incremental` job should open a new Full chain or append an Incremental step.
-# Sets globals: ZB_PLAN_STEP_TYPE (full|incr), ZB_PLAN_CHAIN_DIR, ZB_PLAN_CHAIN_ID, ZB_PLAN_SEQ, ZB_PLAN_PARENT_ID, ZB_PLAN_CP_FROM
+# Decide whether an incremental/FFI/synthetic_full job should open a new Full chain, synthesize a Full, or append an Incremental step.
+# Sets globals: ZB_PLAN_STEP_TYPE (full|synth_full|incr), ZB_PLAN_CHAIN_DIR, ZB_PLAN_CHAIN_ID, ZB_PLAN_SEQ, ZB_PLAN_PARENT_ID, ZB_PLAN_CP_FROM
 zb_plan_incremental_step() {
     local job_root="$1"
     local force_full="${2:-0}"
     local stamp="$3"
     local filter_jid="${4:-}"
+    local synthetic_full_flag="${5:-0}"
 
     ZB_PLAN_STEP_TYPE="full"
     ZB_PLAN_CHAIN_DIR="$job_root"
@@ -387,11 +393,6 @@ zb_plan_incremental_step() {
     ZB_PLAN_SEQ=0
     ZB_PLAN_PARENT_ID="none"
     ZB_PLAN_CP_FROM=0
-
-    if [[ "$force_full" == "1" ]]; then
-        zb_log "Force-full requested (--force-full): starting new Full chain in ${job_root}."
-        return 0
-    fi
 
     local -a chains=()
     local c
@@ -401,7 +402,20 @@ zb_plan_incremental_step() {
 
     if (( ${#chains[@]} == 0 )); then
         zb_log "No existing Full base chain found: automatically starting initial Full chain in ${job_root}."
+        if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+            ZB_PLAN_CHAIN_ID="ffi-${filter_jid:-${JOB_ID:-default}}"
+        fi
         return 0
+    fi
+
+    if [[ "$force_full" == "1" ]]; then
+        if [[ "$BACKUP_TYPE" == "synthetic_full" ]]; then
+            zb_log "Force-full requested on Synthetic Full job: triggering local Synthetic Full backup."
+            synthetic_full_flag=1
+        else
+            zb_log "Force-full requested (--force-full): starting new Full chain in ${job_root}."
+            return 0
+        fi
     fi
 
     local latest_chain="${chains[$((${#chains[@]} - 1))]}"
@@ -433,38 +447,83 @@ zb_plan_incremental_step() {
     today_dom="$(date '+%-d')"
 
     local need_new_full=0
-    case "$FULL_CYCLE_MODE" in
-        max_incr)
-            if (( incr_count >= FULL_CYCLE_VALUE )); then
-                zb_log "Reached FULL_CYCLE_VALUE=$FULL_CYCLE_VALUE incrementals in current chain -> starting new Full chain."
-                need_new_full=1
-            fi
-            ;;
-        weekly)
-            if [[ "$today_dow" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
-                zb_log "Scheduled weekly Full day (DOW=$today_dow) reached -> starting new Full chain."
-                need_new_full=1
-            fi
-            ;;
-        monthly)
-            if [[ "$today_dom" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
-                zb_log "Scheduled monthly Full day (DOM=$today_dom) reached -> starting new Full chain."
-                need_new_full=1
-            fi
-            ;;
-    esac
+    if [[ "$synthetic_full_flag" == "1" ]]; then
+        need_new_full=1
+    elif [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+        # Forever Forward Incremental never triggers a new Full from Zimbra
+        need_new_full=0
+    elif [[ "$BACKUP_TYPE" == "synthetic_full" ]]; then
+        case "$FULL_CYCLE_MODE" in
+            max_incr)
+                if (( incr_count >= FULL_CYCLE_VALUE )); then
+                    zb_log "Reached FULL_CYCLE_VALUE=$FULL_CYCLE_VALUE incrementals in current chain -> starting Synthetic Full."
+                    need_new_full=1
+                fi
+                ;;
+            weekly)
+                if [[ "$today_dow" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
+                    zb_log "Scheduled weekly Full day (DOW=$today_dow) reached -> starting Synthetic Full."
+                    need_new_full=1
+                fi
+                ;;
+            monthly)
+                if [[ "$today_dom" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
+                    zb_log "Scheduled monthly Full day (DOM=$today_dom) reached -> starting Synthetic Full."
+                    need_new_full=1
+                fi
+                ;;
+        esac
+    else
+        case "$FULL_CYCLE_MODE" in
+            max_incr)
+                if (( incr_count >= FULL_CYCLE_VALUE )); then
+                    zb_log "Reached FULL_CYCLE_VALUE=$FULL_CYCLE_VALUE incrementals in current chain -> starting new Full chain."
+                    need_new_full=1
+                fi
+                ;;
+            weekly)
+                if [[ "$today_dow" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
+                    zb_log "Scheduled weekly Full day (DOW=$today_dow) reached -> starting new Full chain."
+                    need_new_full=1
+                fi
+                ;;
+            monthly)
+                if [[ "$today_dom" == "$FULL_CYCLE_VALUE" && "$base_date_ymd" != "$today_ymd" ]]; then
+                    zb_log "Scheduled monthly Full day (DOM=$today_dom) reached -> starting new Full chain."
+                    need_new_full=1
+                fi
+                ;;
+        esac
+    fi
 
     if (( need_new_full == 1 )); then
+        if [[ "$BACKUP_TYPE" == "synthetic_full" || "$synthetic_full_flag" == "1" ]]; then
+            ZB_PLAN_STEP_TYPE="synth_full"
+            ZB_PLAN_CHAIN_DIR="$job_root"
+            ZB_PLAN_CHAIN_ID=""
+            ZB_PLAN_SEQ=0
+            ZB_PLAN_PARENT_ID="none"
+            if [[ "$last_cp_to" =~ ^[0-9]+$ ]] && (( last_cp_to > 300 )); then
+                ZB_PLAN_CP_FROM=$((last_cp_to - 300))
+            else
+                ZB_PLAN_CP_FROM="$last_cp_to"
+            fi
+            return 0
+        fi
         return 0
     fi
 
     ZB_PLAN_STEP_TYPE="incr"
-    if [[ -f "$latest_chain/manifest" ]]; then
+    if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
         ZB_PLAN_CHAIN_DIR="$job_root"
+        ZB_PLAN_CHAIN_ID="ffi-${filter_jid:-${JOB_ID:-default}}"
+    elif [[ -f "$latest_chain/manifest" ]]; then
+        ZB_PLAN_CHAIN_DIR="$job_root"
+        ZB_PLAN_CHAIN_ID="$base_chain_id"
     else
         ZB_PLAN_CHAIN_DIR="$latest_chain"
+        ZB_PLAN_CHAIN_ID="$base_chain_id"
     fi
-    ZB_PLAN_CHAIN_ID="$base_chain_id"
     ZB_PLAN_SEQ="${#steps[@]}"
     ZB_PLAN_PARENT_ID="$last_id"
     # Overlap buffer of 300 seconds (5 minutes) prevents boundary mail loss across midnight/clock drift
@@ -822,6 +881,437 @@ zb_export_mailboxes_parallel() {
     return 0
 }
 
+# Merge a base mailbox archive and an incremental delta archive into an updated full archive
+zb_merge_mailbox_archives() {
+    local base_tgz="$1"
+    local incr_tgz="$2"
+    local out_tgz="$3"
+
+    if [[ ! -f "$incr_tgz" ]]; then
+        if [[ -f "$base_tgz" ]]; then
+            ln "$base_tgz" "$out_tgz" 2>/dev/null || cp -p -- "$base_tgz" "$out_tgz" || return 1
+        fi
+        return 0
+    fi
+
+    if [[ ! -f "$base_tgz" ]]; then
+        ln "$incr_tgz" "$out_tgz" 2>/dev/null || cp -p -- "$incr_tgz" "$out_tgz" || return 1
+        return 0
+    fi
+
+    local work_dir
+    work_dir="$(mktemp -d "$ZB_RUN_DIR/.merge_box.XXXXXX")" || return 1
+    if ! tar -xzf "$base_tgz" -C "$work_dir" 2>/dev/null; then
+        zb_err "Corrupted base archive during mailbox merge: $base_tgz"
+        rm -rf -- "$work_dir"
+        return 1
+    fi
+    if ! tar -xzf "$incr_tgz" -C "$work_dir" 2>/dev/null; then
+        zb_err "Corrupted delta archive during mailbox merge: $incr_tgz"
+        rm -rf -- "$work_dir"
+        return 1
+    fi
+    if ! tar -czf "$out_tgz" -C "$work_dir" . 2>/dev/null; then
+        zb_err "Failed to recompress merged mailbox archive: $out_tgz"
+        rm -rf -- "$work_dir"
+        return 1
+    fi
+    rm -rf -- "$work_dir"
+    return 0
+}
+
+# Synthesize a single account mailbox archive by combining base and incremental steps in order
+zb_synthesize_account_mailbox() {
+    local email="$1"
+    local out_tgz="$2"
+    shift 2
+    local -a src_dirs=("$@")
+
+    local -a tgz_list=()
+    local d tgz_file empty_file
+    for d in "${src_dirs[@]}"; do
+        tgz_file="$d/mailboxes/${email}.tgz"
+        empty_file="$d/mailboxes/${email}.empty"
+        if [[ -f "$tgz_file" ]]; then
+            tgz_list+=("$tgz_file")
+        fi
+    done
+
+    # Case 1: Account has 0 tar archives across the whole chain (all .empty or non-existent)
+    if (( ${#tgz_list[@]} == 0 )); then
+        touch "${out_tgz%.tgz}.empty"
+        return 0
+    fi
+
+    # Case 2: Only 1 archive exists across all sources (unchanged since base, or only in 1 incr)
+    if (( ${#tgz_list[@]} == 1 )); then
+        local single_tgz="${tgz_list[0]}"
+        ln "$single_tgz" "$out_tgz" 2>/dev/null || cp -p -- "$single_tgz" "$out_tgz" || return 1
+        return 0
+    fi
+
+    # Case 3: Exactly 2 archives -> merge directly
+    if (( ${#tgz_list[@]} == 2 )); then
+        zb_merge_mailbox_archives "${tgz_list[0]}" "${tgz_list[1]}" "$out_tgz"
+        return $?
+    fi
+
+    # Case 4: 3 or more archives -> unpack sequentially and recompress
+    local work_dir
+    work_dir="$(mktemp -d "$ZB_RUN_DIR/.synth_${email//[^A-Za-z0-9]/_}.XXXXXX")" || return 1
+
+    local tgz_item
+    for tgz_item in "${tgz_list[@]}"; do
+        if ! tar -xzf "$tgz_item" -C "$work_dir" 2>/dev/null; then
+            zb_err "Corrupted archive while synthesizing mailbox for $email: $tgz_item"
+            rm -rf -- "$work_dir"
+            return 1
+        fi
+    done
+
+    if ! tar -czf "$out_tgz" -C "$work_dir" . 2>/dev/null; then
+        zb_err "Failed to compress synthesized mailbox for $email"
+        rm -rf -- "$work_dir"
+        return 1
+    fi
+
+    rm -rf -- "$work_dir"
+    return 0
+}
+
+# Worker for background mailbox synthesis
+zb_synthesize_account_worker() {
+    exec 9>&- 7>&- 8>&- 2>/dev/null || true
+    local idx="$1"
+    local total="$2"
+    local email="$3"
+    local stage_dir="$4"
+    local fail_dir="$5"
+    shift 5
+    local -a src_dirs=("$@")
+
+    local out_tgz="$stage_dir/mailboxes/${email}.tgz"
+    if zb_synthesize_account_mailbox "$email" "$out_tgz" "${src_dirs[@]}"; then
+        if [[ -f "$out_tgz" ]]; then
+            local sz
+            sz="$(wc -c < "$out_tgz" 2>/dev/null | awk '{print $1}')"
+            zb_log "  [OK] ($idx/$total) $email (synthesized $(zb_human_bytes "$sz"))"
+        else
+            zb_log "  [OK] ($idx/$total) $email (synthesized: no items)"
+        fi
+    else
+        zb_log "  [FAIL] ($idx/$total) $email - mailbox synthesis failed"
+        printf '%s\n' "$email" > "$fail_dir/${idx}.fail"
+    fi
+}
+
+# Synthesize all account mailboxes in parallel
+zb_synthesize_mailboxes_parallel() {
+    local stage_dir="$1"
+    local parallel_limit="$2"
+    shift 2
+    local -a src_dirs=("$@")
+
+    mkdir -p -m 700 -- "$stage_dir/mailboxes" || return 1
+    local acc_file="$stage_dir/accounts/active_accounts.txt"
+    if [[ ! -s "$acc_file" ]]; then
+        local d f acc
+        local tmp_acc
+        tmp_acc="$(mktemp "$ZB_RUN_DIR/.synth_accs.XXXXXX")" || return 1
+        for d in "${src_dirs[@]}"; do
+            shopt -s nullglob
+            for f in "$d/mailboxes"/*.tgz "$d/mailboxes"/*.empty; do
+                acc="${f##*/}"
+                acc="${acc%.tgz}"
+                acc="${acc%.empty}"
+                [[ -n "$acc" ]] && printf '%s\n' "$acc" >> "$tmp_acc"
+            done
+            shopt -u nullglob
+        done
+        mkdir -p -m 700 -- "$stage_dir/accounts"
+        LC_ALL=C sort -u -o "$stage_dir/accounts/active_accounts.txt" "$tmp_acc"
+        rm -f -- "$tmp_acc"
+    fi
+
+    local total
+    total="$(wc -l < "$acc_file" | awk '{print $1}')"
+    if (( total == 0 )); then
+        zb_log "No accounts found for mailbox synthesis."
+        return 0
+    fi
+
+    local fail_dir
+    fail_dir="$(mktemp -d "$ZB_RUN_DIR/.synth_fail.XXXXXX")" || return 1
+
+    zb_log "Synthesizing mailboxes for $total account(s) using $parallel_limit parallel worker(s)..."
+
+    local -a pids=()
+    local idx=0 email
+    while IFS= read -r email <&3; do
+        [[ -n "$email" ]] || continue
+        idx=$((idx + 1))
+
+        if (( idx > 1 && (idx - 1) % 10 == 0 )); then
+            if ! zb_check_disk_space "$stage_dir" "$DISK_WARN_PERCENT" "$DISK_MIN_FREE_MB"; then
+                zb_terminate_active_workers
+                rm -rf -- "$fail_dir"
+                return 1
+            fi
+        fi
+
+        zb_synthesize_account_worker "$idx" "$total" "$email" "$stage_dir" "$fail_dir" "${src_dirs[@]}" &
+        pids+=("$!")
+        ZB_ACTIVE_WORKER_PIDS=("${pids[@]}")
+
+        while (( ${#pids[@]} >= parallel_limit )); do
+            local -a still_running=()
+            local found_exited=0 p
+            for p in "${pids[@]}"; do
+                if kill -0 "$p" 2>/dev/null; then
+                    still_running+=("$p")
+                else
+                    wait "$p" || true
+                    found_exited=1
+                fi
+            done
+            pids=("${still_running[@]+"${still_running[@]}"}")
+            ZB_ACTIVE_WORKER_PIDS=("${pids[@]+"${pids[@]}"}")
+            if (( found_exited == 0 && ${#pids[@]} >= parallel_limit )); then
+                sleep 0.2
+            fi
+        done
+    done 3< "$acc_file"
+
+    local rem_pid
+    for rem_pid in "${pids[@]+"${pids[@]}"}"; do
+        wait "$rem_pid" || true
+    done
+    ZB_ACTIVE_WORKER_PIDS=()
+
+    shopt -s nullglob
+    local -a fails=("$fail_dir"/*.fail)
+    shopt -u nullglob
+    local fail_cnt="${#fails[@]}"
+    if (( fail_cnt > 0 )); then
+        local failed_emails
+        failed_emails="$(cat "$fail_dir"/*.fail | tr '\n' ' ')"
+        rm -rf -- "$fail_dir"
+        zb_err "Mailbox synthesis failed for ${fail_cnt}/${total} account(s): ${failed_emails}"
+        return 1
+    fi
+
+    rm -rf -- "$fail_dir"
+    return 0
+}
+
+# Forever Forward Incremental: merge oldest incremental into base full when restore points exceed KEEP_COUNT
+zb_ffi_prune_and_merge() {
+    local job_root="$1"
+    local keep="$2"
+    local phase="$3"   # before | after
+    local filter_jid="${4:-}"
+
+    local target_keep="$keep"
+    if [[ "$phase" == "before" ]]; then
+        if (( keep <= 1 )); then
+            zb_log "Retention note: KEEP_COUNT=$keep with PRUNE_TIMING=before -> preserving existing FFI chain until new run completes."
+            return 0
+        fi
+        target_keep=$((keep - 1))
+    fi
+
+    local -a chains=()
+    local c
+    while IFS= read -r c; do
+        [[ -n "$c" ]] && chains+=("$c")
+    done < <(zb_list_valid_chains "$job_root" "$filter_jid")
+
+    if (( ${#chains[@]} == 0 )); then
+        return 0
+    fi
+
+    local base_full="${chains[0]}"
+    local -a steps=()
+    local s
+    while IFS= read -r s; do
+        [[ -n "$s" ]] && steps+=("$s")
+    done < <(zb_list_chain_steps "$base_full")
+
+    local total_points="${#steps[@]}"
+    if (( total_points <= target_keep || total_points < 2 )); then
+        return 0
+    fi
+
+    zb_log "FFI retention: current restore points ($total_points) exceed target ($target_keep). Rolling forward base full..."
+
+    while (( total_points > target_keep && total_points >= 2 )); do
+        base_full="${steps[0]}"
+        local oldest_incr="${steps[1]}"
+
+        zb_log "FFI merge: merging oldest incremental (${oldest_incr##*/}) into base full (${base_full##*/})..."
+
+        zb_read_manifest_meta "$oldest_incr/manifest" || {
+            zb_err "Cannot read manifest of oldest incremental step: $oldest_incr"
+            return 1
+        }
+        local oldest_cp_to="${MF_CHECKPOINT_TO:-0}"
+        local oldest_leaf="${oldest_incr##*/}"
+        local incr_stamp="${oldest_leaf##*-}"
+        [[ -n "$incr_stamp" ]] || incr_stamp="$(date '+%d-%m-%Y')"
+
+        local stage_dir="$job_root/.pending.merge_ffi.$$"
+        rm -rf -- "$stage_dir"
+        mkdir -p -m 700 -- "$stage_dir" || return 1
+
+        # 1. Copy latest metadata snapshot from oldest_incr (since incremental holds full LDAP state at that checkpoint)
+        local meta_sub
+        for meta_sub in domains admins dl accounts passwords attributes aliases signatures filters; do
+            if [[ -d "$oldest_incr/$meta_sub" ]]; then
+                cp -a -- "$oldest_incr/$meta_sub" "$stage_dir/"
+            elif [[ -d "$base_full/$meta_sub" ]]; then
+                cp -a -- "$base_full/$meta_sub" "$stage_dir/"
+            fi
+        done
+
+        # 2. Synthesize mailboxes from base_full + oldest_incr into stage_dir
+        if ! zb_synthesize_mailboxes_parallel "$stage_dir" "$PARALLEL_JOBS" "$base_full" "$oldest_incr"; then
+            zb_err "FFI mailbox merge failed"
+            rm -rf -- "$stage_dir"
+            return 1
+        fi
+
+        # 3. Write new manifest for updated base full
+        local new_base_name="full-${incr_stamp}"
+        local final_base_dir="$(zb_unique_path "$job_root/${new_base_name}")"
+        local final_leaf="${final_base_dir##*/}"
+        local ffi_chain_id="ffi-${filter_jid:-${JOB_ID:-default}}"
+
+        zb_write_manifest "$stage_dir" "incremental/${final_leaf}" "${filter_jid:-${JOB_ID:-default}}" \
+            "full" "$ffi_chain_id" "0" "none" "0" "$oldest_cp_to"
+
+        # 4. Commit new base full and delete merged steps
+        mv -- "$stage_dir" "$final_base_dir"
+        rm -rf -- "$base_full" "$oldest_incr"
+        zb_log "FFI merge committed: new base full is $final_leaf (checkpoint up to $(date -d "@$oldest_cp_to" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || printf '%s' "$oldest_cp_to"))."
+
+        # 5. Renumber remaining incremental steps (002 -> 001, 003 -> 002, etc.)
+        local rem_idx=2
+        local new_seq=1
+        local prev_parent_id="incremental/${final_leaf}"
+        while (( rem_idx < ${#steps[@]} )); do
+            local cur_dir="${steps[$rem_idx]}"
+            if [[ -d "$cur_dir" && ! -L "$cur_dir" ]]; then
+                local cur_leaf="${cur_dir##*/}"
+                local cur_stamp="${cur_leaf##*-}"
+                local new_seq_pad
+                new_seq_pad="$(printf '%03d' "$new_seq")"
+                local renamed_dir="${job_root}/${new_seq_pad}-incremental-${cur_stamp}"
+                if [[ "$cur_dir" != "$renamed_dir" ]]; then
+                    mv -- "$cur_dir" "$renamed_dir"
+                    cur_dir="$renamed_dir"
+                fi
+
+                # Update manifest metadata in place
+                if [[ -f "$cur_dir/manifest" ]]; then
+                    local mf_tmp
+                    mf_tmp="$(mktemp "$ZB_RUN_DIR/.mf_upd.XXXXXX")" || return 1
+                    awk -v new_seq="$new_seq" -v new_parent="$prev_parent_id" -v new_bid="incremental/${cur_dir##*/}" '
+                        /^chain_seq=/ { print "chain_seq=" new_seq; next }
+                        /^parent_id=/ { print "parent_id=" new_parent; next }
+                        /^backup_id=/ { print "backup_id=" new_bid; next }
+                        { print }
+                    ' "$cur_dir/manifest" > "$mf_tmp" && mv -f -- "$mf_tmp" "$cur_dir/manifest"
+                    chmod 600 "$cur_dir/manifest"
+                fi
+                prev_parent_id="incremental/${cur_dir##*/}"
+                new_seq=$((new_seq + 1))
+            fi
+            rem_idx=$((rem_idx + 1))
+        done
+
+        # Re-scan chain steps for next iteration if needed
+        steps=()
+        while IFS= read -r s; do
+            [[ -n "$s" ]] && steps+=("$s")
+        done < <(zb_list_chain_steps "$final_base_dir" "$ffi_chain_id")
+        total_points="${#steps[@]}"
+    done
+
+    zb_log "FFI retention complete. Current restore points in chain: ${total_points}/${keep}."
+    return 0
+}
+
+# Synthetic Full Backup: synthesize full snapshot locally from previous chain and interim delta
+zb_execute_synthetic_full_stage() {
+    local job_root="$1"
+    local stage_dir="$2"
+    local snap_leaf="$3"
+    local cp_from="$4"
+    local cp_to="$5"
+    local parallel_limit="$6"
+
+    zb_log "Starting Synthetic Full Backup: synthesizing full snapshot locally from previous chain..."
+
+    # 1. Export fresh LDAP metadata directly from Zimbra
+    if ! zb_export_metadata_stage "$stage_dir" "$SCOPE_MODE" "$SCOPE_VALUES"; then
+        zb_err "Failed to export LDAP metadata for Synthetic Full backup"
+        return 1
+    fi
+
+    # 2. Identify the active chain to synthesize from
+    local -a chains=()
+    local c
+    while IFS= read -r c; do
+        [[ -n "$c" ]] && chains+=("$c")
+    done < <(zb_list_valid_chains "$job_root" "$JOB_ID")
+
+    if (( ${#chains[@]} == 0 )); then
+        zb_err "No previous chain found in $job_root to synthesize from"
+        return 1
+    fi
+
+    local latest_chain="${chains[$((${#chains[@]} - 1))]}"
+    local -a chain_steps=()
+    local s
+    while IFS= read -r s; do
+        [[ -n "$s" ]] && chain_steps+=("$s")
+    done < <(zb_list_chain_steps "$latest_chain")
+
+    if (( ${#chain_steps[@]} == 0 )); then
+        zb_err "No steps found in chain $latest_chain to synthesize from"
+        return 1
+    fi
+
+    # 3. Pull interim delta from Zimbra for any mail changes since last step
+    local delta_stage="$job_root/.pending.delta.${snap_leaf}.$$"
+    rm -rf -- "$delta_stage"
+    mkdir -p -m 700 -- "$delta_stage/accounts" "$delta_stage/mailboxes" || return 1
+    cp -f -- "$stage_dir/accounts/active_accounts.txt" "$delta_stage/accounts/active_accounts.txt"
+
+    zb_log "Pulling incremental delta from live Zimbra since checkpoint ($cp_from)..."
+    if ! zb_export_mailboxes_parallel "$delta_stage" "incr" "$cp_from" "$parallel_limit"; then
+        zb_err "Failed to export interim mailbox delta for Synthetic Full backup"
+        rm -rf -- "$delta_stage"
+        return 1
+    fi
+
+    # 4. Synthesize all mailboxes from chain steps + interim delta into stage_dir
+    local -a all_sources=("${chain_steps[@]}" "$delta_stage")
+    zb_log "Synthesizing mailboxes locally from ${#chain_steps[@]} chain step(s) plus today's delta..."
+    if ! zb_synthesize_mailboxes_parallel "$stage_dir" "$parallel_limit" "${all_sources[@]}"; then
+        zb_err "Failed to synthesize mailboxes for Synthetic Full backup"
+        rm -rf -- "$delta_stage"
+        return 1
+    fi
+
+    rm -rf -- "$delta_stage"
+
+    # 5. Write manifest for Synthetic Full (standalone full, chain_seq=0, chain_id=$snap_leaf)
+    zb_write_manifest "$stage_dir" "incremental/${snap_leaf}" "$JOB_ID" "full" "$snap_leaf" "0" "none" "0" "$cp_to"
+    zb_log "Synthetic Full Backup synthesis completed successfully for $snap_leaf."
+    return 0
+}
+
 # Upload snapshot to remote FTP / SFTP storage (if enabled)
 TRANSFER_STATUS=""
 TRANSFER_BYTES=0
@@ -861,7 +1351,7 @@ zb_upload_snapshot() {
     local cat_sub="full"
     if [[ "$job_id" == "account" ]]; then
         cat_sub="account"
-    elif [[ "${BACKUP_TYPE:-full}" == "incremental" || "$step_type" == "incr" || "$step_type" == "incremental" ]]; then
+    elif [[ "${BACKUP_TYPE:-full}" == "incremental" || "${BACKUP_TYPE:-full}" == "forever_incremental" || "${BACKUP_TYPE:-full}" == "synthetic_full" || "$step_type" == "incr" || "$step_type" == "incremental" || "$step_type" == "synth_full" ]]; then
         cat_sub="incremental"
     fi
 
@@ -1035,7 +1525,7 @@ zb_prune_remote_storage() {
     local cat_sub="full"
     if [[ "$job_id" == "account" ]]; then
         cat_sub="account"
-    elif [[ "$btype" == "incremental" ]]; then
+    elif [[ "$btype" == "incremental" || "$btype" == "forever_incremental" || "$btype" == "synthetic_full" ]]; then
         cat_sub="incremental"
     fi
 
@@ -1145,11 +1635,13 @@ zb_run_job() (
     shift || true
     local from_cron=0
     local force_full=0
+    local force_synth_full=0
 
     while (( $# > 0 )); do
         case "$1" in
             --cron) from_cron=1; shift ;;
             --force-full) force_full=1; shift ;;
+            --synthetic-full|--force-synthetic-full) force_synth_full=1; shift ;;
             *) zb_err "Unknown 'job run' option: $1"; return 1 ;;
         esac
     done
@@ -1237,10 +1729,12 @@ Log File   : ${ZB_CURRENT_LOG}"
         backup_id="full/${snap_leaf}"
         stage_dir="$job_root/.pending.${snap_leaf}.$$"
     else
-        zb_plan_incremental_step "$job_root" "$force_full" "$stamp" "$JOB_ID"
+        zb_plan_incremental_step "$job_root" "$force_full" "$stamp" "$JOB_ID" "$force_synth_full"
         step_type="$ZB_PLAN_STEP_TYPE"
-        if [[ "$PRUNE_TIMING" == "before" && "$step_type" == "full" ]]; then
-            zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before" "$JOB_ID"
+        if [[ "$PRUNE_TIMING" == "before" ]]; then
+            if [[ "$BACKUP_TYPE" == "forever_incremental" || "$step_type" == "full" || "$step_type" == "synth_full" ]]; then
+                zb_prune_job_storage "$job_root" "$BACKUP_TYPE" "$KEEP_COUNT" "before" "$JOB_ID"
+            fi
         fi
         zb_check_no_symlinks "$ZB_PLAN_CHAIN_DIR" || return 1
         mkdir -p -m 700 -- "$ZB_PLAN_CHAIN_DIR" || return 1
@@ -1250,10 +1744,14 @@ Log File   : ${ZB_CURRENT_LOG}"
         cp_from="$ZB_PLAN_CP_FROM"
         local seq_pad
         seq_pad="$(printf '%03d' "$chain_seq")"
-        if [[ "$step_type" == "full" ]]; then
+        if [[ "$step_type" == "full" || "$step_type" == "synth_full" ]]; then
             final_dir="$(zb_unique_path "$job_root/full-${stamp}")"
             snap_leaf="${final_dir##*/}"
-            chain_id="$snap_leaf"
+            if [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+                chain_id="${ZB_PLAN_CHAIN_ID:-ffi-${JOB_ID}}"
+            else
+                chain_id="$snap_leaf"
+            fi
             backup_id="incremental/${snap_leaf}"
             stage_dir="$job_root/.pending.${snap_leaf}.$$"
         else
@@ -1268,12 +1766,18 @@ Log File   : ${ZB_CURRENT_LOG}"
     mkdir -p -m 700 -- "$stage_dir" || return 1
 
     local fail_reason=""
-    if ! zb_export_metadata_stage "$stage_dir" "$SCOPE_MODE" "$SCOPE_VALUES"; then
-        fail_reason="LDAP metadata / account export failed"
-    elif ! zb_export_mailboxes_parallel "$stage_dir" "$step_type" "$cp_from" "$PARALLEL_JOBS"; then
-        fail_reason="One or more mailbox exports failed"
+    if [[ "$step_type" == "synth_full" ]]; then
+        if ! zb_execute_synthetic_full_stage "$job_root" "$stage_dir" "$snap_leaf" "$cp_from" "$cp_to" "$PARALLEL_JOBS"; then
+            fail_reason="Synthetic Full Backup synthesis failed"
+        fi
     else
-        zb_write_manifest "$stage_dir" "$backup_id" "$JOB_ID" "$step_type" "$chain_id" "$chain_seq" "$parent_id" "$cp_from" "$cp_to"
+        if ! zb_export_metadata_stage "$stage_dir" "$SCOPE_MODE" "$SCOPE_VALUES"; then
+            fail_reason="LDAP metadata / account export failed"
+        elif ! zb_export_mailboxes_parallel "$stage_dir" "$step_type" "$cp_from" "$PARALLEL_JOBS"; then
+            fail_reason="One or more mailbox exports failed"
+        else
+            zb_write_manifest "$stage_dir" "$backup_id" "$JOB_ID" "$step_type" "$chain_id" "$chain_seq" "$parent_id" "$cp_from" "$cp_to"
+        fi
     fi
 
     if [[ -n "$fail_reason" ]]; then
@@ -1305,7 +1809,7 @@ Log File   : ${ZB_CURRENT_LOG}"
     local job_ftp_enabled="${FTP_UPLOAD:-${FTP_ENABLED:-no}}"
     if [[ "$job_ftp_enabled" == "yes" ]]; then
         local chain_sub=""
-        if [[ "$BACKUP_TYPE" == "incremental" ]]; then
+        if [[ "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "forever_incremental" || "$BACKUP_TYPE" == "synthetic_full" ]]; then
             chain_sub="${chain_id}"
         fi
         if zb_upload_snapshot "$final_dir" "$JOB_ID" "$step_type" "$chain_sub"; then
@@ -1319,15 +1823,22 @@ Log File   : ${ZB_CURRENT_LOG}"
         fi
     fi
 
+    local display_mode="${step_type^^}"
+    if [[ "$step_type" == "synth_full" ]]; then
+        display_mode="SYNTHETIC FULL"
+    elif [[ "$BACKUP_TYPE" == "forever_incremental" ]]; then
+        display_mode="FFI (${step_type^^})"
+    fi
+
     zb_log "============================================================"
-    zb_log "COMPLETED JOB '$JOB_ID' (${step_type^^}) | Accounts: ${MF_ACCOUNTS_COUNT} | Size: ${human_sz} | Duration: ${duration_sec}s"
+    zb_log "COMPLETED JOB '$JOB_ID' (${display_mode}) | Accounts: ${MF_ACCOUNTS_COUNT} | Size: ${human_sz} | Duration: ${duration_sec}s"
     zb_log "Location: $final_dir"
     [[ -n "$ftp_line" ]] && zb_log "$ftp_line"
     zb_log "============================================================"
 
-    local notify_title="Job '${JOB_NAME:-$JOB_ID}' (${step_type^^}) completed - ${MF_ACCOUNTS_COUNT} accounts, ${human_sz}"
+    local notify_title="Job '${JOB_NAME:-$JOB_ID}' (${display_mode}) completed - ${MF_ACCOUNTS_COUNT} accounts, ${human_sz}"
     if [[ "$notify_tag" == "warn" ]]; then
-        notify_title="Job '${JOB_NAME:-$JOB_ID}' (${step_type^^}) completed (remote upload failed)"
+        notify_title="Job '${JOB_NAME:-$JOB_ID}' (${display_mode}) completed (remote upload failed)"
     fi
 
     local dur_desc="${duration_sec}s"
@@ -1336,7 +1847,7 @@ Log File   : ${ZB_CURRENT_LOG}"
     fi
 
     local notify_body="Job Name       : ${JOB_NAME:-$JOB_ID}
-Backup Mode    : ${step_type^^}
+Backup Mode    : ${display_mode}
 Accounts       : ${MF_ACCOUNTS_COUNT} (new/changed: ${MF_ARCHIVES_COUNT}, unchanged: ${MF_EMPTY_DELTA_COUNT})
 Total Size     : ${human_sz}
 Duration       : ${dur_desc}

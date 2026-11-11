@@ -67,15 +67,15 @@ USAGE:
   2. Manage Multi-Job Backups & Automatic Crontab:
      zimbra-backup job list
      zimbra-backup job show <job_id>
-     zimbra-backup job add <job_id> --type full|incremental [--target-dir /home/backup]
-         [--scope all|domains|accounts] [--scope-values d1.com,d2.com]
+     zimbra-backup job add <job_id> --type full|incremental|forever_incremental|synthetic_full
+         [--target-dir /home/backup] [--scope all|domains|accounts] [--scope-values d1.com,d2.com]
          [--schedule daily|weekly|monthly|custom|off] [--hour 2 --minute 0] [--dow 0] [--dom 1,15 --month *]
          [--cron-expr "0 2 * * *"] [--full-cycle max_incr|weekly|monthly --full-cycle-value 6]
          [--keep 7] [--prune-timing after|before] [--parallel 2]
      zimbra-backup job edit <job_id> [options to update...]
      zimbra-backup job enable <job_id> | disable <job_id>
      zimbra-backup job delete <job_id> [--yes]
-     zimbra-backup job run <job_id> [--cron] [--force-full]
+     zimbra-backup job run <job_id> [--cron] [--force-full] [--synthetic-full]
      zimbra-backup cron sync | cron show
 
   3. Inspect Backups, Verify Checksums & Ad-hoc Account Backup:
