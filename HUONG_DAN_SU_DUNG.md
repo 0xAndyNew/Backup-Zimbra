@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.16)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.17)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.16** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.17** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -86,20 +86,32 @@ Khi cài đặt gói RPM/DEB, hệ thống phân tách rành mạch thành các 
   └── run/                              # Token bảo mật tạm thời quyền 0600 (tự dọn sạch sau khi chạy)
 
 /home/backup/                           # Thư mục lưu trữ backup mặc định (DEFAULT_BACKUP_DIR)
-  ├── full/                             # [1] Phân loại các bản Backup FULL độc lập
-  │     ├── full-01-11-2026/
-  │     └── full-02-11-2026/
-  ├── incremental/                      # [2] Phân loại các chuỗi Backup INCREMENTAL
-  │     ├── full-01-11-2026/                  # Bản Full gốc đầu chuỗi
-  │     ├── 001-incremental-02-11-2026/       # Bản Incr ngày 1
-  │     └── 002-incremental-03-11-2026/       # Bản Incr ngày 2
-  └── account/                          # [3] Phân loại các bản Backup LẺ theo Email người dùng
+  ├── full/                             # Phân loại các bản Backup FULL độc lập
+  │     ├── Standard-Full/              # Chế độ Full chuẩn (full-DD-MM-YYYY/)
+  │     │     ├── full-01-11-2026/
+  │     │     └── full-08-11-2026/
+  │     └── full-01-11-2026/            # Tương thích ngược thư mục Full cũ
+  ├── incremental/                      # Phân loại các chuỗi Backup INCREMENTAL
+  │     ├── Forever-Forward-Incremental/  # [FFI] Bản Full gốc cuộn tịnh tiến + Incremental deltas
+  │     │     ├── full-05-11-2026/              # Base Full tự động merge và tiến ngày
+  │     │     ├── 001-incremental-06-11-2026/   # Incremental delta ngày 1
+  │     │     └── 002-incremental-07-11-2026/   # Incremental delta ngày 2
+  │     ├── Synthetic-Full-Backup/        # [SFB] Bản Full tổng hợp cục bộ (0 tải JVM Zimbra)
+  │     │     ├── full-01-11-2026/              # Full gốc hoặc Synthetic Full
+  │     │     ├── 001-incremental-02-11-2026/
+  │     │     └── full-08-11-2026/              # Synthetic Full tổng hợp trên đĩa
+  │     ├── Standard-Incremental/        # Incremental truyền thống (Active Full định kỳ)
+  │     │     ├── full-01-11-2026/
+  │     │     └── 001-incremental-02-11-2026/
+  │     └── full-01-11-2026/            # Tương thích ngược thư mục Incremental cũ
+  └── account/                          # Phân loại các bản Backup LẺ theo Email người dùng
         ├── backup-giamdoc@hdll.vn-02-11-2026/             # Sao lưu 1 email
         └── backup-giamdoc@hdll.vn+1more-02-11-2026/       # Sao lưu nhiều email gộp
 ```
 
-> **Quy tắc phân loại và đặt tên:**
-> - Tên thư mục luôn mang mốc ngày tháng rút gọn **`DD-MM-YYYY`** theo giờ địa phương, không kèm chuỗi giờ phút giây hay thư mục trung gian `<job_id>` / `chain-*`, cực kỳ ngắn gọn và dễ quan sát qua `ls`. (Nếu chạy nhiều lần trong cùng một ngày sẽ tự động đánh hậu tố `_2`, `_3`...).
+> **Quy tắc phân loại và tự định danh thư mục (Self-Describing Directories):**
+> - Đường dẫn thư mục tự động mang tên chiến lược sao lưu đang áp dụng (`Forever-Forward-Incremental`, `Synthetic-Full-Backup`, `Standard-Incremental`, `Standard-Full`), giúp quản trị viên kiểm tra ổ cứng qua `df -h` hoặc `ls /home/backup` là nhận biết được ngay.
+> - Tên thư mục con luôn mang mốc ngày tháng rút gọn **`DD-MM-YYYY`** theo giờ địa phương, không kèm chuỗi giờ phút giây rườm rà hay thư mục trung gian khó tìm. (Nếu chạy nhiều lần trong cùng một ngày sẽ tự động đánh hậu tố `_2`, `_3`...).
 > - Cơ chế xoay vòng dọn dẹp (`KEEP_COUNT` và `FTP_KEEP_COUNT`) đối chiếu trực tiếp mốc thời gian thực (YYYY-MM-DD / `manifest`), không phụ thuộc vào thứ tự chữ cái, đảm bảo an toàn tuyệt đối khi bước qua tháng mới hoặc năm mới.
 
 ---
@@ -149,25 +161,25 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
 
-**Tải gói RPM mới nhất (v0.3.16):**
+**Tải gói RPM mới nhất (v0.3.17):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.16-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.17-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 ```
 
 **Cài đặt mới hoặc nâng cấp:**
 ```bash
 # Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.16-1.noarch.rpm
+dnf install -y ./zimbra-backup-0.3.17-1.noarch.rpm
 
 # Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.16-1.noarch.rpm
+dnf upgrade -y ./zimbra-backup-0.3.17-1.noarch.rpm
 
 # Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.16-1.noarch.rpm
+yum install -y ./zimbra-backup-0.3.17-1.noarch.rpm
 
 # Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.16-1.noarch.rpm
+rpm -Uvh ./zimbra-backup-0.3.17-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -183,15 +195,15 @@ dnf remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
 
-**Tải gói DEB mới nhất (v0.3.16):**
+**Tải gói DEB mới nhất (v0.3.17):**
 ```bash
-curl -fSL -o zimbra-backup_0.3.16-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb
+curl -fSL -o zimbra-backup_0.3.17-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb
 ```
 
 **Cài đặt hoặc Nâng cấp trực tiếp bằng `dpkg` (an toàn, không chạm vào repo hệ thống):**
 ```bash
-sudo dpkg -i ./zimbra-backup_0.3.16-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.17-1_all.deb
 ```
 
 **Gỡ cài đặt trên Ubuntu:**
@@ -213,7 +225,7 @@ Hệ thống tự khởi tạo cấu hình chuẩn trong nền (thư mục mặc
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.16) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.hdll.vn
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -238,11 +250,13 @@ Bấm phím **`1`** từ Main Menu để quản lý danh sách các tác vụ sa
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.16) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.hdll.vn
   >> BACKUP JOBS & CRONTAB SCHEDULE
 ============================================================
 ID               MODE         SCHEDULE             KEEP   PAR   EN   TARGET DIRECTORY
 --------------------------------------------------------------------------------------------
+daily-ffi        forever_incr daily (01:00)        7 pts  4     yes  (default: /home/backup)
+daily-sfb        synth_full   daily (01:30)        2 ch   4     yes  (default: /home/backup)
 daily-incr       incremental  daily (02:00)        2 ch   4     yes  (default: /home/backup)
 weekly-full      full         weekly (dow=0 01:30) 4      2     yes  (default: /home/backup)
 --------------------------------------------------------------------------------------------
@@ -258,12 +272,15 @@ Select [0-6]:
 ```
 
 #### Tạo Job mới nhanh chóng qua 6 bước (Bấm `1`):
-1. **Bước 1: Nhập Job ID & Tên gợi nhớ**: Nhập mã định danh không dấu (ví dụ `prod-daily-incr`).
+1. **Bước 1: Nhập Job ID & Tên gợi nhớ**: Nhập mã định danh không dấu (ví dụ `prod-daily-ffi`).
 2. **Bước 2: Chọn Chế độ sao lưu**:
-   - `1` — `full`: Bản sao lưu độc lập, đầy đủ 100% dữ liệu.
-   - `2` — `incremental`: Chuỗi sao lưu gia tăng (1 bản Full gốc đầu chuỗi + các bản bồi đắp theo ngày).
+   - `1` — `full`: Bản sao lưu độc lập, đầy đủ 100% dữ liệu mỗi lần chạy.
+   - `2` — `incremental`: Chuỗi sao lưu gia tăng truyền thống (1 Full gốc + N Incr -> Full mới từ Zimbra).
+   - `3` — `forever_incremental` (FFI): Forever Forward Incremental (1 Full gốc duy nhất + merge delta cũ nhất tại chỗ, tiết kiệm tối đa ổ cứng và CPU).
+   - `4` — `synthetic_full` (SFB): Synthetic Full Backup (1 Full gốc + tổng hợp Full mới cục bộ từ chain và delta, 0 tải JVM Zimbra).
 3. **Bước 3: Chọn Đường dẫn lưu trữ & Kiểm tra ổ mount**:
    - Bấm Enter để dùng mặc định `/home/backup`, hoặc nhập đường dẫn riêng (ví dụ `/mnt/nas/zimbra`).
+   - Màn hình sẽ tự động hiển thị thư mục con tự định danh tương ứng: ví dụ `/home/backup/incremental/Forever-Forward-Incremental`.
    - Nếu lưu trên ổ ngoài/NFS, chọn `yes` để bắt buộc kiểm tra trạng thái mountpoint trước khi chạy; nếu lưu thư mục cục bộ thì chọn `no`.
 4. **Bước 4: Thiết lập Lịch chạy tự động**:
    - `1` — `daily`: Chạy hằng ngày, chỉ cần nhập `HH:MM` (ví dụ `01:30`).
@@ -337,7 +354,7 @@ Bấm phím **`6`**:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.16) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.hdll.vn
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup
@@ -453,18 +470,33 @@ zimbra-backup init \
 | `zimbra-backup job enable <id>` | Kích hoạt lại lịch chạy tự động cho Job. |
 | `zimbra-backup job disable <id>` | Tạm dừng lịch chạy tự động của Job. |
 | `zimbra-backup job delete <id> [--yes]` | Xóa Job khỏi cấu hình và Crontab (giữ nguyên file backup). |
-| `zimbra-backup job run <id> [--force-full]` | Chạy ngay lập tức một Job. |
+| `zimbra-backup job run <id> [--force-full] [--synthetic-full]` | Chạy ngay lập tức một Job (hỗ trợ ép Full mới hoặc tạo Synthetic Full). |
 
 **Ví dụ tạo Job:**
 ```bash
-# 1. Tạo Job Full hằng ngày lúc 01:30 sáng, giữ 7 bản gần nhất:
+# 1. Tạo Job Forever Forward Incremental (FFI) lúc 01:00 sáng, giữ 7 điểm khôi phục (1 base Full + 6 deltas):
+zimbra-backup job add daily-ffi \
+  --name "Daily Forever Forward Incremental" \
+  --type forever_incremental \
+  --schedule daily --hour 1 --minute 0 \
+  --keep 7 --parallel 4
+
+# 2. Tạo Job Synthetic Full Backup (SFB) lúc 01:30 sáng, tổng hợp Full cục bộ hằng tuần, giữ 2 chuỗi:
+zimbra-backup job add daily-sfb \
+  --name "Daily Synthetic Full Backup" \
+  --type synthetic_full \
+  --schedule daily --hour 1 --minute 30 \
+  --full-cycle weekly --full-cycle-value 0 \
+  --keep 2 --parallel 4
+
+# 3. Tạo Job Full hằng ngày lúc 01:30 sáng, giữ 7 bản gần nhất:
 zimbra-backup job add daily-full \
   --name "Daily Full Backup" \
   --type full \
   --schedule daily --hour 1 --minute 30 \
   --keep 7 --prune-timing after --parallel 2
 
-# 2. Tạo Job Incremental mỗi đêm lúc 02:00, Chủ Nhật mở chuỗi Full mới, giữ 2 chuỗi:
+# 4. Tạo Job Incremental mỗi đêm lúc 02:00, Chủ Nhật mở chuỗi Full mới, giữ 2 chuỗi:
 zimbra-backup job add daily-incr \
   --name "Nightly Incremental" \
   --type incremental \
@@ -472,7 +504,7 @@ zimbra-backup job add daily-incr \
   --full-cycle weekly --full-cycle-value 0 \
   --keep 2 --parallel 4
 
-# 3. Tạo Job Full kèm sao lưu từ xa qua SFTP (port 22), giữ 7 bản local và 14 bản trên SFTP:
+# 5. Tạo Job Full kèm sao lưu từ xa qua SFTP (port 22), giữ 7 bản local và 14 bản trên SFTP:
 zimbra-backup job add offsite-full \
   --name "Offsite Full Backup" \
   --type full \
@@ -487,11 +519,14 @@ zimbra-backup job add offsite-full \
   --ftp-dir "/backups/mail" \
   --ftp-keep 14
 
-# 4. Sửa giờ chạy của Job daily-full sang 00:30:
+# 6. Sửa giờ chạy của Job daily-full sang 00:30:
 zimbra-backup job edit daily-full --hour 0 --minute 30
 
-# 5. Kích hoạt chạy ngay một Job Incremental nhưng ép mở chuỗi Full mới:
+# 7. Kích hoạt chạy ngay một Job Incremental nhưng ép mở chuỗi Full mới:
 zimbra-backup job run daily-incr --force-full
+
+# 8. Kích hoạt tổng hợp ngay một bản Synthetic Full cục bộ trên ổ đĩa:
+zimbra-backup job run daily-sfb --synthetic-full
 ```
 
 ---

@@ -1156,7 +1156,10 @@ zb_ffi_prune_and_merge() {
         }
         local oldest_cp_to="${MF_CHECKPOINT_TO:-0}"
         local oldest_leaf="${oldest_incr##*/}"
-        local incr_stamp="${oldest_leaf##*-}"
+        local incr_stamp="${oldest_leaf#*-incremental-}"
+        if [[ "$incr_stamp" == "$oldest_leaf" ]]; then
+            incr_stamp="${oldest_leaf#*-}"
+        fi
         [[ -n "$incr_stamp" ]] || incr_stamp="$(date '+%d-%m-%Y')"
 
         local stage_dir="$job_root/.pending.merge_ffi.$$"
@@ -1202,7 +1205,10 @@ zb_ffi_prune_and_merge() {
             local cur_dir="${steps[$rem_idx]}"
             if [[ -d "$cur_dir" && ! -L "$cur_dir" ]]; then
                 local cur_leaf="${cur_dir##*/}"
-                local cur_stamp="${cur_leaf##*-}"
+                local cur_stamp="${cur_leaf#*-incremental-}"
+                if [[ "$cur_stamp" == "$cur_leaf" ]]; then
+                    cur_stamp="${cur_leaf#*-}"
+                fi
                 local new_seq_pad
                 new_seq_pad="$(printf '%03d' "$new_seq")"
                 local renamed_dir="${job_root}/${new_seq_pad}-incremental-${cur_stamp}"

@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.16)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.17)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-233%2F233_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-238%2F238_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 # Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 ```
 
 ### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Launch the interactive management console:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.16) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,10 +62,13 @@ Select [0-7]:
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.16 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.17 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
+| **Forever Forward Incremental (FFI)** | ❌ Not supported | Supported | **✅ Auto-merge oldest delta, max disk/CPU savings** |
+| **Synthetic Full Backup (SFB)** | ❌ Not supported | Supported | **✅ Local synthesis with zero Zimbra JVM load** |
+| **Self-Describing Directories** | ❌ Cluttered naming | Internal fixed | **✅ Automatically reflects active strategy** |
 | **Interactive TUI Console** | ❌ CLI only | Web Admin GUI | **✅ 1-touch ASCII TUI Menu** |
 | **Remote Storage (FTP / SFTP)** | ❌ External script needed | ⚠️ Custom setup | **✅ Native Port 21/22 automated upload** |
 | **Zero JVM Cold-Start** | ❌ Spawns Java repeatedly | Native Engine | **✅ Cached Token & In-Memory LDAP** |
@@ -80,25 +83,32 @@ Select [0-7]:
 
 ---
 
-## 🌟 Highlights in Version v0.3.16
+## 🌟 Highlights in Version v0.3.17
 
-1. **Multi-Recipient Email Alert Support**:
-   - Allows comma-separated lists of alert email addresses in `EMAIL_ALERT_TO` (e.g. `admin@example.com, it-ops@example.com, devops@example.com`).
-   - Automatically normalizes semicolons (`;`) into commas (`,`), trims whitespace, and strips empty tokens.
-   - Validates each individual recipient against RFC email format specifications before committing to `settings.conf`.
-   - Populates RFC 5322-compliant `To:` header for Zimbra's Postfix `sendmail -t` dispatcher.
+1. **Forever Forward Incremental (FFI)**:
+   - Takes exactly one initial Full backup from live Zimbra. All subsequent runs pull lightweight incremental deltas.
+   - When restore points exceed `KEEP_COUNT`, the oldest incremental delta merges locally into the base Full backup, rolling its timestamp forward and safely deleting the merged step.
+   - Drastically minimizes network usage, storage footprint, and Zimbra server load.
 
-2. **Upgraded Interactive TUI & CLI Setup**:
-   - Enhanced Setup Wizard (Step 1) and Global Settings Menu (Option 7) to guide administrators on multi-email entry.
-   - Updated CLI documentation with `zimbra-backup init --email-to <addr[,addr2,...]>`.
+2. **Synthetic Full Backup (SFB)**:
+   - When a scheduled Full backup cycle arrives or `--synthetic-full` is invoked, the engine avoids pulling heavy mailbox dumps over Zimbra REST API.
+   - Synthesizes a standalone Full snapshot locally from the preceding chain and interim delta. Unchanged mailboxes are hardlinked or copied in microseconds with zero recompression overhead.
 
-3. **Clarified Alert Dispatch Engine & Level Policies**:
-   - `zimbra-backup notify test-email` sends an immediate test delivery verifying MTA connectivity.
-   - Scheduled backup jobs strictly follow `EMAIL_ALERT_LEVEL` (`all`: sends alerts on both success and failure; `failure`: only alerts upon backup failure to prevent inbox clutter).
+3. **Self-Describing Directory Structure**:
+   - Backup directories clearly reflect the strategy in use for instant visibility during disk checks (`df -h`, `ls /home/backup`):
+     - `/home/backup/incremental/Forever-Forward-Incremental`
+     - `/home/backup/incremental/Synthetic-Full-Backup`
+     - `/home/backup/incremental/Standard-Incremental`
+     - `/home/backup/full/Standard-Full`
+   - Fully backward-compatible with legacy backup locations.
 
-4. **100% Pure 7-bit ASCII & 233/233 Passing Automated Tests**:
+4. **Enhanced TUI Wizard & CLI Automation**:
+   - Interactive 4-choice backup mode selector in TUI creation wizard and edit loop.
+   - Dedicated CLI flags `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), and `--synthetic-full`.
+
+5. **100% Pure 7-bit ASCII & 238/238 Passing Automated Tests**:
    - Zero non-ASCII characters across all packaged scripts, preserving terminal and cron cleanliness.
-   - 233 automated test assertions passing with 0 defects.
+   - 238 automated test assertions passing with 0 defects.
 
 ---
 
@@ -162,14 +172,18 @@ zimbra-backup --help
 
 ### 1. Job Management:
 ```bash
-# Add a nightly incremental job at 01:30 AM with weekly full cycles:
-zimbra-backup job add daily-incr --type incremental --schedule daily --hour 1 --minute 30 --full-cycle weekly --full-cycle-value 0 --keep 2 --parallel 4
+# Add a Forever Forward Incremental (FFI) job keeping 7 restore points:
+zimbra-backup job add daily-ffi --type forever_incremental --schedule daily --hour 1 --minute 0 --keep 7 --parallel 4
 
-# Edit schedule to 02:00 AM:
-zimbra-backup job edit daily-incr --hour 2 --minute 0
+# Add a Synthetic Full Backup (SFB) job keeping 2 chains (weekly local synthetic full):
+zimbra-backup job add daily-sfb --type synthetic_full --schedule daily --hour 1 --minute 30 --full-cycle weekly --full-cycle-value 0 --keep 2 --parallel 4
 
-# Trigger job execution immediately:
-zimbra-backup job run daily-incr
+# Add a traditional Incremental job:
+zimbra-backup job add daily-incr --type incremental --schedule daily --hour 2 --minute 0 --full-cycle max_incr --full-cycle-value 6 --keep 2 --parallel 4
+
+# Trigger immediate execution or force an on-demand Synthetic Full:
+zimbra-backup job run daily-ffi
+zimbra-backup job run daily-sfb --synthetic-full
 ```
 
 ### 2. Ad-hoc Account Backup:

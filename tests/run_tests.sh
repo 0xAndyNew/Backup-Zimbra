@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.16
+# End-to-end automated test suite for zimbra-backup v0.3.17
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -487,7 +487,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.16" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.16"
+assert_contains "$ver_out" "zimbra-backup 0.3.17" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.17"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1446,7 +1446,7 @@ fi
 rm -f -- "$test_fail_tgz" "${test_fail_tgz%.tgz}.empty"
 unset MOCK_ZMMAILBOX_FAIL_REAL
 
-printf '\n=== 19. Kiểm tra Forever Forward Incremental (FFI) & Synthetic Full Backup (SFB) v0.3.16 ===\n'
+printf '\n=== 19. Kiểm tra Forever Forward Incremental (FFI) & Synthetic Full Backup (SFB) v0.3.17 ===\n'
 
 # 19a. Kiểm tra tạo Job & định danh thư mục lưu trữ tự mô tả (self-describing directory)
 "$ZB_CMD" job add job-ffi \

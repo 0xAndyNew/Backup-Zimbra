@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.16)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.17)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-233%2F233_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-238%2F238_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -20,14 +20,14 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 # Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup-0.3.16-1.noarch.rpm
+# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 ```
 
 ### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.16/zimbra-backup_0.3.16-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Khởi động giao diện quản lý ngay:
@@ -41,7 +41,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.16) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -62,10 +62,13 @@ Select [0-7]:
 
 ## 📊 Bảng so sánh tính năng vượt trội
 
-| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.16 |
+| Tính năng cốt lõi | Script rời thông thường | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.17 |
 |---|:---:|:---:|:---:|
 | **Chi phí bản quyền** | Miễn phí | Rất đắt đỏ theo năm | **100% Miễn phí & Open Source (MIT)** |
 | **Gói cài đặt chuẩn OS** | ❌ Không có (file rời) | Có | **✅ Đầy đủ gói RPM & DEB** |
+| **Forever Forward Incremental (FFI)** | ❌ Không hỗ trợ | Có | **✅ Tự động gộp cục bộ, tiết kiệm tối đa đĩa/CPU** |
+| **Synthetic Full Backup (SFB)** | ❌ Không hỗ trợ | Có | **✅ Tổng hợp Full cục bộ 0 tải JVM Zimbra** |
+| **Thư mục tự định danh trực quan** | ❌ Đặt tên lộn xộn | Cố định nội bộ | **✅ Tự tạo folder theo chiến lược backup** |
 | **Giao diện Menu TUI tương tác** | ❌ Chỉ chạy CLI | Web Admin GUI | **✅ Menu TUI ASCII 1 chạm trực quan** |
 | **Lưu trữ từ xa (FTP / SFTP)** | ❌ Cần viết thêm script | ⚠️ Cần cấu hình ngoài | **✅ Port 21/22 tự động đẩy offsite** |
 | **Tốc độ (Khử JVM Cold-Start)** | ❌ Bật/tắt Java liên tục | Tích hợp sẵn | **✅ Cache Auth Token & LDAP In-memory** |
@@ -80,24 +83,32 @@ Select [0-7]:
 
 ---
 
-## 🌟 Điểm nổi bật trong phiên bản v0.3.16
+## 🌟 Điểm nổi bật trong phiên bản v0.3.17
 
-1. **Hỗ Trợ Gửi Thông Báo Tới Nhiều Email Người Nhận (Multi-Recipient Email Alerts)**:
-   - Cho phép khai báo danh sách nhiều email nhận cảnh báo phân tách bằng dấu phẩy `,` (ví dụ: `admin@company.com, it-ops@company.com, devops@company.com`).
-   - Tự động chuẩn hóa dấu chấm phẩy `;` sang dấu phẩy `,`, cắt bỏ khoảng trắng thừa và loại bỏ các token rỗng.
-   - Kiểm tra định dạng hợp lệ RFC của từng địa chỉ email trước khi lưu vào `settings.conf`, ngăn chặn hoàn toàn lỗi cấu hình sai làm gián đoạn tiến trình sao lưu.
-   - Nạp toàn bộ danh sách người nhận vào header `To:` tương thích chuẩn RFC 5322 và Postfix `sendmail -t` của Zimbra.
+1. **Hỗ Trợ Forever Forward Incremental (FFI)**:
+   - Kéo Full từ máy chủ Zimbra duy nhất 1 lần đầu tiên. Toàn bộ các lần chạy sau chỉ kéo Incremental delta siêu nhẹ.
+   - Khi vượt quá số điểm lưu trữ (`KEEP_COUNT`), hệ thống tự động gộp (merge) delta cũ nhất vào bản Full gốc ngay trên ổ cứng backup, đẩy mốc ngày của Full tiến lên và xóa delta cũ đã gộp.
+   - Tiết kiệm tối đa băng thông mạng, I/O đĩa và giải phóng hoàn toàn áp lực tải lên máy chủ Zimbra live.
 
-2. **Nâng Cấp Giao Diện Cấu Hình TUI & CLI Cho Nhiều Email**:
-   - Cập nhật Wizard thiết lập ban đầu (Bước 1) và Menu cấu hình chung (Mục 7) hiển thị rõ hướng dẫn nhập danh sách nhiều email.
-   - Bổ sung tài liệu CLI `zimbra-backup init --email-to <addr[,addr2,...]>`.
+2. **Hỗ Trợ Synthetic Full Backup (SFB)**:
+   - Khi đến chu kỳ tạo Full mới hoặc chạy với cờ `--synthetic-full`, hệ thống **không** kéo lại toàn bộ mailbox qua REST API/JVM của Zimbra.
+   - Tự động tổng hợp (synthesize) bản Full mới độc lập ngay tại chỗ từ chuỗi backup trước đó và delta giao thời. Các hộp thư không có thư mới được hardlink/copy tức thời với 0 chi phí nén/giải nén.
 
-3. **Làm Rõ Cơ Chế Cảnh Báo `EMAIL_ALERT_LEVEL`**:
-   - Lệnh kiểm tra `zimbra-backup notify test-email` luôn gửi email trực tiếp để kiểm chứng khả năng chuyển phát của Postfix MTA.
-   - Các Job sao lưu định kỳ tuân thủ chính xác mức cảnh báo `EMAIL_ALERT_LEVEL` (`all`: gửi mọi lần sao lưu thành công hoặc thất bại; `failure`: chỉ gửi khi có lỗi, mặc định bảo vệ hộp thư quản trị khỏi bị ngập thông báo).
+3. **Cấu Trúc Thư Mục Tự Định Danh Trực Quan (Self-Describing Directories)**:
+   - Tự động tạo thư mục lưu trữ mang tên chiến lược backup đang áp dụng để quản trị viên kiểm tra `df -h` hoặc `ls /home/backup` là nhận biết được ngay:
+     - `/home/backup/incremental/Forever-Forward-Incremental`
+     - `/home/backup/incremental/Synthetic-Full-Backup`
+     - `/home/backup/incremental/Standard-Incremental`
+     - `/home/backup/full/Standard-Full`
+   - Tương thích ngược 100% với các bản sao lưu cũ.
 
-4. **Bảo Toàn Tuyệt Đối Chuẩn 100% Pure 7-bit ASCII & 233/233 Bài Kiểm Thử Đạt**:
-   - Đạt 233/233 bài kiểm thử tự động đầu-cuối với 0 lỗi.
+4. **Nâng Cấp Wizard TUI & Lệnh CLI**:
+   - Menu TUI 4 lựa chọn trực quan trong Wizard Tạo Job và Chỉnh sửa Job.
+   - Hỗ trợ tham số CLI `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), và cờ `--synthetic-full`.
+
+5. **Bảo Toàn Tuyệt Đối Chuẩn 100% Pure 7-bit ASCII & 238/238 Bài Kiểm Thử Đạt**:
+   - Đạt 238/238 bài kiểm thử tự động đầu-cuối với 0 lỗi.
+   - Toàn bộ 15 file đóng gói giữ vững 100% Pure 7-bit ASCII và chuẩn xuống dòng Unix LF (`\n`).
    - Toàn bộ 15 file đóng gói giữ vững 100% Pure 7-bit ASCII và chuẩn xuống dòng Unix LF (`\n`).
 
 ---
@@ -160,14 +171,18 @@ zimbra-backup --help
 
 ### 1. Tạo và quản lý Job tự động:
 ```bash
-# Tạo Job Incremental mỗi đêm 01:30, Chủ Nhật mở Full mới, giữ 2 chuỗi (~14 ngày):
-zimbra-backup job add daily-incr --type incremental --schedule daily --hour 1 --minute 30 --full-cycle weekly --full-cycle-value 0 --keep 2 --parallel 4
+# Tạo Job Forever Forward Incremental (FFI) giữ 7 điểm khôi phục:
+zimbra-backup job add daily-ffi --type forever_incremental --schedule daily --hour 1 --minute 0 --keep 7 --parallel 4
 
-# Sửa giờ chạy sang 02:00:
-zimbra-backup job edit daily-incr --hour 2 --minute 0
+# Tạo Job Synthetic Full Backup (SFB) giữ 2 chuỗi (tổng hợp Full cục bộ hằng tuần):
+zimbra-backup job add daily-sfb --type synthetic_full --schedule daily --hour 1 --minute 30 --full-cycle weekly --full-cycle-value 0 --keep 2 --parallel 4
 
-# Chạy ngay Job:
-zimbra-backup job run daily-incr
+# Tạo Job Incremental truyền thống:
+zimbra-backup job add daily-incr --type incremental --schedule daily --hour 2 --minute 0 --full-cycle max_incr --full-cycle-value 6 --keep 2 --parallel 4
+
+# Kích hoạt chạy ngay Job hoặc kích hoạt tạo Synthetic Full tức thời:
+zimbra-backup job run daily-ffi
+zimbra-backup job run daily-sfb --synthetic-full
 ```
 
 ### 2. Sao lưu lẻ tài khoản khẩn cấp:
@@ -193,7 +208,7 @@ zimbra-backup restore --dir /backup --from 1 --all --mode skip --yes
 
 ## 🛠️ Đóng gói & Kiểm thử từ mã nguồn
 
-Chạy bộ kiểm thử tự động đầu-cuối 233 bài test:
+Chạy bộ kiểm thử tự động đầu-cuối 238 bài test:
 ```bash
 bash tests/run_tests.sh
 ```

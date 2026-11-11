@@ -1,5 +1,5 @@
 Name:           zimbra-backup
-Version:        0.3.16
+Version:        0.3.17
 Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
@@ -124,6 +124,14 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Wed Nov 11 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.17-1
+- Add Forever Forward Incremental (FFI) backup mode with automated delta merging, checkpoint rolling and step renumbering
+- Add Synthetic Full Backup (SFB) mode with local mailbox archive synthesis without live Zimbra server load
+- Implement self-describing backup storage directories (incremental/Forever-Forward-Incremental, incremental/Synthetic-Full-Backup)
+- Update TUI 6-step creation wizard and edit loop with 4 backup modes and dynamic retention prompts
+- Maintain 100% pure 7-bit ASCII and LF line endings across all 15 packaged files
+- Pass all 238 automated end-to-end tests with 0 errors
+
 * Tue Nov 10 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.16-1
 - Support multiple email alert recipients separated by comma with semicolon normalization and trimming
 - Enforce RFC 5322 validation and format To header for Postfix sendmail -t
