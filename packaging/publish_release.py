@@ -81,6 +81,9 @@ def main():
     body = f"""## Zimbra Backup & Restore (`zimbra-backup` v{version})
 
 ### Key Highlights in v{version}
+- **Direct Incremental Chain Cycle Configuration**:
+  - Configure the number of incremental runs per cycle (1-60) directly in Step 5 of the 6-Step TUI Creation Wizard without having to edit the job afterwards.
+  - Automatically configures `FULL_CYCLE_VALUE` and retention count with interactive input validation.
 - **Forever Forward Incremental (FFI)**:
   - Takes exactly one initial Full base backup from live Zimbra. All subsequent runs pull lightweight incremental deltas.
   - When restore points exceed `KEEP_COUNT`, the oldest incremental delta merges locally into the base Full backup on disk, rolling its timestamp forward, safely deleting the merged step and renumbering remaining steps.
@@ -117,7 +120,16 @@ curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/dow
 ```
 """
 
+    recreate = "--recreate" in sys.argv
     rel = next((r for r in releases if r.get("tag_name") == release_tag), None)
+    if rel and recreate:
+        print(f"[~] Deleting existing release {release_tag} (ID: {rel['id']}) for full recreation...")
+        del_req = urllib.request.Request(f"https://api.github.com/repos/0xAndyNew/Backup-Zimbra/releases/{rel['id']}", headers=headers)
+        del_req.get_method = lambda: 'DELETE'
+        with urllib.request.urlopen(del_req) as del_resp:
+            pass
+        rel = None
+
     if not rel:
         print(f"[+] Creating GitHub Release {release_tag}...")
         create_payload = json.dumps({
