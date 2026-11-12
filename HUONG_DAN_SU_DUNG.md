@@ -163,19 +163,19 @@ Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên b
 
 **Lệnh cài đặt hoặc nâng cấp nhanh 1 dòng (Tự nhận diện dnf / yum):**
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm
 ```
 
 Hoặc tải gói về máy rồi cài đặt thủ công:
 ```bash
 # Tải gói RPM:
-curl -fSL -o zimbra-backup-0.3.17-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.17-2.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm
 
 # Cài đặt hoặc nâng cấp đè:
-sudo dnf install -y ./zimbra-backup-0.3.17-1.noarch.rpm 2>/dev/null || sudo yum install -y ./zimbra-backup-0.3.17-1.noarch.rpm
+sudo dnf install -y ./zimbra-backup-0.3.17-2.noarch.rpm 2>/dev/null || sudo yum install -y ./zimbra-backup-0.3.17-2.noarch.rpm
 # Hoặc dùng trực tiếp rpm:
-sudo rpm -Uvh --replacepkgs ./zimbra-backup-0.3.17-1.noarch.rpm
+sudo rpm -Uvh --replacepkgs ./zimbra-backup-0.3.17-2.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
@@ -194,15 +194,15 @@ Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 **Lệnh cài đặt hoặc nâng cấp nhanh 1 dòng:**
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-2_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
 Hoặc tải gói về máy rồi cài đặt thủ công:
 ```bash
-curl -fSL -o zimbra-backup_0.3.17-1_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb
+curl -fSL -o zimbra-backup_0.3.17-2_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-2_all.deb
 
-sudo dpkg -i ./zimbra-backup_0.3.17-1_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.17-2_all.deb
 ```
 
 **Gỡ cài đặt trên Ubuntu:**

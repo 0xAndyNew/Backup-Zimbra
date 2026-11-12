@@ -15,9 +15,11 @@ import struct
 import tarfile
 import time
 
-VERSION = "0.3.17-1"
+VERSION = "0.3.17"
+RELEASE = "2"
+DEB_VERSION = f"{VERSION}-{RELEASE}"
 PKG_NAME = "zimbra-backup"
-DEB_FILENAME = f"{PKG_NAME}_{VERSION}_all.deb"
+DEB_FILENAME = f"{PKG_NAME}_{DEB_VERSION}_all.deb"
 BUILD_TIME = 1730635200  # 2026-11-03 12:00:00 UTC (reproducible build)
 
 
@@ -41,7 +43,7 @@ def build_control_tar() -> bytes:
     with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tar:
         # 1. control
         control_content = f"""Package: {PKG_NAME}
-Version: {VERSION}
+Version: {DEB_VERSION}
 Architecture: all
 Maintainer: Zimbra Backup Maintainers <ops@localhost>
 Section: admin

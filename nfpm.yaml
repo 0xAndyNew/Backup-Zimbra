@@ -2,7 +2,7 @@ name: zimbra-backup
 arch: noarch
 platform: linux
 version: 0.3.17
-release: 1
+release: 2
 section: System Environment/Base
 priority: optional
 maintainer: Zimbra Backup Maintainers <ops@localhost>

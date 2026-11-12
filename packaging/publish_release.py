@@ -51,9 +51,10 @@ def sha256_file(filepath: str) -> str:
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     version = args[0] if args else get_version()
+    pkg_release = os.environ.get("PKG_RELEASE", "2")
     release_tag = f"v{version}"
-    rpm_asset = f"zimbra-backup-{version}-1.noarch.rpm"
-    deb_asset = f"zimbra-backup_{version}-1_all.deb"
+    rpm_asset = f"zimbra-backup-{version}-{pkg_release}.noarch.rpm"
+    deb_asset = f"zimbra-backup_{version}-{pkg_release}_all.deb"
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     rpm_path = os.path.join(repo_root, rpm_asset)

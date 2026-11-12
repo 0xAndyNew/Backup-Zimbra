@@ -1,6 +1,6 @@
 Name:           zimbra-backup
 Version:        0.3.17
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
 BuildArch:      noarch

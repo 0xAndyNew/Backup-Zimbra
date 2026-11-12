@@ -9,7 +9,7 @@ import subprocess
 import time
 
 VERSION = "0.3.17"
-RELEASE = "1"
+RELEASE = "2"
 RPM_FILENAME = f"zimbra-backup-{VERSION}-{RELEASE}.noarch.rpm"
 BUILD_TIME = 1730635200  # 2026-11-03 12:00:00 UTC (reproducible build)
 
