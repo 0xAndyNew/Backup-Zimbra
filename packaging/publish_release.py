@@ -101,7 +101,7 @@ def main():
   - Dedicated CLI flags `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), and `--synthetic-full`.
 - **Strict 7-bit ASCII & Data Integrity**:
   - 100% pure 7-bit ASCII and Unix LF line endings across all 15 packaged files.
-  - 266/266 automated end-to-end test assertions passing with 0 errors.
+  - 269/269 automated end-to-end test assertions passing with 0 errors.
 
 ### Package Checksums (SHA-256)
 - `{rpm_asset}`: `{rpm_sha}`
@@ -152,8 +152,16 @@ curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/dow
 
     for asset_name, ctype, fpath in assets_to_upload:
         if asset_name in existing_assets:
-            print(f"[~] Asset {asset_name} already uploaded to release.")
-            continue
+            print(f"[~] Replacing existing asset {asset_name} (ID: {existing_assets[asset_name]})...")
+            del_url = f"https://api.github.com/repos/0xAndyNew/Backup-Zimbra/releases/assets/{existing_assets[asset_name]}"
+            del_req = urllib.request.Request(del_url, headers=headers)
+            del_req.get_method = lambda: 'DELETE'
+            try:
+                with urllib.request.urlopen(del_req) as del_resp:
+                    pass
+                print(f"[OK] Deleted old asset {asset_name}")
+            except Exception as e:
+                print(f"[WARN] Failed to delete old asset {asset_name}: {e}")
 
         print(f"[+] Uploading {asset_name} ({os.path.getsize(fpath)} bytes)...")
         with open(fpath, "rb") as af:
