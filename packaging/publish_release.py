@@ -49,7 +49,8 @@ def sha256_file(filepath: str) -> str:
 
 
 def main():
-    version = sys.argv[1] if len(sys.argv) > 1 else get_version()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    version = args[0] if args else get_version()
     release_tag = f"v{version}"
     rpm_asset = f"zimbra-backup-{version}-1.noarch.rpm"
     deb_asset = f"zimbra-backup_{version}-1_all.deb"
