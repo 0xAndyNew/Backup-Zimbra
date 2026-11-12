@@ -18,19 +18,21 @@ Bộ công cụ đóng gói `.rpm` và `.deb` hợp nhất chuyên nghiệp dàn
 
 ## ⚡ Cài đặt nhanh trong 1 dòng lệnh (Quick Install)
 
-### Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
-```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
-# Hoặc trên CentOS 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
-```
+Áp dụng cho cả **Cài mới** lẫn **Nâng cấp** từ phiên bản cũ (tự động giữ nguyên toàn bộ cấu hình, Job và lịch sao lưu).
 
-### Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
+### 1. Trên RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
+```bash
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
+```
+*(Tự động nhận diện `dnf` trên RHEL/CentOS/Rocky/Alma 8, 9 hoặc tự chuyển sang `yum` trên CentOS 7 / RHEL 7).*
+
+### 2. Trên Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
 curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
+*(Tuyệt đối không chạy `apt update` trên máy chủ Zimbra; cài đặt trực tiếp qua `dpkg -i` an toàn 100% không làm ảnh hưởng các gói của hệ thống Zimbra).*
 
-Khởi động giao diện quản lý ngay:
+### 3. Khởi động giao diện quản lý:
 ```bash
 zimbra-backup
 ```

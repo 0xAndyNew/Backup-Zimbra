@@ -18,19 +18,21 @@ A unified, production-grade backup & restore solution packaged as `.rpm` and `.d
 
 ## ⚡ Quick Install (1-Line Command)
 
-### On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
-```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
-# Or on CentOS / RHEL 7:
-# sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
-```
+Works for both **Fresh Installation** and **Upgrading** from an older release (automatically preserves all existing settings, jobs, and schedules).
 
-### On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
+### 1. On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
+```bash
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
+```
+*(Automatically uses `dnf` on RHEL/CentOS/Rocky/Alma 8, 9 or falls back to `yum` on CentOS 7 / RHEL 7).*
+
+### 2. On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
 curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
+*(Never run `apt update` on Zimbra servers; direct installation via `dpkg -i` is 100% safe and isolates your Zimbra Collaboration system packages).*
 
-Launch the interactive management console:
+### 3. Launch interactive management console:
 ```bash
 zimbra-backup
 ```

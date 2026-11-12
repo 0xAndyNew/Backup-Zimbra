@@ -159,33 +159,28 @@ chmod 700 /home/backup
 
 ### 2.2. Cài đặt trên RHEL / CentOS / Rocky / AlmaLinux (Gói RPM)
 
-Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**:
+Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**.
 
-**Tải gói RPM mới nhất (v0.3.17):**
+**Lệnh cài đặt hoặc nâng cấp nhanh 1 dòng (Tự nhận diện dnf / yum):**
 ```bash
-curl -fSL -o zimbra-backup-0.3.17-1.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 ```
 
-**Cài đặt mới hoặc nâng cấp:**
+Hoặc tải gói về máy rồi cài đặt thủ công:
 ```bash
-# Trên Rocky Linux / AlmaLinux / RHEL / CentOS 8, 9:
-dnf install -y ./zimbra-backup-0.3.17-1.noarch.rpm
+# Tải gói RPM:
+curl -fSL -o zimbra-backup-0.3.17-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-1.noarch.rpm
 
-# Hoặc nâng cấp đè:
-dnf upgrade -y ./zimbra-backup-0.3.17-1.noarch.rpm
-
-# Trên CentOS 7 / RHEL 7:
-yum install -y ./zimbra-backup-0.3.17-1.noarch.rpm
-
-# Hoặc dùng lệnh RPM chuẩn:
-rpm -Uvh ./zimbra-backup-0.3.17-1.noarch.rpm
+# Cài đặt hoặc nâng cấp đè:
+sudo dnf install -y ./zimbra-backup-0.3.17-1.noarch.rpm 2>/dev/null || sudo yum install -y ./zimbra-backup-0.3.17-1.noarch.rpm
+# Hoặc dùng trực tiếp rpm:
+sudo rpm -Uvh --replacepkgs ./zimbra-backup-0.3.17-1.noarch.rpm
 ```
 
 **Gỡ cài đặt hoàn toàn:**
 ```bash
-dnf remove -y zimbra-backup
-# hoặc: rpm -e zimbra-backup
+sudo dnf remove -y zimbra-backup 2>/dev/null || sudo yum remove -y zimbra-backup 2>/dev/null || sudo rpm -e zimbra-backup
 ```
 *Quá trình gỡ bỏ tự động dọn sạch khối cron `zimbra-backup` và thư mục `/var/lib/zimbra-backup`, cam kết không chạm tới dịch vụ Zimbra (`/opt/zimbra`) hay dữ liệu sao lưu của bạn.*
 
@@ -193,22 +188,27 @@ dnf remove -y zimbra-backup
 
 ### 2.3. Cài đặt trên Ubuntu / Debian (Gói DEB)
 
-Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**:
+Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
-**Tải gói DEB mới nhất (v0.3.17):**
+> ⚠️ **CẢNH BÁO AN TOÀN QUAN TRỌNG:** Tuyệt đối **KHÔNG chạy `apt update`** trên máy chủ Zimbra. Zimbra cài đặt các gói OpenLDAP, Postfix, Nginx, MariaDB, OpenSSL riêng; chạy `apt update` có thể gây lỗi xác thực GPG repo hoặc làm hỏng gói dịch vụ của Zimbra. Luôn cài đặt trực tiếp qua `dpkg -i`.
+
+**Lệnh cài đặt hoặc nâng cấp nhanh 1 dòng:**
+```bash
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+```
+
+Hoặc tải gói về máy rồi cài đặt thủ công:
 ```bash
 curl -fSL -o zimbra-backup_0.3.17-1_all.deb \
   https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-1_all.deb
-```
 
-**Cài đặt hoặc Nâng cấp trực tiếp bằng `dpkg` (an toàn, không chạm vào repo hệ thống):**
-```bash
 sudo dpkg -i ./zimbra-backup_0.3.17-1_all.deb
 ```
 
 **Gỡ cài đặt trên Ubuntu:**
 ```bash
-sudo apt remove -y zimbra-backup
+sudo dpkg -r zimbra-backup
+# hoặc: sudo apt remove -y zimbra-backup
 ```
 
 ---

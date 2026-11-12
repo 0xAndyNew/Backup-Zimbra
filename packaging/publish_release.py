@@ -114,7 +114,7 @@ def main():
 ### Quick Install Commands
 ```bash
 # On RHEL / CentOS / Rocky / AlmaLinux (7, 8, 9):
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{rpm_asset}
+sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{rpm_asset} 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{rpm_asset}
 
 # On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{deb_asset} && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
