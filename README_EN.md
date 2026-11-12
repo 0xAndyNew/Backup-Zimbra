@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-238%2F238_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-269%2F269_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -106,9 +106,9 @@ Select [0-7]:
    - Interactive 4-choice backup mode selector in TUI creation wizard and edit loop.
    - Dedicated CLI flags `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), and `--synthetic-full`.
 
-5. **100% Pure 7-bit ASCII & 238/238 Passing Automated Tests**:
+5. **100% Pure 7-bit ASCII & 269/269 Passing Automated Tests**:
    - Zero non-ASCII characters across all packaged scripts, preserving terminal and cron cleanliness.
-   - 238 automated test assertions passing with 0 defects.
+   - 269 automated test assertions passing with 0 defects.
 
 ---
 
@@ -116,7 +116,7 @@ Select [0-7]:
 
 1. **Lightweight ASCII TUI & Streamlined First Run (100% Pure 7-bit ASCII)**:
    - Automatically initializes global configuration in the background with `/home/backup` as default storage.
-   - **6-Step Job Wizard**: `Job ID` -> `Mode (Full / Incremental)` -> `Storage Path & Mountpoint Check` -> `Schedule (HH:MM)` -> `Retention & Parallel Workers` -> `Remote Storage (FTP/SFTP)`.
+   - **6-Step Job Wizard**: `Job ID` -> `Mode (Full / Incremental)` -> `Storage Path & Mountpoint Check` -> `Schedule (HH:MM)` -> `Chain Cycle & Retention Policy` -> `Remote Storage (FTP/SFTP)`.
    - **1-Touch Job Editor**: Numbered fields `1..11` display current settings directly; press field number to update and `s` to save.
    - Built with **100% pure 7-bit ASCII** to guarantee zero character distortion (`□`) on remote SSH consoles, VM consoles, or `cron` environments (`LANG=C`).
 
@@ -216,7 +216,7 @@ zimbra-backup notify test-telegram
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (233 tests):
+Execute end-to-end automated test suite (269 tests):
 ```bash
 bash tests/run_tests.sh
 ```

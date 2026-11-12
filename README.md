@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-238%2F238_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-269%2F269_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết từng bước](HUONG_DAN_SU_DUNG.md)**
 
@@ -106,9 +106,8 @@ Select [0-7]:
    - Menu TUI 4 lựa chọn trực quan trong Wizard Tạo Job và Chỉnh sửa Job.
    - Hỗ trợ tham số CLI `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), và cờ `--synthetic-full`.
 
-5. **Bảo Toàn Tuyệt Đối Chuẩn 100% Pure 7-bit ASCII & 238/238 Bài Kiểm Thử Đạt**:
-   - Đạt 238/238 bài kiểm thử tự động đầu-cuối với 0 lỗi.
-   - Toàn bộ 15 file đóng gói giữ vững 100% Pure 7-bit ASCII và chuẩn xuống dòng Unix LF (`\n`).
+5. **Bảo Toàn Tuyệt Đối Chuẩn 100% Pure 7-bit ASCII & 269/269 Bài Kiểm Thử Đạt**:
+   - Đạt 269/269 bài kiểm thử tự động đầu-cuối với 0 lỗi.
    - Toàn bộ 15 file đóng gói giữ vững 100% Pure 7-bit ASCII và chuẩn xuống dòng Unix LF (`\n`).
 
 ---
@@ -117,7 +116,7 @@ Select [0-7]:
 
 1. **Giao diện Menu TUI tiếng Anh tinh gọn (100% Pure 7-bit ASCII)**:
    - Tự động khởi tạo cấu hình chuẩn trong nền với thư mục lưu trữ mặc định `/home/backup`.
-   - **Tạo Job nhanh 6 bước đầy đủ**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Đường dẫn lưu trữ & Kiểm tra mount riêng` -> `Lịch chạy (HH:MM)` -> `Số bản lưu giữ` -> `Cấu hình Remote Storage (FTP/SFTP)`.
+   - **Tạo Job nhanh 6 bước đầy đủ**: `Job ID` -> `Chế độ (Full / Incremental)` -> `Đường dẫn lưu trữ & Kiểm tra mount riêng` -> `Lịch chạy (HH:MM)` -> `Chu kỳ chuỗi & Số bản lưu giữ` -> `Cấu hình Remote Storage (FTP/SFTP)`.
    - **Chỉnh sửa Job 1 chạm**: Menu đánh số `1..11` hiển thị trực tiếp giá trị hiện tại của từng trường — bấm số mục cần sửa và bấm `s` để lưu.
    - Toàn bộ giao diện, CLI và log dùng bảng mã **7-bit ASCII thuần**, loại bỏ triệt để hiện tượng ô vuông `□` trên console VMware/Proxmox/PuTTY hoặc môi trường `LANG=C` của `cron`.
 
@@ -208,7 +207,7 @@ zimbra-backup restore --dir /backup --from 1 --all --mode skip --yes
 
 ## 🛠️ Đóng gói & Kiểm thử từ mã nguồn
 
-Chạy bộ kiểm thử tự động đầu-cuối 238 bài test:
+Chạy bộ kiểm thử tự động đầu-cuối 269 bài test:
 ```bash
 bash tests/run_tests.sh
 ```

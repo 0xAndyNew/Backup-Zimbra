@@ -523,9 +523,19 @@ zb_tui_job_create() {
             zb_warn "Invalid retention count '$k_ans'. Enter an integer between 1 and 999."
         done
     elif [[ "$BACKUP_TYPE" == "incremental" || "$BACKUP_TYPE" == "synthetic_full" ]]; then
-        zb_msg "5. Retention Policy (1 chain = 1 Full + ${FULL_CYCLE_VALUE} Incrementals):"
+        zb_msg "5. Chain Cycle & Retention Policy:"
         while true; do
-            k_ans="$(zb_tui_prompt_default "   Keep how many COMPLETE CHAINS?" "$KEEP_COUNT")"
+            local cyc_ans
+            cyc_ans="$(zb_tui_prompt_default "   Max Incremental runs before new Full (1-60)" "$FULL_CYCLE_VALUE")"
+            if [[ "$cyc_ans" =~ ^([1-9]|[1-5][0-9]|60)$ ]]; then
+                FULL_CYCLE_VALUE="$cyc_ans"
+                FULL_CYCLE_MODE="max_incr"
+                break
+            fi
+            zb_warn "Invalid number '$cyc_ans'. Enter an integer between 1 and 60."
+        done
+        while true; do
+            k_ans="$(zb_tui_prompt_default "   Keep how many COMPLETE CHAINS (1 Full + ${FULL_CYCLE_VALUE} Incr)?" "$KEEP_COUNT")"
             if [[ "$k_ans" =~ ^([1-9]|[1-9][0-9]{1,2})$ ]]; then
                 KEEP_COUNT="$k_ans"
                 break

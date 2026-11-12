@@ -774,6 +774,35 @@ tui_snap="$(find "$TUI_CUSTOM_STORE/full" -mindepth 1 -maxdepth 1 -type d -name 
 [[ -n "$tui_snap" ]] && pass "Job tạo từ TUI Wizard chạy lưu đúng vào $TUI_CUSTOM_STORE/full/full-*" \
     || fail "Không tìm thấy bản backup trong $TUI_CUSTOM_STORE/full"
 
+(
+    export ZB_STATE_DIR="$STATE_DIR"
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/notify.sh"
+    . "$REPO_ROOT/lib/zimbra_api.sh"
+    . "$REPO_ROOT/lib/jobs.sh"
+    . "$REPO_ROOT/lib/backup.sh"
+    . "$REPO_ROOT/lib/restore.sh"
+    . "$REPO_ROOT/lib/tui.sh"
+    zb_tui_job_create <<EOF >/dev/null
+incr-wizard
+2
+${TUI_CUSTOM_STORE}/
+n
+1
+03:00
+3
+2
+n
+
+EOF
+)
+assert_file_exists "$STATE_DIR/jobs/incr-wizard.conf" "TUI Wizard tạo thành công job incremental incr-wizard.conf"
+assert_contains "$(cat "$STATE_DIR/jobs/incr-wizard.conf")" "FULL_CYCLE_VALUE=3" \
+    "TUI Wizard Bước 5 lưu đúng số bản incremental FULL_CYCLE_VALUE=3 trực tiếp"
+assert_contains "$(cat "$STATE_DIR/jobs/incr-wizard.conf")" "KEEP_COUNT=2" \
+    "TUI Wizard Bước 5 lưu đúng số chuỗi KEEP_COUNT=2"
+
 # Test that running TUI with uninitialized state creates settings.conf and goes straight to Main Menu
 TUI_TEST_STATE="$TEST_TMP/tui_test_state"
 mkdir -p "$TUI_TEST_STATE"

@@ -288,9 +288,10 @@ Select [0-6]:
    - `3` — `monthly`: Chạy theo ngày/tháng cụ thể (ví dụ ngày `1,15` lúc `03:00`).
    - `4` — `custom`: Nhập biểu thức Cron 5 trường chuẩn Linux.
    - `5` — `off`: Tắt lịch tự động (chỉ chạy bằng tay).
-5. **Bước 5: Số bản lưu giữ & Số luồng chạy song song**:
-   - Nhập số bản giữ lại tại cục bộ (`KEEP_COUNT`, mặc định `7` cho Full, `2` chuỗi cho Incremental).
-   - Nhập số luồng song song (`PARALLEL_JOBS`, khuyến nghị `2` đến `4`).
+5. **Bước 5: Chu kỳ chuỗi & Số bản lưu giữ (Retention Policy)**:
+   - Đối với **Incremental / Synthetic Full**: Hệ thống hỏi trực tiếp số bản Incremental tối đa trong 1 chuỗi trước khi mở Full mới (`Max Incremental runs before new Full (1-60)`, mặc định `6`, có thể nhập `2` hoặc `3` tùy nhu cầu), sau đó nhập số chuỗi hoàn chỉnh cần lưu giữ (`KEEP_COUNT`, mặc định `2` chuỗi).
+   - Đối với **Forever Forward Incremental (FFI)**: Nhập số điểm khôi phục cần duy trì (`KEEP_COUNT`, mặc định `7` điểm).
+   - Đối với **Full**: Nhập số bản Full độc lập cần lưu giữ (`KEEP_COUNT`, mặc định `7` bản).
 6. **Bước 6: Cấu hình Lưu trữ Từ xa FTP / SFTP (Tùy chọn)**:
    - Chọn `yes` nếu muốn tự động đẩy snapshot sang server FTP/SFTP dự phòng ngoài site, hoặc `no` nếu chỉ lưu cục bộ.
    - Nếu chọn `yes`: Chọn giao thức (`ftp` hoặc `sftp`), Host/IP, Port (21 hoặc 22), Username, Password (ẩn ký tự), Thư mục từ xa (mặc định `/<job_id>`), mã hóa FTPS SSL, **Số bản lưu giữ trên FTP (`FTP_KEEP_COUNT`, mặc định 7, độc lập với local)**, và kiểm tra kết nối ngay.
