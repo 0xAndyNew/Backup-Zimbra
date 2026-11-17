@@ -1,6 +1,6 @@
 Name:           zimbra-backup
-Version:        0.3.17
-Release:        2%{?dist}
+Version:        0.3.18
+Release:        1%{?dist}
 Summary:        Unified multi-job backup and granular restore manager for Zimbra OSE (8.8.15/9/10)
 License:        MIT
 BuildArch:      noarch
@@ -48,6 +48,7 @@ install -D -m 0644 lib/jobs.sh %{buildroot}%{_libexecdir}/zimbra-backup/jobs.sh
 install -D -m 0644 lib/backup.sh %{buildroot}%{_libexecdir}/zimbra-backup/backup.sh
 install -D -m 0644 lib/restore.sh %{buildroot}%{_libexecdir}/zimbra-backup/restore.sh
 install -D -m 0644 lib/tui.sh %{buildroot}%{_libexecdir}/zimbra-backup/tui.sh
+install -D -m 0644 lib/update.sh %{buildroot}%{_libexecdir}/zimbra-backup/update.sh
 install -D -m 0644 packaging/zimbra-backup.logrotate %{buildroot}%{_sysconfdir}/logrotate.d/zimbra-backup
 install -d -m 0700 %{buildroot}%{_sharedstatedir}/zimbra-backup
 install -d -m 0700 %{buildroot}%{_sharedstatedir}/zimbra-backup/jobs
@@ -124,6 +125,13 @@ fi
 %attr(0700,zimbra,zimbra) %dir %{_sharedstatedir}/zimbra-backup/run
 
 %changelog
+* Tue Nov 17 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.18-1
+- Add GitHub Releases version check and verified self-update (TUI Option 8 and CLI 'update [--check] [--yes]')
+- Keep root supervisor for TUI hand-off (exit 42), hold operation.lock during upgrade, and verify SHA-256 + package identity
+- Fix Ubuntu mawk regex compatibility and DEB Depends (mawk | gawk) for zero-apt dpkg -i installation
+- Standardize install and uninstall docs without OS system-update commands
+- Maintain 100% pure 7-bit ASCII and LF line endings across all 16 packaged files
+
 * Wed Nov 11 2026 Zimbra Backup Maintainers <ops@localhost> - 0.3.17-1
 - Add Forever Forward Incremental (FFI) backup mode with automated delta merging, checkpoint rolling and step renumbering
 - Add Synthetic Full Backup (SFB) mode with local mailbox archive synthesis without live Zimbra server load

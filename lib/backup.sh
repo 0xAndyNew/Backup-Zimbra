@@ -649,7 +649,7 @@ zb_export_metadata_stage() {
         zb_extract_dl_artifacts "$stage_dir/dl/${dl}.ldif" "$stage_dir" "$dl" || true
         # Fallback to gdlm only if members were not already populated by gdl
         if [[ ! -s "$stage_dir/dl/${dl}.members" ]]; then
-            zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '!/^#/ && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/' > "$stage_dir/dl/${dl}.members" || true
+            zmprov -l gdlm "$dl" 2>/dev/null | tr -d '\r' | awk '!/^#/ && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+$/' > "$stage_dir/dl/${dl}.members" || true
         fi
     done 3< "$all_dls"
     rm -f -- "$all_dls"
@@ -1213,6 +1213,9 @@ zb_ffi_prune_and_merge() {
                 new_seq_pad="$(printf '%03d' "$new_seq")"
                 local renamed_dir="${job_root}/${new_seq_pad}-incremental-${cur_stamp}"
                 if [[ "$cur_dir" != "$renamed_dir" ]]; then
+                    if [[ -e "$renamed_dir" ]]; then
+                        renamed_dir="$(zb_unique_path "$renamed_dir")"
+                    fi
                     mv -- "$cur_dir" "$renamed_dir"
                     cur_dir="$renamed_dir"
                 fi
@@ -1455,22 +1458,22 @@ zb_sort_backup_names_chronologically() {
                 step = substr(stem, 1, 3) + 0
             }
             sfx = 1
-            if (match(stem, /_[0-9]{1,5}$/)) {
+            if (match(stem, /_[0-9]+$/) && RLENGTH <= 6) {
                 sfx = substr(stem, RSTART + 1) + 0
                 stem = substr(stem, 1, RSTART - 1)
             }
             hms = "000000"
-            if (match(stem, /[_-][0-9]{6}$/)) {
+            if (match(stem, /[_-][0-9][0-9][0-9][0-9][0-9][0-9]$/)) {
                 hms = substr(stem, RSTART + 1, 6)
                 stem = substr(stem, 1, RSTART - 1)
             }
             ymd = "00000000"
-            if (match(stem, /[0-9]{2}-[0-9]{2}-[0-9]{4}$/)) {
+            if (match(stem, /[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]$/)) {
                 dd = substr(stem, RSTART, 2)
                 mm = substr(stem, RSTART + 3, 2)
                 yyyy = substr(stem, RSTART + 6, 4)
                 ymd = yyyy mm dd
-            } else if (match(stem, /[0-9]{8}$/)) {
+            } else if (match(stem, /[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/)) {
                 ymd = substr(stem, RSTART, 8)
             }
             printf "%s_%s_%03d_%06d\t%s\n", ymd, hms, step, sfx, name

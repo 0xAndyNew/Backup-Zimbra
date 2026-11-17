@@ -430,7 +430,7 @@ zb_extract_dl_artifacts() {
     awk '
         BEGIN { in_members = 0 }
         /^members$/ { in_members = 1; next }
-        in_members && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/ { print }
+        in_members && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+$/ { print }
     ' "$ldif_file" >> "$extra_members_file" || true
 
     if [[ -s "$out_root/dl/${dl}.members" ]]; then
@@ -560,7 +560,7 @@ zb_list_active_accounts() {
         zmprov -l gaa > "$raw" || { rm -f -- "$raw"; return 1; }
     fi
     LC_ALL=C sort -u "$raw" | tr -d '\r' | awk '
-        /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/ &&
+        /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+$/ &&
         !/^(galsync\.|spam\.|ham\.|virus-quarantine\.)/ { print }
     ' > "$out_file"
     rm -f -- "$raw"

@@ -1,4 +1,4 @@
-# Zimbra Backup & Restore (`zimbra-backup` v0.3.17)
+# Zimbra Backup & Restore (`zimbra-backup` v0.3.18)
 
 [![Release](https://img.shields.io/github/v/release/0xAndyNew/Backup-Zimbra?color=brightgreen&label=Release)](https://github.com/0xAndyNew/Backup-Zimbra/releases)
 [![CI](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml/badge.svg)](https://github.com/0xAndyNew/Backup-Zimbra/actions/workflows/ci.yml)
@@ -8,7 +8,7 @@
 [![Packages](https://img.shields.io/badge/Packages-RPM_%7C_DEB-success.svg)]()
 [![Bash](https://img.shields.io/badge/Bash-4.2%2B-lightgrey.svg)]()
 [![Encoding](https://img.shields.io/badge/Encoding-100%25_Pure_7--bit_ASCII-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-269%2F269_Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-306%2F306_Passing-brightgreen.svg)]()
 
 > 🌐 **[English Documentation](README_EN.md)** | **[Tài liệu Tiếng Việt](README.md)** | **[Hướng dẫn sử dụng chi tiết (VI)](HUONG_DAN_SU_DUNG.md)**
 
@@ -22,20 +22,41 @@ Works for both **Fresh Installation** and **Upgrading** from an older release (a
 
 ### 1. On RHEL / CentOS / Rocky Linux / AlmaLinux (7, 8, 9):
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm
+curl -fSL -o /tmp/zb.rpm https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup-0.3.18-1.noarch.rpm && sudo rpm -Uvh /tmp/zb.rpm && rm -f /tmp/zb.rpm
 ```
-*(Automatically uses `dnf` on RHEL/CentOS/Rocky/Alma 8, 9 or falls back to `yum` on CentOS 7 / RHEL 7).*
+*(Installs only the single RPM package directly via `rpm -Uvh`; never refreshes OS repos or triggers any system-wide updates).*
 
 ### 2. On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-2_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup_0.3.18-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
-*(Never run `apt update` on Zimbra servers; direct installation via `dpkg -i` is 100% safe and isolates your Zimbra Collaboration system packages).*
+*(Never run `apt update` or OS updates on Zimbra servers; starting from v0.3.18 the DEB depends only on `mawk | gawk`, pre-installed on Ubuntu, so `dpkg -i` succeeds immediately with zero `apt` invocations).*
 
-### 3. Launch interactive management console:
+### 3. Launch console & check for updates:
 ```bash
-zimbra-backup
+zimbra-backup                # Open TUI Menu (Option 8 checks/installs updates)
+zimbra-backup update --check # Check whether a newer GitHub Release is available
+sudo zimbra-backup update    # Check & prompt [y/N] before upgrading zimbra-backup only
 ```
+
+> **Note:** Servers running `v0.3.17` or earlier require one manual upgrade to `v0.3.18` using Step 1 or 2 above; from `v0.3.18` onwards, in-app self-update works directly.
+
+---
+
+## 🗑️ Uninstall
+
+Uninstallation automatically removes the binary, libraries, managed `# BEGIN zimbra-backup .. # END zimbra-backup` crontab block, and `/var/lib/zimbra-backup`, **leaving 100% untouched**: `/opt/zimbra`, running Zimbra mail services, Zimbra system cron (`# ZIMBRASTART..# ZIMBRAEND`), and all backup archives (`/home/backup`, external mounts):
+
+```bash
+# On RHEL / CentOS / Rocky Linux / AlmaLinux:
+sudo rpm -e zimbra-backup
+
+# On Ubuntu / Debian (removes package and /etc/logrotate.d/zimbra-backup):
+sudo dpkg -P zimbra-backup
+# (Or run 'sudo dpkg -r zimbra-backup' to keep /etc/logrotate.d/zimbra-backup)
+```
+
+*(Removal is safely blocked while `operation.lock` is held by an active backup or restore process).*
 
 ---
 
@@ -43,7 +64,7 @@ zimbra-backup
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.domain.com
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.18) - mail.domain.com
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -55,16 +76,17 @@ zimbra-backup
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
   6) Global Settings & Alerts  (Storage, Disk Limits, Alerts)
   7) View Logs
+  8) Check for Updates         (Compare with latest GitHub release)
   0) Exit
 ============================================================
-Select [0-7]:
+Select [0-8]:
 ```
 
 ---
 
 ## 📊 Feature Comparison Matrix
 
-| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.17 |
+| Core Feature | Generic Shell Scripts | Zimbra Network Edition ($$$) | `zimbra-backup` v0.3.18 |
 |---|:---:|:---:|:---:|
 | **License Cost** | Free | High Annual Subscription | **100% Free & Open Source (MIT)** |
 | **Native Packages** | ❌ None (scattered files) | Included | **✅ Native RPM & DEB packages** |
@@ -72,6 +94,7 @@ Select [0-7]:
 | **Synthetic Full Backup (SFB)** | ❌ Not supported | Supported | **✅ Local synthesis with zero Zimbra JVM load** |
 | **Self-Describing Directories** | ❌ Cluttered naming | Internal fixed | **✅ Automatically reflects active strategy** |
 | **Interactive TUI Console** | ❌ CLI only | Web Admin GUI | **✅ 1-touch ASCII TUI Menu** |
+| **Version Check & Self-Update** | ❌ Manual overwrite | Zimbra bundle | **✅ GitHub check + `[y/N]` prompt + SHA-256** |
 | **Remote Storage (FTP / SFTP)** | ❌ External script needed | ⚠️ Custom setup | **✅ Native Port 21/22 automated upload** |
 | **Zero JVM Cold-Start** | ❌ Spawns Java repeatedly | Native Engine | **✅ Cached Token & In-Memory LDAP** |
 | **Non-blocking Worker Pool** | ❌ Sequential execution | Supported | **✅ Concurrent multi-thread pool** |
@@ -85,32 +108,24 @@ Select [0-7]:
 
 ---
 
-## 🌟 Highlights in Version v0.3.17
+## 🌟 Highlights in Version v0.3.18
 
-1. **Forever Forward Incremental (FFI)**:
-   - Takes exactly one initial Full backup from live Zimbra. All subsequent runs pull lightweight incremental deltas.
-   - When restore points exceed `KEEP_COUNT`, the oldest incremental delta merges locally into the base Full backup, rolling its timestamp forward and safely deleting the merged step.
-   - Drastically minimizes network usage, storage footprint, and Zimbra server load.
+1. **Built-in Version Check & Confirmed Self-Update (`TUI Option 8` & `zimbra-backup update`)**:
+   - Added **`8) Check for Updates`** in the Main TUI Menu and **`zimbra-backup update [--check] [--yes]`** on the CLI.
+   - Compares installed `VERSION-RELEASE` against the latest GitHub Release (with redirect + `SHA256SUMS` fallback if API rate-limited) and prompts **`Update now? [y/N]`** (defaults to **No**).
+   - **Root Supervisor Hand-off (exit 42)**: TUI continues running unprivileged as `zimbra`; when you confirm **Yes**, the root supervisor acquires `operation.lock`, downloads to a root-owned temp dir, verifies **SHA-256** and package name, and installs ONLY `zimbra-backup` via `rpm -Uvh` or `dpkg -i`.
+   - **Zero OS / Mail Disruption**: never runs `apt update`, `dnf update`, or `yum update`, never touches `/opt/zimbra` or running Zimbra services, and preserves all Jobs, settings, and crontab schedules.
 
-2. **Synthetic Full Backup (SFB)**:
-   - When a scheduled Full backup cycle arrives or `--synthetic-full` is invoked, the engine avoids pulling heavy mailbox dumps over Zimbra REST API.
-   - Synthesizes a standalone Full snapshot locally from the preceding chain and interim delta. Unchanged mailboxes are hardlinked or copied in microseconds with zero recompression overhead.
+2. **Ubuntu Zero-APT Compatibility (`mawk | gawk`)**:
+   - Standardized all `awk` expressions to POSIX ERE compatible with Ubuntu's default `mawk` and updated DEB `Depends` to `mawk | gawk`, so `dpkg -i` works out-of-the-box on Ubuntu 18.04 / 20.04 / 22.04 LTS without `apt`.
 
-3. **Self-Describing Directory Structure**:
-   - Backup directories clearly reflect the strategy in use for instant visibility during disk checks (`df -h`, `ls /home/backup`):
-     - `/home/backup/incremental/Forever-Forward-Incremental`
-     - `/home/backup/incremental/Synthetic-Full-Backup`
-     - `/home/backup/incremental/Standard-Incremental`
-     - `/home/backup/full/Standard-Full`
-   - Fully backward-compatible with legacy backup locations.
+3. **Forever Forward Incremental (FFI) & Synthetic Full Backup (SFB)**:
+   - FFI takes a single initial Full and locally merges the oldest delta into the base Full when exceeding `KEEP_COUNT`.
+   - SFB synthesizes standalone Full snapshots locally from the chain with zero live Zimbra JVM load, organized in self-describing directories (`Forever-Forward-Incremental`, `Synthetic-Full-Backup`, `Standard-Incremental`, `Standard-Full`).
 
-4. **Enhanced TUI Wizard & CLI Automation**:
-   - Interactive 4-choice backup mode selector in TUI creation wizard and edit loop.
-   - Dedicated CLI flags `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), and `--synthetic-full`.
-
-5. **100% Pure 7-bit ASCII & 269/269 Passing Automated Tests**:
-   - Zero non-ASCII characters across all packaged scripts, preserving terminal and cron cleanliness.
-   - 269 automated test assertions passing with 0 defects.
+4. **100% Pure 7-bit ASCII & 306/306 Passing Automated Tests**:
+   - Zero non-ASCII characters and strict Unix LF line endings across all 16 packaged files.
+   - 306 automated test assertions passing with 0 defects.
 
 ---
 
@@ -214,11 +229,20 @@ zimbra-backup notify test-email
 zimbra-backup notify test-telegram
 ```
 
+### 5. Version Check & Self-Update:
+```bash
+# Check for newer release (read-only, safe as any user):
+zimbra-backup update --check
+
+# Prompt [y/N] and upgrade only zimbra-backup (verifies SHA-256 + package name):
+sudo zimbra-backup update
+```
+
 ---
 
 ## 🛠️ Building from Source & Testing
 
-Execute end-to-end automated test suite (269 tests):
+Execute end-to-end automated test suite (306 tests):
 ```bash
 bash tests/run_tests.sh
 ```

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Build zimbra-backup RPM package for v0.3.17."""
+"""Build zimbra-backup RPM package for v0.3.18."""
 
 import gzip
 import hashlib
 import os
+import posixpath
 import struct
 import subprocess
 import time
 
-VERSION = "0.3.17"
-RELEASE = "2"
+VERSION = "0.3.18"
+RELEASE = "1"
 RPM_FILENAME = f"zimbra-backup-{VERSION}-{RELEASE}.noarch.rpm"
 BUILD_TIME = 1730635200  # 2026-11-03 12:00:00 UTC (reproducible build)
 
@@ -23,6 +24,7 @@ RPM_FILE_MAP = [
     ("./usr/libexec/zimbra-backup/notify.sh", "lib/notify.sh", 0o100644, "root", "root"),
     ("./usr/libexec/zimbra-backup/restore.sh", "lib/restore.sh", 0o100644, "root", "root"),
     ("./usr/libexec/zimbra-backup/tui.sh", "lib/tui.sh", 0o100644, "root", "root"),
+    ("./usr/libexec/zimbra-backup/update.sh", "lib/update.sh", 0o100644, "root", "root"),
     ("./usr/libexec/zimbra-backup/zimbra_api.sh", "lib/zimbra_api.sh", 0o100644, "root", "root"),
     ("./var/lib/zimbra-backup", None, 0o40700, "zimbra", "zimbra"),
     ("./var/lib/zimbra-backup/jobs", None, 0o40700, "zimbra", "zimbra"),
@@ -206,19 +208,49 @@ def main():
     file_contents = {}
     file_digests = []
     file_sizes = []
+    file_modes = []
+    file_flags = []
+    file_users = []
+    file_groups = []
+    dir_names = []
+    dir_index_map = {}
+    dir_indexes = []
+    base_names = []
     now = BUILD_TIME
     total_size = 0
 
     for rpath, src_path, mode, uname, gname in RPM_FILE_MAP:
+        abs_rpm_path = rpath[1:] if rpath.startswith(".") else rpath
+        parent_dir = posixpath.dirname(abs_rpm_path)
+        if not parent_dir.endswith("/"):
+            parent_dir += "/"
+        base_name = posixpath.basename(abs_rpm_path)
+        if parent_dir not in dir_index_map:
+            dir_index_map[parent_dir] = len(dir_names)
+            dir_names.append(parent_dir)
+        dir_indexes.append(dir_index_map[parent_dir])
+        base_names.append(base_name)
+
         if src_path:
             with open(src_path, "rb") as f:
                 content = f.read().replace(b"\r\n", b"\n")
+            sz = len(content)
+            digest = hashlib.sha256(content).hexdigest()
+            flags = 17 if abs_rpm_path == "/etc/logrotate.d/zimbra-backup" else 0
         else:
             content = b""
+            sz = 4096
+            digest = ""
+            flags = 0
+
         file_contents[rpath] = content
-        file_sizes.append(len(content))
-        total_size += len(content)
-        file_digests.append(hashlib.sha256(content).hexdigest())
+        file_sizes.append(sz)
+        total_size += sz
+        file_digests.append(digest)
+        file_modes.append(mode)
+        file_flags.append(flags)
+        file_users.append(uname)
+        file_groups.append(gname)
 
     print(f"[+] Building cpio archive and gzip payload...")
     cpio_raw = build_cpio_archive(file_contents)
@@ -257,16 +289,32 @@ def main():
             raise ValueError(f"Tag {tag} unknown type {ttype}")
         main_dict[tag] = (ttype, val)
 
-    # Update modified fields
+    # Update modified fields and recompute all per-file header arrays for RPM_FILE_MAP
+    nfiles = len(RPM_FILE_MAP)
     main_dict[1001] = (6, VERSION) # VERSION
     main_dict[1002] = (6, RELEASE) # RELEASE
     main_dict[1044] = (6, f"zimbra-backup-{VERSION}-{RELEASE}.src.rpm") # SOURCERPM
-    main_dict[1113] = (8, [f"{VERSION}-{RELEASE}"]) # DIRINDEXES
+    main_dict[1113] = (8, [f"{VERSION}-{RELEASE}"]) # PROVIDEVERSION
     main_dict[1028] = (4, file_sizes) # FILESIZES
+    main_dict[1030] = (3, file_modes) # FILEMODES
+    main_dict[1033] = (3, [1] * nfiles) # FILERDEVS
+    main_dict[1034] = (4, [now] * nfiles) # FILEMTIMES
     main_dict[1035] = (8, file_digests) # FILEDIGESTS (SHA-256)
+    main_dict[1036] = (8, [""] * nfiles) # FILELINKTOS
+    main_dict[1037] = (4, file_flags) # FILEFLAGS
+    main_dict[1039] = (8, file_users) # FILEUSERNAME
+    main_dict[1040] = (8, file_groups) # FILEGROUPNAME
+    main_dict[1045] = (4, [0xFFFFFFFF] * nfiles) # FILEVERIFYFLAGS
+    main_dict[1095] = (4, [1] * nfiles) # FILEDEVICES
+    main_dict[1096] = (4, list(range(1, nfiles + 1))) # FILEINODES
+    main_dict[1097] = (8, [""] * nfiles) # FILELANGS
+    main_dict[1116] = (4, dir_indexes) # DIRINDEXES
+    main_dict[1117] = (8, base_names) # BASENAMES
+    main_dict[1118] = (8, dir_names) # DIRNAMES
     main_dict[1009] = (4, [total_size]) # SIZE
     main_dict[1006] = (4, [now]) # BUILDTIME
-    main_dict[1034] = (4, [now] * len(RPM_FILE_MAP)) # FILEMTIMES
+    if 5092 in main_dict:
+        main_dict[5092] = (8, [hashlib.sha256(cpio_gz).hexdigest()]) # PAYLOADDIGEST
 
     # Update PREIN, PREUN, POSTUN scripts with current packaging files
     with open("packaging/preinstall.sh", "r", encoding="utf-8") as f:

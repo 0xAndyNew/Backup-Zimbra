@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end automated test suite for zimbra-backup v0.3.17
+# End-to-end automated test suite for zimbra-backup v0.3.18
 # Uses mock Zimbra CLI + REST + crontab + mountpoint binaries — safe to run on Windows Git Bash or Linux without root.
 
 set -Eeuo pipefail
@@ -360,8 +360,8 @@ while (( $# > 0 )); do
                 tg_text="${2#text=}"
             fi
             shift 2 ;;
-        --connect-timeout|--max-time) shift 2 ;;
-        -k|-s|-sS|-ks|-sk|--ftp-create-dirs|--insecure|--ssl-reqd|--show-error|--fail|--silent) shift ;;
+        --connect-timeout|--max-time|-A|-H|--proto|--proto-redir) shift 2 ;;
+        -k|-s|-sS|-ks|-sk|-f|-L|-S|-fsSL|-fsS|--ftp-create-dirs|--insecure|--ssl-reqd|--show-error|--fail|--silent|--location) shift ;;
         http://*|https://*|ftp://*|sftp://*) pos_url="$1"; shift ;;
         *) shift ;;
     esac
@@ -380,6 +380,42 @@ if [[ -z "$cfg_file" && "$pos_url" == https://127.0.0.1:* ]]; then
         fi
     fi
     [[ -n "$write_fmt" ]] && printf '200'
+    exit 0
+fi
+
+# GitHub Releases mock (for update check & self-update tests)
+if [[ "$pos_url" == https://api.github.com/repos/*/releases/latest ]]; then
+    if [[ "${MOCK_GH_API_FAIL:-0}" == "1" ]]; then
+        exit 22
+    fi
+    cp -- "${MOCK_GH_JSON:-$MOCK_DATA/update/latest.json}" "$out_file"
+    exit 0
+fi
+
+if [[ "$pos_url" == https://github.com/*/releases/latest ]]; then
+    if [[ "${MOCK_GH_WEB_FAIL:-0}" == "1" ]]; then
+        exit 22
+    fi
+    [[ -n "$out_file" && "$out_file" != "/dev/null" ]] && : > "$out_file"
+    [[ -n "$write_fmt" ]] && printf '%s' "${MOCK_GH_LATEST_TAG_URL:-https://github.com/0xAndyNew/Backup-Zimbra/releases/tag/v0.3.19}"
+    exit 0
+fi
+
+if [[ "$pos_url" == https://github.com/*/releases/download/*/SHA256SUMS ]]; then
+    if [[ "${MOCK_GH_NO_SUMS:-0}" == "1" ]]; then
+        exit 22
+    fi
+    cp -- "${MOCK_GH_SUMS:-$MOCK_DATA/update/SHA256SUMS}" "$out_file"
+    exit 0
+fi
+
+if [[ "$pos_url" == https://github.com/*/releases/download/*/*.rpm || "$pos_url" == https://github.com/*/releases/download/*/*.deb ]]; then
+    if [[ "${MOCK_GH_BAD_SHA:-0}" == "1" ]]; then
+        printf 'corrupted-package-payload\n' > "$out_file"
+        exit 0
+    fi
+    asset_fname="${pos_url##*/}"
+    cp -- "$MOCK_DATA/update/$asset_fname" "$out_file"
     exit 0
 fi
 
@@ -487,7 +523,7 @@ export ZB_FORCE_REST_PORT=8443
 
 ZB_CMD="$REPO_ROOT/bin/zimbra-backup"
 ver_out="$("$ZB_CMD" --version)"
-assert_contains "$ver_out" "zimbra-backup 0.3.17" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.17"
+assert_contains "$ver_out" "zimbra-backup 0.3.18" "Phiên bản CLI hiển thị đúng zimbra-backup 0.3.18"
 
 printf '\n=== 2. Kiểm tra khởi tạo (init) & Chặn đường dẫn chưa mount / symlink ===\n'
 status_before_init="$("$ZB_CMD" status)"
@@ -1631,6 +1667,309 @@ assert_contains "$cat_ffi" "ffi-incr(#" "Catalog hiển thị đúng nhãn ffi-i
 cat_sfb="$("$ZB_CMD" backup list --job job-sfb)"
 assert_contains "$cat_sfb" "synth-full" "Catalog hiển thị đúng nhãn synth-full cho SFB"
 
+printf '\n=== 20. Kiểm tra Check & Auto-Update phiên bản (v0.3.18) ===\n'
+
+mkdir -p "$MOCK_DATA/update"
+export MOCK_RPM_VER_FILE="$TEST_TMP/mock_rpm_ver.txt"
+export MOCK_DEB_VER_FILE="$TEST_TMP/mock_deb_ver.txt"
+printf '0.3.18-1\n' > "$MOCK_RPM_VER_FILE"
+printf '0.3.18-1\n' > "$MOCK_DEB_VER_FILE"
+
+cat > "$MOCK_BIN/rpm" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+    -q)
+        shift
+        if [[ "${1:-}" == "--qf" ]]; then
+            cat "$MOCK_RPM_VER_FILE"
+            exit 0
+        fi
+        [[ "${1:-}" == "zimbra-backup" ]] && exit 0
+        exit 1
+        ;;
+    -qp)
+        printf 'zimbra-backup\n'
+        exit 0
+        ;;
+    -Uvh)
+        pkg="${2:-}"
+        printf 'RPM_UPGRADE %s\n' "$pkg" >> "$MOCK_LOG"
+        if [[ "$pkg" =~ zimbra-backup-([0-9]+\.[0-9]+(\.[0-9]+)*-[0-9]+)\.noarch\.rpm$ ]]; then
+            printf '%s\n' "${BASH_REMATCH[1]}" > "$MOCK_RPM_VER_FILE"
+        fi
+        exit 0
+        ;;
+esac
+exit 1
+EOF
+chmod +x "$MOCK_BIN/rpm"
+
+cat > "$MOCK_BIN/dpkg-query" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *'${Status}'* ]]; then
+    printf 'install ok installed'
+    exit 0
+fi
+if [[ "$*" == *'${Version}'* ]]; then
+    cat "$MOCK_DEB_VER_FILE"
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$MOCK_BIN/dpkg-query"
+
+cat > "$MOCK_BIN/dpkg-deb" <<'EOF'
+#!/usr/bin/env bash
+printf 'zimbra-backup\n'
+EOF
+chmod +x "$MOCK_BIN/dpkg-deb"
+
+cat > "$MOCK_BIN/dpkg" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-i" ]]; then
+    pkg="${2:-}"
+    printf 'DEB_UPGRADE %s\n' "$pkg" >> "$MOCK_LOG"
+    if [[ "$pkg" =~ zimbra-backup_([0-9]+\.[0-9]+(\.[0-9]+)*-[0-9]+)_all\.deb$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}" > "$MOCK_DEB_VER_FILE"
+    fi
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$MOCK_BIN/dpkg"
+
+# 20a. So sánh phiên bản đầy đủ VERSION-RELEASE (Bash thuần)
+(
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/update.sh"
+    [[ "$(zb_version_compare "0.3.17-2" "0.3.18-1")" == "lt" ]] || exit 1
+    [[ "$(zb_version_compare "0.3.17-2" "0.3.17-10")" == "lt" ]] || exit 1
+    [[ "$(zb_version_compare "0.3.18-1" "0.3.18-1")" == "eq" ]] || exit 1
+    [[ "$(zb_version_compare "0.3.18-1.el7" "0.3.18-1")" == "eq" ]] || exit 1
+    [[ "$(zb_version_compare "1.0.0-1" "0.9.9-9")" == "gt" ]] || exit 1
+) && pass "zb_version_compare xử lý chuẩn VERSION-RELEASE (bao gồm 0.3.17-2 < 0.3.17-10 và hậu tố .el7)" \
+  || fail "zb_version_compare trả kết quả sai"
+
+# Tạo fixture gói giả cho v0.3.18 và v0.3.19 + SHA256SUMS + JSON API
+printf 'mock-rpm-0.3.19-1-payload\n' > "$MOCK_DATA/update/zimbra-backup-0.3.19-1.noarch.rpm"
+printf 'mock-deb-0.3.19-1-payload\n' > "$MOCK_DATA/update/zimbra-backup_0.3.19-1_all.deb"
+rpm19_sha="$(sha256sum "$MOCK_DATA/update/zimbra-backup-0.3.19-1.noarch.rpm" | awk '{print $1}')"
+deb19_sha="$(sha256sum "$MOCK_DATA/update/zimbra-backup_0.3.19-1_all.deb" | awk '{print $1}')"
+
+cat > "$MOCK_DATA/update/SHA256SUMS" <<EOF
+${rpm19_sha}  zimbra-backup-0.3.19-1.noarch.rpm
+${deb19_sha}  zimbra-backup_0.3.19-1_all.deb
+EOF
+
+cat > "$MOCK_DATA/update/latest.json" <<EOF
+{
+  "tag_name": "v0.3.19",
+  "html_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/tag/v0.3.19",
+  "published_at": "2026-12-01T10:00:00Z",
+  "body": "### Package Checksums (SHA-256)\n- \`zimbra-backup-0.3.19-1.noarch.rpm\`: \`${rpm19_sha}\`\n- \`zimbra-backup_0.3.19-1_all.deb\`: \`${deb19_sha}\`",
+  "assets": [
+    {"browser_download_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.19/zimbra-backup-0.3.19-1.noarch.rpm"},
+    {"browser_download_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.19/zimbra-backup_0.3.19-1_all.deb"},
+    {"browser_download_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.19/SHA256SUMS"}
+  ]
+}
+EOF
+
+cat > "$MOCK_DATA/update/latest_same.json" <<'EOF'
+{
+  "tag_name": "v0.3.18",
+  "html_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/tag/v0.3.18",
+  "published_at": "2026-11-17T10:00:00Z",
+  "assets": [
+    {"browser_download_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup-0.3.18-1.noarch.rpm"},
+    {"browser_download_url": "https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup_0.3.18-1_all.deb"}
+  ]
+}
+EOF
+
+export ZB_UPDATE_TMP_BASE="$TEST_TMP"
+export ZB_UPDATE_SKIP_ROOT_CHECK=1
+export ZB_UPDATE_FORMAT=rpm
+
+# 20b. --check khi đang ở bản mới nhất (exit 0)
+: > "$MOCK_LOG"
+same_rc=0
+same_out="$(MOCK_GH_JSON="$MOCK_DATA/update/latest_same.json" "$ZB_CMD" update --check)" || same_rc=$?
+(( same_rc == 0 )) && pass "update --check trả về mã 0 khi đã ở bản mới nhất" \
+    || fail "update --check phải trả về 0 khi mới nhất (thực tế: $same_rc)"
+assert_contains "$same_out" "latest version (0.3.18-1)" "update --check báo đúng đã ở bản mới nhất"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "update --check không cài đặt khi đã mới nhất"
+
+# 20c. --check khi có bản mới (exit 10, không cài)
+: > "$MOCK_LOG"
+avail_rc=0
+avail_out="$("$ZB_CMD" update --check)" || avail_rc=$?
+(( avail_rc == 10 )) && pass "update --check trả về mã 10 khi có bản mới hơn" \
+    || fail "update --check phải trả về 10 khi có bản mới (thực tế: $avail_rc)"
+assert_contains "$avail_out" "Update available: 0.3.18-1 -> 0.3.19-1" "update --check hiển thị rõ phiên bản cũ -> mới"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "update --check tuyệt đối không tự cài gói"
+
+# 20d. Không có TTY và không truyền --yes -> từ chối tự cài (exit 10)
+: > "$MOCK_LOG"
+nontty_rc=0
+nontty_out="$("$ZB_CMD" update </dev/null)" || nontty_rc=$?
+(( nontty_rc == 10 )) && pass "update trong shell non-interactive không có --yes trả về mã 10 và không cài" \
+    || fail "update non-interactive không --yes phải trả về 10 (thực tế: $nontty_rc)"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "update non-interactive không có --yes không cài gói"
+
+# 20e. Người dùng chọn No (nhập 'n' và Enter rỗng mặc định No)
+: > "$MOCK_LOG"
+no_out="$(ZB_TEST_INTERACTIVE_PIPE=1 "$ZB_CMD" update <<< "n")"
+assert_contains "$no_out" "Update cancelled." "Chọn 'n' hủy cập nhật an toàn"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "Chọn 'n' không chạy rpm -Uvh"
+
+def_no_out="$(ZB_TEST_INTERACTIVE_PIPE=1 "$ZB_CMD" update <<< "")"
+assert_contains "$def_no_out" "Update cancelled." "Bấm Enter mặc định [y/N] là No (hủy cập nhật)"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "Mặc định Enter không chạy rpm -Uvh"
+
+# 20f. Người dùng chọn Yes -> tải, xác minh SHA-256, cài rpm -Uvh và nâng version
+: > "$MOCK_LOG"
+yes_out="$(ZB_TEST_INTERACTIVE_PIPE=1 "$ZB_CMD" update <<< "y")"
+assert_contains "$yes_out" "Verified SHA-256 checksum ($rpm19_sha)" "Xác minh đúng SHA-256 trước khi cài"
+assert_contains "$yes_out" "Successfully updated zimbra-backup: 0.3.18-1 -> 0.3.19-1" "Báo cập nhật thành công phiên bản mới"
+assert_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "Chạy rpm -Uvh khi người dùng xác nhận Yes"
+[[ "$(cat "$MOCK_RPM_VER_FILE")" == "0.3.19-1" ]] \
+    && pass "Phiên bản RPM sau nâng cấp đạt 0.3.19-1" \
+    || fail "Phiên bản RPM sau nâng cấp không khớp"
+
+# 20g. Checksum sai -> từ chối cài gói
+printf '0.3.18-1\n' > "$MOCK_RPM_VER_FILE"
+: > "$MOCK_LOG"
+bad_sha_rc=0
+bad_sha_out="$(MOCK_GH_BAD_SHA=1 "$ZB_CMD" update --yes 2>&1)" || bad_sha_rc=$?
+(( bad_sha_rc != 0 )) && pass "Từ chối cập nhật khi SHA-256 không khớp" \
+    || fail "Phải thất bại khi SHA-256 sai"
+assert_contains "$bad_sha_out" "checksum mismatch" "Thông báo rõ lỗi SHA-256 checksum mismatch"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "Không chạy rpm -Uvh khi SHA-256 bị sai"
+
+# 20h. Fallback khi GitHub API lỗi (rate-limit) -> dùng redirect /releases/latest + SHA256SUMS
+: > "$MOCK_LOG"
+fb_out="$(MOCK_GH_API_FAIL=1 "$ZB_CMD" update --yes)"
+assert_contains "$fb_out" "Successfully updated zimbra-backup: 0.3.18-1 -> 0.3.19-1" \
+    "Fallback redirect + SHA256SUMS hoạt động bình thường khi GitHub API lỗi"
+assert_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "Fallback cài đặt thành công gói RPM"
+
+# 20i. Fallback đọc SHA-256 từ release body khi thiếu file SHA256SUMS (release cũ)
+printf '0.3.18-1\n' > "$MOCK_RPM_VER_FILE"
+: > "$MOCK_LOG"
+body_fb_out="$(MOCK_GH_NO_SUMS=1 "$ZB_CMD" update --yes)"
+assert_contains "$body_fb_out" "Verified SHA-256 checksum ($rpm19_sha)" \
+    "Tự động đọc SHA-256 từ mô tả release khi không có asset SHA256SUMS"
+
+# 20j. Định dạng DEB (Ubuntu) -> dùng dpkg -i và giữ nguyên hệ thống
+: > "$MOCK_LOG"
+deb_out="$(ZB_UPDATE_FORMAT=deb "$ZB_CMD" update --yes)"
+assert_contains "$deb_out" "Installing DEB package with dpkg -i" "Cài bản DEB bằng dpkg -i (không dùng apt update)"
+assert_contains "$deb_out" "Successfully updated zimbra-backup: 0.3.18-1 -> 0.3.19-1" "Cập nhật DEB thành công lên 0.3.19-1"
+assert_contains "$(cat "$MOCK_LOG")" "DEB_UPGRADE" "Mock dpkg -i được gọi với gói .deb"
+
+# 20k. Chế độ mã nguồn (source checkout) -> từ chối tự cài gói và hướng dẫn git pull
+: > "$MOCK_LOG"
+src_rc=0
+src_out="$(ZB_UPDATE_FORMAT=source "$ZB_CMD" update --yes 2>&1)" || src_rc=$?
+(( src_rc != 0 )) && pass "Từ chối tự cài gói khi đang chạy từ cây mã nguồn (source)" \
+    || fail "Phải từ chối cài gói khi ZB_UPDATE_FORMAT=source"
+assert_contains "$src_out" "git pull" "Hướng dẫn dùng git pull khi chạy từ mã nguồn"
+
+# 20l. Kiểm tra chặn quyền non-root (chỉ chạy khi user hiện tại không phải root)
+if (( EUID != 0 )); then
+    nonroot_rc=0
+    nonroot_out="$(ZB_UPDATE_SKIP_ROOT_CHECK=0 "$ZB_CMD" update --yes 2>&1)" || nonroot_rc=$?
+    (( nonroot_rc != 0 )) && pass "Từ chối cập nhật khi không có quyền root" \
+        || fail "Phải từ chối chạy update nếu không phải root"
+    assert_contains "$nonroot_out" "requires root privileges" "Thông báo rõ yêu cầu quyền root"
+fi
+
+# 20m. Kiểm tra Menu TUI mục 8 (Yes với root supervisor -> exit 42; không supervisor -> hướng dẫn; No -> hủy)
+printf '0.3.18-1\n' > "$MOCK_RPM_VER_FILE"
+tui_sup_rc=0
+tui_sup_out="$(
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    export ZB_ROOT_SUPERVISOR=1
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/notify.sh"
+    . "$REPO_ROOT/lib/zimbra_api.sh"
+    . "$REPO_ROOT/lib/jobs.sh"
+    . "$REPO_ROOT/lib/backup.sh"
+    . "$REPO_ROOT/lib/restore.sh"
+    . "$REPO_ROOT/lib/tui.sh"
+    . "$REPO_ROOT/lib/update.sh"
+    zb_tui_main <<< $'8\ny\n'
+)" || tui_sup_rc=$?
+(( tui_sup_rc == 42 )) && pass "TUI mục 8 chọn Yes dưới root supervisor thoát với mã 42 để root cài đặt" \
+    || fail "TUI mục 8 với ZB_ROOT_SUPERVISOR=1 phải thoát mã 42 (thực tế: $tui_sup_rc)"
+
+tui_nosup_out="$(
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    export ZB_ROOT_SUPERVISOR=0
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/notify.sh"
+    . "$REPO_ROOT/lib/zimbra_api.sh"
+    . "$REPO_ROOT/lib/jobs.sh"
+    . "$REPO_ROOT/lib/backup.sh"
+    . "$REPO_ROOT/lib/restore.sh"
+    . "$REPO_ROOT/lib/tui.sh"
+    . "$REPO_ROOT/lib/update.sh"
+    zb_tui_main <<< $'8\ny\n0\n' 2>&1
+)"
+assert_contains "$tui_nosup_out" "requires root privileges" \
+    "TUI mục 8 khi không có root supervisor hướng dẫn chạy 'zimbra-backup update' bằng root"
+
+tui_no_out="$(
+    export ZB_LIB_DIR="$REPO_ROOT/lib"
+    export ZB_ROOT_SUPERVISOR=1
+    . "$REPO_ROOT/lib/common.sh"
+    . "$REPO_ROOT/lib/notify.sh"
+    . "$REPO_ROOT/lib/zimbra_api.sh"
+    . "$REPO_ROOT/lib/jobs.sh"
+    . "$REPO_ROOT/lib/backup.sh"
+    . "$REPO_ROOT/lib/restore.sh"
+    . "$REPO_ROOT/lib/tui.sh"
+    . "$REPO_ROOT/lib/update.sh"
+    zb_tui_main <<< $'8\nn\n0\n' 2>&1
+)"
+assert_contains "$tui_no_out" "Update cancelled." \
+    "TUI mục 8 chọn No hủy cập nhật và quay lại Main Menu an toàn"
+
+# 20n. Kiểm tra chặn Update khi operation.lock đang bận (backup/restore đang chạy)
+: > "$STATE_DIR/operation.lock"
+: > "$MOCK_LOG"
+lock_rc=0
+if [[ -x "$MOCK_BIN/flock" ]]; then
+    LOCK_MOCK_BIN="$TEST_TMP/lock_mock_bin"
+    mkdir -p "$LOCK_MOCK_BIN"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$LOCK_MOCK_BIN/flock"
+    chmod +x "$LOCK_MOCK_BIN/flock"
+    lock_out="$(PATH="$LOCK_MOCK_BIN:$PATH" "$ZB_CMD" update --yes 2>&1)" || lock_rc=$?
+else
+    lock_out="$(
+        exec 8>"$STATE_DIR/operation.lock"
+        flock -x 8
+        "$ZB_CMD" update --yes 2>&1
+    )" || lock_rc=$?
+fi
+(( lock_rc != 0 )) && pass "Từ chối cập nhật khi operation.lock đang bị giữ bởi tiến trình backup/restore" \
+    || fail "Phải từ chối cập nhật khi operation.lock đang bận"
+assert_contains "$lock_out" "is locked" "Thông báo rõ xung đột operation.lock"
+assert_not_contains "$(cat "$MOCK_LOG")" "RPM_UPGRADE" "Không cài gói khi operation.lock đang bị giữ"
+
+# 20o. Kiểm tra đồng bộ VERSION & RELEASE trên các file cấu hình đóng gói và không dùng gawk-only trong awk
+grep -q '^version: 0\.3\.18$' "$REPO_ROOT/nfpm.yaml" \
+    && grep -q '^release: 1$' "$REPO_ROOT/nfpm.yaml" \
+    && grep -q '^Version:.*0\.3\.18' "$REPO_ROOT/zimbra-backup.spec" \
+    && grep -q '^Release:.*1%{?dist}' "$REPO_ROOT/zimbra-backup.spec" \
+    && grep -q '^VERSION = "0\.3\.18"$' "$REPO_ROOT/packaging/build_rpm.py" \
+    && grep -q '^VERSION = "0\.3\.18"$' "$REPO_ROOT/packaging/build_deb.py" \
+    && grep -q 'mawk | gawk' "$REPO_ROOT/packaging/build_deb.py" \
+    && pass "Đồng bộ VERSION=0.3.18 / RELEASE=1 và Depends: mawk | gawk (Ubuntu zero-apt) trên toàn bộ cấu hình đóng gói" \
+    || fail "Cấu hình phiên bản hoặc phụ thuộc Ubuntu DEB chưa đồng bộ"
+
 PACKAGED_FILES=(
     "$REPO_ROOT/zimbra-backup"
     "$REPO_ROOT/bin/zimbra-backup"
@@ -1641,6 +1980,7 @@ PACKAGED_FILES=(
     "$REPO_ROOT/lib/backup.sh"
     "$REPO_ROOT/lib/restore.sh"
     "$REPO_ROOT/lib/tui.sh"
+    "$REPO_ROOT/lib/update.sh"
     "$REPO_ROOT/packaging/preinstall.sh"
     "$REPO_ROOT/packaging/preremove.sh"
     "$REPO_ROOT/packaging/postremove.sh"
@@ -1662,9 +2002,9 @@ for pf in "${PACKAGED_FILES[@]}"; do
         break
     fi
 done
-[[ -z "$non_ascii_hit" ]] && pass "Toàn bộ 15 file đóng gói RPM đều đạt chuẩn 100% Pure 7-bit ASCII (không bao giờ lỗi font □)" \
+[[ -z "$non_ascii_hit" ]] && pass "Toàn bộ 16 file đóng gói RPM đều đạt chuẩn 100% Pure 7-bit ASCII (không bao giờ lỗi font □)" \
     || fail "Phát hiện ký tự ngoài bảng mã ASCII 7-bit trong: $non_ascii_hit"
-[[ -z "$crlf_hit" ]] && pass "Toàn bộ 15 file đóng gói RPM đều giữ chuẩn xuống dòng LF (\\n)" \
+[[ -z "$crlf_hit" ]] && pass "Toàn bộ 16 file đóng gói RPM đều giữ chuẩn xuống dòng LF (\\n)" \
     || fail "Phát hiện ký tự CRLF (\\r\\n) trong: $crlf_hit"
 
 printf '\n============================================================\n'

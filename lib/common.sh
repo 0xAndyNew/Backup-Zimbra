@@ -2,7 +2,8 @@
 # Core utilities, configuration parser, privilege switching, locking, and storage guards.
 # Compatible with Bash 4.2+ (CentOS/RHEL 7, 8, 9).
 
-ZB_VERSION="0.3.17"
+ZB_VERSION="0.3.18"
+ZB_PKG_RELEASE="1"
 ZB_STATE_DIR="${ZB_STATE_DIR:-/var/lib/zimbra-backup}"
 ZB_SETTINGS_FILE="$ZB_STATE_DIR/settings.conf"
 ZB_JOBS_DIR="$ZB_STATE_DIR/jobs"
@@ -55,6 +56,27 @@ zb_pause() {
     if [[ -t 0 ]]; then
         read -r -p 'Press Enter to continue... ' _ || true
     fi
+}
+
+zb_prompt_yesno() {
+    local prompt_text="$1"
+    local default_yn="${2:-yes}" # yes | no
+    local hint="[Y/n]"
+    [[ "$default_yn" == "no" ]] && hint="[y/N]"
+    local ans=""
+    while true; do
+        read -r -p "${prompt_text} ${hint}: " ans || return 1
+        ans="$(zb_trim "$ans")"
+        if [[ -z "$ans" ]]; then
+            printf '%s' "$default_yn"
+            return 0
+        fi
+        case "${ans,,}" in
+            y|yes) printf 'yes'; return 0 ;;
+            n|no) printf 'no'; return 0 ;;
+            *) zb_warn "Please enter y (yes) or n (no)." ;;
+        esac
+    done
 }
 
 zb_trim() {

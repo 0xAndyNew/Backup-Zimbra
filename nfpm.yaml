@@ -1,8 +1,8 @@
 name: zimbra-backup
 arch: noarch
 platform: linux
-version: 0.3.17
-release: 2
+version: 0.3.18
+release: 1
 section: System Environment/Base
 priority: optional
 maintainer: Zimbra Backup Maintainers <ops@localhost>
@@ -83,6 +83,13 @@ contents:
 
   - src: ./lib/tui.sh
     dst: /usr/libexec/zimbra-backup/tui.sh
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+
+  - src: ./lib/update.sh
+    dst: /usr/libexec/zimbra-backup/update.sh
     file_info:
       mode: 0644
       owner: root

@@ -1,6 +1,6 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.17)
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG CHI TIẾT `zimbra-backup` (v0.3.18)
 
-Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.17** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
+Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình Menu TUI và từng câu lệnh CLI kèm ví dụ thực tế** cho bộ công cụ sao lưu & khôi phục hợp nhất **`zimbra-backup` v0.3.18** trên máy chủ **Zimbra Collaboration Open Source Edition (8.8.15, 9, 10)** chạy **CentOS / RHEL / AlmaLinux / Rocky Linux 7, 8, 9** và **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
 ---
 
@@ -10,10 +10,12 @@ Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình
    - [1.1. Dữ liệu được bảo toàn đầy đủ khi sao lưu](#11-dữ-liệu-được-bảo-toàn-đầy-đủ-khi-sao-lưu)
    - [1.2. Cấu trúc thư mục chuẩn hóa trên máy chủ](#12-cấu-trúc-thư-mục-chuẩn-hóa-trên-máy-chủ)
    - [1.3. Cơ chế tối ưu hiệu năng, Remote Storage FTP/SFTP theo Job và tự động dọn dẹp](#13-cơ-chế-tối-ưu-hiệu-năng-remote-storage-ftpsftp-theo-job-và-tự-động-dọn-dẹp)
-2. [Cài đặt, Nâng cấp & Gỡ bỏ](#2-cài-đặt-nâng-cấp--gỡ-bỏ)
+2. [Cài đặt, Cập nhật & Gỡ bỏ](#2-cài-đặt-cập-nhật--gỡ-bỏ)
    - [2.1. Phân quyền thư mục lưu trữ cho user zimbra](#21-phân-quyền-thư-mục-lưu-trữ-cho-user-zimbra)
    - [2.2. Cài đặt trên RHEL / CentOS / Rocky / AlmaLinux (Gói RPM)](#22-cài-đặt-trên-rhel--centos--rocky--almalinux-gói-rpm)
    - [2.3. Cài đặt trên Ubuntu / Debian (Gói DEB)](#23-cài-đặt-trên-ubuntu--debian-gói-deb)
+   - [2.4. Kiểm tra & Cập nhật phiên bản trong ứng dụng (`zimbra-backup update`)](#24-kiểm-tra--cập-nhật-phiên-bản-trong-ứng-dụng-zimbra-backup-update)
+   - [2.5. Gỡ bỏ hoàn toàn ứng dụng (An toàn cho Zimbra)](#25-gỡ-bỏ-hoàn-toàn-ứng-dụng-an-toàn-cho-zimbra)
 3. [Hướng dẫn chi tiết Giao diện tương tác TUI (`zimbra-backup`)](#3-hướng-dẫn-chi-tiết-giao-diện-tương-tác-tui-zimbra-backup)
    - [Khởi động & Màn hình Main Menu](#khởi-động--màn-hình-main-menu)
    - [Menu 1: Jobs & Crontab Schedule (Quản lý Job & Lịch tự động)](#menu-1-jobs--crontab-schedule-quản-lý-job--lịch-tự-động)
@@ -23,6 +25,7 @@ Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình
    - [Menu 5: Backup Catalog & Verify (Tra cứu User, Kiểm tra SHA-256 & Dọn rác)](#menu-5-backup-catalog--verify-tra-cứu-user-kiểm-tra-sha-256--dọn-rác)
    - [Menu 6: Global Settings & Alerts (Cấu hình chung, Giới hạn đĩa & Cảnh báo)](#menu-6-global-settings--alerts-cấu-hình-chung-giới-hạn-đĩa--cảnh-báo)
    - [Menu 7: View Logs (Xem nhật ký thực thi)](#menu-7-view-logs-xem-nhật-ký-thực-thi)
+   - [Menu 8: Check for Updates (Kiểm tra & Cập nhật phiên bản)](#menu-8-check-for-updates-kiểm-tra--cập-nhật-phiên-bản)
 4. [Cẩm nang toàn bộ câu lệnh CLI (`zimbra-backup <lệnh>`) & Ví dụ](#4-cẩm-nang-toàn-bộ-câu-lệnh-cli-zimbra-backup-lệnh--ví-dụ)
    - [4.1. Lệnh `init` — Khởi tạo cấu hình hệ thống](#41-lệnh-init--khởi-tạo-cấu-hình-hệ-thống)
    - [4.2. Lệnh `job` — CRUD Job, chỉnh sửa lịch & kích hoạt](#42-lệnh-job--crud-job-chỉnh-sửa-lịch--kích-hoạt)
@@ -31,7 +34,8 @@ Tài liệu này hướng dẫn **toàn diện từng bước, từng màn hình
    - [4.5. Lệnh `restore` — Khôi phục chuyên sâu bằng dòng lệnh](#45-lệnh-restore--khôi-phục-chuyên-sâu-bằng-dòng-lệnh)
    - [4.6. Cơ chế an toàn `--yes` và các cờ bảo vệ dữ liệu](#46-cơ-chế-an-toàn---yes-và-các-cờ-bảo-vệ-dữ-liệu)
    - [4.7. Lệnh `status` & `logs` — Trạng thái hệ thống và xem Log](#47-lệnh-status--logs--trạng-thái-hệ-thống-và-xem-log)
-   - [4.8. Lệnh `notify` — Kiểm tra thông báo Email và Telegram](#48-lệnh-notify--kiểm-tra-thông-báo-email-và-telegram)
+   - [4.8. Lệnh `notify` — Kiểm tra thông báo Email, Telegram và Remote Storage](#48-lệnh-notify--kiểm-tra-thông-báo-email-telegram-và-remote-storage)
+   - [4.9. Lệnh `update` — Kiểm tra & Cập nhật phiên bản `zimbra-backup`](#49-lệnh-update--kiểm-tra--cập-nhật-phiên-bản-zimbra-backup)
 5. [Các kịch bản thực chiến hay gặp nhất (Step-by-Step)](#5-các-kịch-bản-thực-chiến-hay-gặp-nhất-step-by-step)
    - [Kịch bản 1: Khôi phục toàn bộ server mới dựng (Disaster Recovery)](#kịch-bản-1-khôi-phục-toàn-bộ-server-mới-dựng-disaster-recovery)
    - [Kịch bản 2: Khôi phục hộp thư bị nhân viên xóa nhầm mà không mất mail mới](#kịch-bản-2-khôi-phục-hộp-thư-bị-nhân-viên-xóa-nhầm-mà-không-mất-mail-mới)
@@ -141,7 +145,9 @@ Khi cài đặt gói RPM/DEB, hệ thống phân tách rành mạch thành các 
 
 ---
 
-## 2. Cài đặt, Nâng cấp & Gỡ bỏ
+## 2. Cài đặt, Cập nhật & Gỡ bỏ
+
+> ⚠️ **NGUYÊN TẮC AN TOÀN HỆ THỐNG:** Toàn bộ lệnh cài đặt, cập nhật và gỡ bỏ dưới đây chỉ tác động trực tiếp lên gói **`zimbra-backup`** thông qua `rpm` / `dpkg`. **Tuyệt đối không dùng** `apt update`, `apt upgrade`, `dnf update`, hay `yum update` trên máy chủ Zimbra đang chạy production.
 
 ### 2.1. Phân quyền thư mục lưu trữ cho user zimbra
 
@@ -161,28 +167,22 @@ chmod 700 /home/backup
 
 Hỗ trợ các bản phân phối RHEL, CentOS, Rocky Linux, AlmaLinux phiên bản **7, 8, 9**.
 
-**Lệnh cài đặt hoặc nâng cấp nhanh 1 dòng (Tự nhận diện dnf / yum):**
+**Lệnh cài đặt hoặc nâng cấp trực tiếp 1 dòng (không động tới repo OS / yum / dnf):**
 ```bash
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm
+curl -fSL -o /tmp/zb.rpm https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup-0.3.18-1.noarch.rpm && sudo rpm -Uvh /tmp/zb.rpm && rm -f /tmp/zb.rpm
 ```
 
 Hoặc tải gói về máy rồi cài đặt thủ công:
 ```bash
 # Tải gói RPM:
-curl -fSL -o zimbra-backup-0.3.17-2.noarch.rpm \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup-0.3.17-2.noarch.rpm
+curl -fSL -o zimbra-backup-0.3.18-1.noarch.rpm \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup-0.3.18-1.noarch.rpm
 
-# Cài đặt hoặc nâng cấp đè:
-sudo dnf install -y ./zimbra-backup-0.3.17-2.noarch.rpm 2>/dev/null || sudo yum install -y ./zimbra-backup-0.3.17-2.noarch.rpm
-# Hoặc dùng trực tiếp rpm:
-sudo rpm -Uvh --replacepkgs ./zimbra-backup-0.3.17-2.noarch.rpm
+# Cài đặt hoặc nâng cấp đè (giữ nguyên toàn bộ Job và Crontab):
+sudo rpm -Uvh ./zimbra-backup-0.3.18-1.noarch.rpm
+# Hoặc cài đè lại cùng phiên bản hiện tại:
+sudo rpm -Uvh --replacepkgs ./zimbra-backup-0.3.18-1.noarch.rpm
 ```
-
-**Gỡ cài đặt hoàn toàn:**
-```bash
-sudo dnf remove -y zimbra-backup 2>/dev/null || sudo yum remove -y zimbra-backup 2>/dev/null || sudo rpm -e zimbra-backup
-```
-*Quá trình gỡ bỏ tự động dọn sạch khối cron `zimbra-backup` và thư mục `/var/lib/zimbra-backup`, cam kết không chạm tới dịch vụ Zimbra (`/opt/zimbra`) hay dữ liệu sao lưu của bạn.*
 
 ---
 
@@ -190,26 +190,79 @@ sudo dnf remove -y zimbra-backup 2>/dev/null || sudo yum remove -y zimbra-backup
 
 Hỗ trợ **Ubuntu 18.04, 20.04, 22.04 LTS**.
 
-> ⚠️ **CẢNH BÁO AN TOÀN QUAN TRỌNG:** Tuyệt đối **KHÔNG chạy `apt update`** trên máy chủ Zimbra. Zimbra cài đặt các gói OpenLDAP, Postfix, Nginx, MariaDB, OpenSSL riêng; chạy `apt update` có thể gây lỗi xác thực GPG repo hoặc làm hỏng gói dịch vụ của Zimbra. Luôn cài đặt trực tiếp qua `dpkg -i`.
+> ⚠️ **CẢNH BÁO AN TOÀN QUAN TRỌNG:** Tuyệt đối **KHÔNG chạy `apt update`** hay **`apt upgrade`** trên máy chủ Zimbra. Zimbra cài đặt các gói OpenLDAP, Postfix, Nginx, MariaDB, OpenSSL riêng; chạy lệnh cập nhật APT có thể làm hỏng phụ thuộc hoặc dịch vụ của Zimbra. Luôn cài đặt trực tiếp bằng `dpkg -i`.
+>
+> Từ phiên bản `v0.3.18`, gói `.deb` dùng phụ thuộc `mawk | gawk` (có sẵn mặc định trên Ubuntu Server 18.04/20.04/22.04 LTS), đảm bảo lệnh `dpkg -i` chạy thành công ngay lập tức mà không cần chạy `apt` để cài thêm bất kỳ gói hệ thống nào.
 
 **Lệnh cài đặt hoặc nâng cấp nhanh 1 dòng:**
 ```bash
-curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-2_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup_0.3.18-1_all.deb && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
 ```
 
-Hoặc tải gói về máy rồi cài đặt thủ công:
+Hoặc tải gói về máy rồi cài đặt thủ công (hữu ích với máy chủ nội bộ không có Internet):
 ```bash
-curl -fSL -o zimbra-backup_0.3.17-2_all.deb \
-  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.17/zimbra-backup_0.3.17-2_all.deb
+curl -fSL -o zimbra-backup_0.3.18-1_all.deb \
+  https://github.com/0xAndyNew/Backup-Zimbra/releases/download/v0.3.18/zimbra-backup_0.3.18-1_all.deb
 
-sudo dpkg -i ./zimbra-backup_0.3.17-2_all.deb
+sudo dpkg -i ./zimbra-backup_0.3.18-1_all.deb
 ```
 
-**Gỡ cài đặt trên Ubuntu:**
+---
+
+### 2.4. Kiểm tra & Cập nhật phiên bản trong ứng dụng (`zimbra-backup update`)
+
+Từ phiên bản **v0.3.18**, bạn có thể kiểm tra và cập nhật `zimbra-backup` lên bản mới nhất trên GitHub Releases trực tiếp từ giao diện menu hoặc dòng lệnh:
+
+> **Lưu ý cho máy chủ đang dùng `v0.3.17` trở về trước:** Phiên bản cũ chưa có lệnh `update`, bạn cần nâng cấp thủ công **một lần** sang `v0.3.18` theo mục 2.2 hoặc 2.3 ở trên. Từ `v0.3.18` trở đi có thể cập nhật tự động ngay trong ứng dụng.
+
+**Cách 1 — Qua Menu TUI:**
+1. Mở giao diện bằng quyền `root` (`sudo zimbra-backup` hoặc `zimbra-backup`).
+2. Chọn **`8) Check for Updates`**.
+3. Công cụ so sánh phiên bản đang cài với bản mới nhất trên GitHub Releases:
+   - Nếu đã mới nhất: thông báo và quay lại menu.
+   - Nếu có bản mới: hiển thị phiên bản hiện tại, phiên bản mới, link release và hỏi `Update to <version> now? [y/N]:` (mặc định **No** — bấm Enter hoặc `n` để hủy).
+   - Chọn **`y`**: tiến trình `root` khóa `operation.lock`, tải gói từ GitHub, kiểm tra khớp **SHA-256** và tên gói `zimbra-backup`, cài đặt chỉ riêng gói bằng `rpm -Uvh` hoặc `dpkg -i`, rồi mở lại menu phiên bản mới.
+
+**Cách 2 — Qua CLI:**
 ```bash
+# Chỉ kiểm tra phiên bản mới (chạy được với user bất kỳ, không tải/cài):
+zimbra-backup update --check
+
+# Kiểm tra và hỏi xác nhận Yes/No trước khi cập nhật (yêu cầu root):
+sudo zimbra-backup update
+
+# Cập nhật tự động không cần hỏi (yêu cầu root, dùng cho automation):
+sudo zimbra-backup update --yes
+```
+
+**Cam kết an toàn khi cập nhật:**
+- Chỉ cập nhật duy nhất script/gói `zimbra-backup`; không đụng tới dịch vụ Zimbra (`/opt/zimbra`), thư mục mail, hoặc bất kỳ gói nào khác của hệ điều hành.
+- Tự động từ chối cập nhật nếu đang có Job backup hoặc restore giữ khóa `operation.lock`.
+- Bảo toàn 100% `settings.conf`, danh sách Job (`jobs/*.conf`), lịch `crontab` và dữ liệu sao lưu.
+
+---
+
+### 2.5. Gỡ bỏ hoàn toàn ứng dụng (An toàn cho Zimbra)
+
+> Lưu ý: Nếu đang có Job backup hoặc restore chạy (`operation.lock` đang bị khóa), hệ thống sẽ chặn không cho gỡ gói cho tới khi tiến trình kết thúc an toàn.
+
+**Trên RHEL / CentOS / Rocky / AlmaLinux:**
+```bash
+sudo rpm -e zimbra-backup
+```
+
+**Trên Ubuntu / Debian:**
+```bash
+# Gỡ sạch hoàn toàn gói và file cấu hình logrotate:
+sudo dpkg -P zimbra-backup
+
+# Hoặc giữ lại file /etc/logrotate.d/zimbra-backup:
 sudo dpkg -r zimbra-backup
-# hoặc: sudo apt remove -y zimbra-backup
 ```
+
+**Phạm vi tác động khi gỡ bỏ:**
+- **Tự động dọn sạch:** `/usr/bin/zimbra-backup`, `/usr/libexec/zimbra-backup/`, khối cron `# BEGIN zimbra-backup .. # END zimbra-backup` trong crontab của user `zimbra`, thư mục trạng thái `/var/lib/zimbra-backup/` (gồm cấu hình Job, log thực thi, file lock), và `/etc/logrotate.d/zimbra-backup` (khi dùng `rpm -e` hoặc `dpkg -P`).
+- **Cam kết giữ nguyên 100%:** Toàn bộ thư mục `/opt/zimbra`, các dịch vụ mail Zimbra đang chạy, khối cron hệ thống `# ZIMBRASTART..# ZIMBRAEND`, và toàn bộ dữ liệu sao lưu trong `/home/backup` hoặc ổ lưu trữ ngoài.
 
 ---
 
@@ -225,7 +278,7 @@ Hệ thống tự khởi tạo cấu hình chuẩn trong nền (thư mục mặc
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.18) - mail.hdll.vn
   >> MAIN MENU
 ============================================================
   Job Storage : /home/backup (mount: no) | Jobs: 2 | Custom Restore: (not set)
@@ -237,9 +290,10 @@ Hệ thống tự khởi tạo cấu hình chuẩn trong nền (thư mục mặc
   5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)
   6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram, Email)
   7) View Logs
+  8) Check for Updates         (Compare with latest GitHub release)
   0) Exit
 ============================================================
-Select [0-7]:
+Select [0-8]:
 ```
 
 ---
@@ -250,7 +304,7 @@ Bấm phím **`1`** từ Main Menu để quản lý danh sách các tác vụ sa
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.18) - mail.hdll.vn
   >> BACKUP JOBS & CRONTAB SCHEDULE
 ============================================================
 ID               MODE         SCHEDULE             KEEP   PAR   EN   TARGET DIRECTORY
@@ -260,12 +314,12 @@ daily-sfb        synth_full   daily (01:30)        2 ch   4     yes  (default: /
 daily-incr       incremental  daily (02:00)        2 ch   4     yes  (default: /home/backup)
 weekly-full      full         weekly (dow=0 01:30) 4      2     yes  (default: /home/backup)
 --------------------------------------------------------------------------------------------
-  1) Create new backup job (6-step wizard)
+  1) Create new backup job (Quick 6-step wizard)
   2) Edit existing job
-  3) Enable / Disable a job
-  4) Delete a job (keeps backup files on disk)
-  5) View full job configuration details
-  6) Synchronize crontab now (re-apply all enabled jobs)
+  3) View full job details
+  4) Enable / Disable job cron schedule
+  5) Delete job configuration (keeps backup files on disk)
+  6) View & re-sync Zimbra crontab
   0) Back to main menu
 ============================================================
 Select [0-6]:
@@ -355,7 +409,7 @@ Bấm phím **`6`**:
 
 ```text
 ============================================================
-  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.17) - mail.hdll.vn
+  ZIMBRA BACKUP & RESTORE MANAGER (v0.3.18) - mail.hdll.vn
   >> GLOBAL SETTINGS & ALERTS
 ============================================================
   1) Default job backup dir   : /home/backup
@@ -400,6 +454,15 @@ Select [0-9]:
 ### Menu 7: View Logs (Xem nhật ký thực thi)
 
 Bấm phím **`7`**: Liệt kê 15 file log gần nhất. Bạn chỉ cần gõ số thứ tự (ví dụ `1`) để đọc ngay 100 dòng nhật ký mới nhất mà không cần thoát ra gõ lệnh terminal.
+
+---
+
+### Menu 8: Check for Updates (Kiểm tra & Cập nhật phiên bản)
+
+Bấm phím **`8`**: Đối chiếu phiên bản đang cài với bản mới nhất trên GitHub Releases (`0xAndyNew/Backup-Zimbra`):
+- Nếu đang ở bản mới nhất: hiển thị thông báo và quay lại Main Menu.
+- Nếu có bản mới hơn: hiển thị `Installed version`, `Latest version`, link ghi chú phát hành và hỏi `Update to <version> now? [y/N]:` (chọn `n` hoặc Enter để hủy; chọn `y` để tiến trình `root` supervisor tự động xác minh SHA-256, cài bản mới và mở lại giao diện phiên bản mới).
+- Nếu bạn mở menu bằng `su - zimbra` (không qua `root`), công cụ sẽ hiển thị hướng dẫn chạy `sudo zimbra-backup update` hoặc `zimbra-backup update` với quyền `root`.
 
 ---
 
@@ -655,6 +718,24 @@ zimbra-backup notify test-ftp [job_id]
 
 ---
 
+### 4.9. Lệnh `update` — Kiểm tra & Cập nhật phiên bản `zimbra-backup`
+
+```bash
+# Chỉ kiểm tra xem đã có phiên bản mới trên GitHub Releases hay chưa (exit 0=mới nhất, 10=có bản mới, 1=lỗi):
+zimbra-backup update --check
+
+# Kiểm tra và hỏi xác nhận Yes/No trước khi tải & cài bản mới (yêu cầu root):
+sudo zimbra-backup update
+
+# Kiểm tra và cài đặt bản mới không cần hỏi (yêu cầu root):
+sudo zimbra-backup update --yes
+```
+
+- Chỉ cập nhật gói `zimbra-backup` qua `rpm -Uvh` / `dpkg -i` sau khi xác minh mã băm **SHA-256** và tên gói; **không** chạy `apt update`, `dnf update` hay `yum update`.
+- Từ chối cập nhật nếu `operation.lock` đang bị giữ bởi tiến trình backup hoặc restore.
+
+---
+
 ## 5. Các kịch bản thực chiến hay gặp nhất (Step-by-Step)
 
 ### Kịch bản 1: Khôi phục toàn bộ server mới dựng (Disaster Recovery)
@@ -770,7 +851,7 @@ Hệ thống tự động nhận diện định dạng LDIF legacy, trích xuấ
    - **File này có 4 chức năng quan trọng:**
      1. **Tra cứu mục lục siêu tốc (Instant Catalog Inspection):** File `.manifest` là file văn bản thuần lưu danh sách toàn bộ tài khoản email, dung lượng từng hòm thư và mốc thời gian hoàn thành. Khi cần kiểm tra nội dung bản backup trên FTP, bạn chỉ cần mở file `.manifest` đọc trực tiếp mà không cần tải file `.tar` hàng chục GB về máy.
      2. **Phục vụ chuỗi sao lưu Incremental:** Bản Incremental tiếp theo cần đọc checkpoint timestamp (`last_checkpoint_to`) từ manifest này để xác định mốc kéo email mới phát sinh.
-     3. **Kiểm tra toàn vẹn dữ liệu (Integrity Verification):** File ghi nhận mã băm SHA-256 của từng tài khoản, giúp lệnh `zimbra-backup catalog verify` đối soát tính toàn vẹn, chống suy hao/lỗi file khi truyền tải qua mạng.
+     3. **Kiểm tra toàn vẹn dữ liệu (Integrity Verification):** File ghi nhận mã băm SHA-256 của từng tài khoản, giúp lệnh `zimbra-backup backup verify` đối soát tính toàn vẹn, chống suy hao/lỗi file khi truyền tải qua mạng.
      4. **Dọn dẹp đồng bộ:** Cơ chế dọn dẹp tự động trên FTP (`zb_prune_remote_storage`) sẽ xóa đồng thời cả cặp `.tar` và `.manifest` tương ứng khi bản sao lưu vượt quá hạn lưu giữ (`FTP_KEEP_COUNT`).
 6. **Hướng dẫn cấu hình & Khắc phục sự cố Thông báo (Email & Telegram):**
    - **Kênh Telegram Bot:**
@@ -782,7 +863,7 @@ Hệ thống tự động nhận diện định dạng LDIF legacy, trích xuấ
      - **Gửi thông báo tới nhiều email nhận:** Bạn có thể điền nhiều email phân tách nhau bằng dấu phẩy `,` (ví dụ: `admin@company.com, it-ops@company.com, monitoring@company.com`). Hệ thống sẽ tự động chuẩn hóa dấu chấm phẩy `;` sang dấu phẩy `,` và xác thực từng địa chỉ email theo chuẩn RFC trước khi lưu cấu hình.
      - **Lưu ý về cơ chế gửi mail thông báo sau khi chạy Job sao lưu:**
        - Lệnh gửi thử `zimbra-backup notify test-email` luôn gửi email kiểm tra trực tiếp tới danh sách người nhận để xác nhận tính năng gửi thư của Postfix hoạt động.
-       - Các Job sao lưu định kỳ sẽ kiểm tra `EMAIL_ALERT_LEVEL`: Nếu bạn để `failure` (mặc định), khi Job sao lưu thành công hoàn toàn (`[OK]`), hệ thống sẽ **chủ động không gửi email** để tránh làm đầy hộp thư quản trị viên. Nếu muốn nhận email sau mỗi lần sao lưu thành công, bạn chỉ cần đổi `EMAIL_ALERT_LEVEL=all` trong cài đặt (Menu TUI mục 7 hoặc lệnh `zimbra-backup init --email-level all`).
+       - Các Job sao lưu định kỳ sẽ kiểm tra `EMAIL_ALERT_LEVEL`: Nếu bạn để `failure` (mặc định), khi Job sao lưu thành công hoàn toàn (`[OK]`), hệ thống sẽ **chủ động không gửi email** để tránh làm đầy hộp thư quản trị viên. Nếu muốn nhận email sau mỗi lần sao lưu thành công, bạn chỉ cần đổi `EMAIL_ALERT_LEVEL=all` trong cài đặt (Menu TUI mục 6 hoặc lệnh `zimbra-backup init --email-level all`).
      - **Lưu ý về Server Label (Alerts):** Nếu bạn đặt Server Label là địa chỉ IP thô (ví dụ: `1.55.212.58`), hệ thống mail bên ngoài (như FPT, Google, Microsoft 365) hoặc chính Postfix của Zimbra có thể từ chối nhận (reject) do vi phạm chuẩn RFC (địa chỉ người gửi không được dùng IP thuần `@1.55.212.58`).
      - **Cơ chế tối ưu địa chỉ người gửi:** Tiêu đề `From:` sẽ tự động sử dụng FQDN/domain hợp lệ của máy chủ (`zmhostname` hoặc `hostname -f`), trong khi nhãn IP vẫn được hiển thị rõ ràng trong tiêu đề và nội dung email thông báo để bạn dễ dàng nhận diện máy chủ.
      - **Cách kiểm tra:** Chạy `zimbra-backup notify test-email` hoặc vào Menu 6 bấm phím `9`. Nếu không nhận được thư, kiểm tra hàng đợi Postfix bằng lệnh `mailq` hoặc xem log `/var/log/zimbra.log`.

@@ -15,8 +15,8 @@ import struct
 import tarfile
 import time
 
-VERSION = "0.3.17"
-RELEASE = "2"
+VERSION = "0.3.18"
+RELEASE = "1"
 DEB_VERSION = f"{VERSION}-{RELEASE}"
 PKG_NAME = "zimbra-backup"
 DEB_FILENAME = f"{PKG_NAME}_{DEB_VERSION}_all.deb"
@@ -49,7 +49,7 @@ Maintainer: Zimbra Backup Maintainers <ops@localhost>
 Section: admin
 Priority: optional
 Homepage: https://github.com/0xAndyNew/Backup-Zimbra
-Depends: bash (>= 4.2), coreutils, findutils, gawk, grep, sed, tar, gzip, curl, cron, util-linux
+Depends: bash (>= 4.2), coreutils, findutils, mawk | gawk, grep, sed, tar, gzip, curl, cron, util-linux
 Description: Unified backup and granular restore manager for Zimbra Collaboration OSE
  Provides streamlined pure-ASCII English TUI and automation CLI with multi-job crontab
  scheduling, chain-based incremental backups, SHA-256 manifest verification, and per-user restore.
@@ -131,6 +131,7 @@ def build_data_tar() -> bytes:
             ("./usr/libexec/zimbra-backup/backup.sh", "lib/backup.sh", 0o644, "root", "root"),
             ("./usr/libexec/zimbra-backup/restore.sh", "lib/restore.sh", 0o644, "root", "root"),
             ("./usr/libexec/zimbra-backup/tui.sh", "lib/tui.sh", 0o644, "root", "root"),
+            ("./usr/libexec/zimbra-backup/update.sh", "lib/update.sh", 0o644, "root", "root"),
             ("./etc/logrotate.d/zimbra-backup", "packaging/zimbra-backup.logrotate", 0o644, "root", "root"),
         ]
         for tar_name, src_path, mode, uname, gname in files:

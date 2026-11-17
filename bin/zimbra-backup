@@ -46,6 +46,8 @@ export ZB_LIB_DIR
 . "${ZB_LIB_DIR}/restore.sh"
 # shellcheck source=../lib/tui.sh
 . "${ZB_LIB_DIR}/tui.sh"
+# shellcheck source=../lib/update.sh
+. "${ZB_LIB_DIR}/update.sh"
 
 zb_print_help() {
     cat <<EOF
@@ -57,8 +59,9 @@ USAGE:
 
   1. Initialize global configuration (after RPM install or automated provisioning):
      zimbra-backup init --backup-dir /home/backup [--restore-dir /mnt/restore|none]
+                        [--create-dir yes|no] [--host-label <name>]
                         [--require-mount yes|no] [--disk-warn 85] [--disk-min-mb 1024]
-                        [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id>]
+                        [--telegram-enabled yes --telegram-token <tok> --telegram-chat <id> [--telegram-thread <id>]]
                         [--email-enabled yes --email-to <addr[,addr2,...]> --email-level all|failure]
                         [--ftp-enabled yes|no] [--ftp-protocol ftp|sftp] [--ftp-host <host>]
                         [--ftp-port 21|22] [--ftp-user <user>] [--ftp-password <pass>]
@@ -101,6 +104,9 @@ USAGE:
      zimbra-backup notify test-email
      zimbra-backup notify test-telegram
      zimbra-backup notify test-ftp [job_id]
+
+  7. Updates:
+     zimbra-backup update [--check] [--yes]
 EOF
 }
 
@@ -129,6 +135,30 @@ zb_print_status() {
     zb_print_backup_catalog ""
 }
 
+zb_tui_root_supervisor() {
+    id "$ZB_ZIMBRA_USER" >/dev/null 2>&1 || { zb_err "System user '$ZB_ZIMBRA_USER' not found (install Zimbra first)."; return 1; }
+    local rc=0
+    while true; do
+        rc=0
+        if command -v runuser >/dev/null 2>&1; then
+            runuser -u "$ZB_ZIMBRA_USER" -- env ZB_ROOT_SUPERVISOR=1 "$0" menu || rc=$?
+        else
+            local quoted_cmd
+            quoted_cmd="$(printf '%q ' "$0")"
+            su - "$ZB_ZIMBRA_USER" -c "ZB_ROOT_SUPERVISOR=1 ${quoted_cmd}menu" || rc=$?
+        fi
+        (( rc == ZB_EXIT_UPDATE_REQUESTED )) || return "$rc"
+        # Re-verify release and checksum independently as root; never trust zimbra child state.
+        if zb_cli_update --yes; then
+            zb_info "Relaunching updated zimbra-backup manager..."
+            zb_pause
+            exec "$0" menu
+        fi
+        zb_warn "Update did not complete. Returning to current manager."
+        zb_pause
+    done
+}
+
 main() {
     case "${1:-}" in
         -h|--help|help)
@@ -139,7 +169,21 @@ main() {
             printf 'zimbra-backup %s\n' "$ZB_VERSION"
             return 0
             ;;
+        update|upgrade)
+            shift
+            zb_cli_update "$@"
+            return $?
+            ;;
     esac
+
+    # When root launches the interactive TUI, remain as a supervisor process so a confirmed
+    # update in the unprivileged 'zimbra' TUI (exit code 42) can be installed safely as root.
+    if [[ -z "${1:-}" || "${1:-}" == "menu" || "${1:-}" == "tui" ]] \
+        && (( EUID == 0 )) && [[ "${ZB_SKIP_USER_CHECK:-0}" != "1" ]]; then
+        [[ -t 0 ]] || { zb_err "No interactive TTY detected. Run 'zimbra-backup --help' for CLI usage."; return 1; }
+        zb_tui_root_supervisor
+        return $?
+    fi
 
     # Enforce execution as 'zimbra' user (switches automatically via runuser if invoked by root)
     zb_require_zimbra "$@"

@@ -30,24 +30,7 @@ zb_tui_prompt_default() {
 }
 
 zb_tui_prompt_yesno() {
-    local prompt_text="$1"
-    local default_yn="${2:-yes}" # yes | no
-    local hint="[Y/n]"
-    [[ "$default_yn" == "no" ]] && hint="[y/N]"
-    local ans=""
-    while true; do
-        read -r -p "${prompt_text} ${hint}: " ans || return 1
-        ans="$(zb_trim "$ans")"
-        if [[ -z "$ans" ]]; then
-            printf '%s' "$default_yn"
-            return 0
-        fi
-        case "${ans,,}" in
-            y|yes) printf 'yes'; return 0 ;;
-            n|no) printf 'no'; return 0 ;;
-            *) zb_warn "Please enter y (yes) or n (no)." ;;
-        esac
-    done
+    zb_prompt_yesno "$@"
 }
 
 # Single-step HH:MM 24h time prompt (accepts HH:MM, H:M, or HH -> HH:00)
@@ -444,7 +427,7 @@ zb_tui_job_edit_loop() {
     done
 }
 
-# Quick 5-Step Job Creation Wizard
+# Quick 6-Step Job Creation Wizard
 zb_tui_job_create() {
     zb_load_settings || return 1
     zb_job_reset_defaults
@@ -641,7 +624,7 @@ zb_tui_jobs_menu() {
         zb_tui_header "JOBS & CRONTAB SCHEDULE"
         zb_job_print_summary_table
         zb_msg ""
-        zb_msg "  1) Create new backup job (Quick 5-step wizard)"
+        zb_msg "  1) Create new backup job (Quick 6-step wizard)"
         zb_msg "  2) Edit existing job (change schedule, retention, path, scope...)"
         zb_msg "  3) View full job details"
         zb_msg "  4) Enable / Disable job cron schedule"
@@ -1545,10 +1528,11 @@ zb_tui_main() {
         zb_msg "  5) Backup Catalog & Verify   (Job Snapshots, Search Users, SHA-256)"
         zb_msg "  6) Global Settings & Alerts  (Storage Paths, Disk Limits, Telegram)"
         zb_msg "  7) View Logs"
+        zb_msg "  8) Check for Updates         (Compare with latest GitHub release)"
         zb_msg "  0) Exit"
         zb_msg "============================================================"
         local ch=""
-        read -r -p "Select [0-7]: " ch || return 0
+        read -r -p "Select [0-8]: " ch || return 0
         case "$(zb_trim "$ch")" in
             1) zb_tui_jobs_menu ;;
             2) zb_tui_run_backup_menu ;;
@@ -1557,6 +1541,7 @@ zb_tui_main() {
             5) zb_tui_catalog_menu ;;
             6) zb_tui_settings_menu ;;
             7) zb_tui_logs_menu ;;
+            8) zb_tui_update_menu ;;
             0|q|exit) return 0 ;;
         esac
     done

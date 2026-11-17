@@ -9,14 +9,18 @@ import sys
 import urllib.request
 
 
-def get_version() -> str:
-    """Read version from lib/common.sh."""
+def get_pkg_meta() -> tuple[str, str]:
+    """Read ZB_VERSION and ZB_PKG_RELEASE from lib/common.sh."""
+    version = "0.3.18"
+    pkg_release = "1"
     common_path = os.path.join(os.path.dirname(__file__), "..", "lib", "common.sh")
     with open(common_path, "r", encoding="utf-8") as f:
         for line in f:
             if line.startswith("ZB_VERSION="):
-                return line.strip().split("=")[1].strip('"\'')
-    return "0.3.17"
+                version = line.strip().split("=", 1)[1].strip('"\'')
+            elif line.startswith("ZB_PKG_RELEASE="):
+                pkg_release = line.strip().split("=", 1)[1].strip('"\'')
+    return version, pkg_release
 
 
 def get_github_token() -> str:
@@ -50,8 +54,9 @@ def sha256_file(filepath: str) -> str:
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    version = args[0] if args else get_version()
-    pkg_release = os.environ.get("PKG_RELEASE", "2")
+    default_ver, default_rel = get_pkg_meta()
+    version = args[0] if args else default_ver
+    pkg_release = os.environ.get("PKG_RELEASE", default_rel)
     release_tag = f"v{version}"
     rpm_asset = f"zimbra-backup-{version}-{pkg_release}.noarch.rpm"
     deb_asset = f"zimbra-backup_{version}-{pkg_release}_all.deb"
@@ -66,6 +71,7 @@ def main():
 
     rpm_sha = sha256_file(rpm_path)
     deb_sha = sha256_file(deb_path)
+    sha256sums_bytes = f"{rpm_sha}  {rpm_asset}\n{deb_sha}  {deb_asset}\n".encode("utf-8")
 
     token = get_github_token()
     headers = {
@@ -83,42 +89,38 @@ def main():
     body = f"""## Zimbra Backup & Restore (`zimbra-backup` v{version})
 
 ### Key Highlights in v{version}
-- **Direct Incremental Chain Cycle Configuration**:
-  - Configure the number of incremental runs per cycle (1-60) directly in Step 5 of the 6-Step TUI Creation Wizard without having to edit the job afterwards.
-  - Automatically configures `FULL_CYCLE_VALUE` and retention count with interactive input validation.
-- **Forever Forward Incremental (FFI)**:
-  - Takes exactly one initial Full base backup from live Zimbra. All subsequent runs pull lightweight incremental deltas.
-  - When restore points exceed `KEEP_COUNT`, the oldest incremental delta merges locally into the base Full backup on disk, rolling its timestamp forward, safely deleting the merged step and renumbering remaining steps.
-  - Drastically minimizes network bandwidth, storage footprint, and production Zimbra server load.
-- **Synthetic Full Backup (SFB)**:
-  - When a scheduled Full backup cycle arrives or `--synthetic-full` is invoked, the engine avoids pulling heavy mailbox dumps over Zimbra REST API.
-  - Synthesizes a standalone Full snapshot locally from preceding chain archives and interim delta.
-  - Unchanged mailboxes are hardlinked/copied in microseconds with zero recompression overhead.
-- **Self-Describing Storage Directories**:
-  - Backup paths clearly reflect the active strategy for instant visibility during disk checks (`df -h`, `ls /home/backup`):
-    - `/home/backup/incremental/Forever-Forward-Incremental`
-    - `/home/backup/incremental/Synthetic-Full-Backup`
-    - `/home/backup/incremental/Standard-Incremental`
-    - `/home/backup/full/Standard-Full`
-  - 100% backward-compatible with legacy backup locations and catalogs.
-- **Interactive TUI & CLI Enhancements**:
-  - 4-choice backup mode selector in TUI 6-step creation wizard and 1-touch edit loop.
-  - Dedicated CLI flags `--type forever_incremental` (alias: `ffi`), `--type synthetic_full` (alias: `sfb`), and `--synthetic-full`.
+- **Built-in Version Check & Self-Update (`TUI 8` & `zimbra-backup update`)**:
+  - Added `8) Check for Updates` in the Main TUI Menu and CLI `zimbra-backup update [--check] [--yes]`.
+  - Compares installed package `VERSION-RELEASE` against the latest GitHub Release (with redirect + `SHA256SUMS` fallback if API rate-limited) and prompts `Update now? [y/N]` before making any changes.
+  - Uses a root supervisor hand-off for the TUI, holds `operation.lock` during installation, verifies SHA-256 and package name metadata, and installs only the single package via `rpm -Uvh` / `dpkg -i` without touching OS repositories or Zimbra services.
+- **Ubuntu Zero-APT Compatibility**:
+  - Updated DEB dependencies (`mawk | gawk`) and standardized `awk` expressions to POSIX ERE so `dpkg -i` succeeds cleanly on Ubuntu 18.04 / 20.04 / 22.04 LTS without installing `gawk` or running `apt`.
+- **Forever Forward Incremental (FFI) & Synthetic Full Backup (SFB)**:
+  - Self-describing directories, local delta merge (FFI), and local Full synthesis (SFB) with zero live Zimbra JVM load.
 - **Strict 7-bit ASCII & Data Integrity**:
-  - 100% pure 7-bit ASCII and Unix LF line endings across all 15 packaged files.
-  - 269/269 automated end-to-end test assertions passing with 0 errors.
+  - 100% pure 7-bit ASCII and Unix LF line endings across all 16 packaged files.
 
 ### Package Checksums (SHA-256)
 - `{rpm_asset}`: `{rpm_sha}`
 - `{deb_asset}`: `{deb_sha}`
+- Also published as `SHA256SUMS` release asset for automated verification.
 
-### Quick Install Commands
+### Quick Install / Upgrade Commands (Zero OS Repo / System Updates)
 ```bash
 # On RHEL / CentOS / Rocky / AlmaLinux (7, 8, 9):
-sudo dnf install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{rpm_asset} 2>/dev/null || sudo yum install -y https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{rpm_asset}
+curl -fSL -o /tmp/zb.rpm https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{rpm_asset} && sudo rpm -Uvh /tmp/zb.rpm && rm -f /tmp/zb.rpm
 
 # On Ubuntu 18.04 / 20.04 / 22.04 LTS (Debian):
 curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/download/{release_tag}/{deb_asset} && sudo dpkg -i /tmp/zb.deb && rm -f /tmp/zb.deb
+```
+
+### Uninstall Commands
+```bash
+# RHEL / CentOS / Rocky / AlmaLinux:
+sudo rpm -e zimbra-backup
+
+# Ubuntu / Debian:
+sudo dpkg -P zimbra-backup
 ```
 """
 
@@ -159,12 +161,18 @@ curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/dow
     upload_url_base = rel["upload_url"].split("{")[0]
     existing_assets = {a["name"]: a["id"] for a in rel.get("assets", [])}
 
+    with open(rpm_path, "rb") as rf:
+        rpm_bytes = rf.read()
+    with open(deb_path, "rb") as df:
+        deb_bytes = df.read()
+
     assets_to_upload = [
-        (rpm_asset, "application/x-rpm", rpm_path),
-        (deb_asset, "application/vnd.debian.binary-package", deb_path),
+        (rpm_asset, "application/x-rpm", rpm_bytes),
+        (deb_asset, "application/vnd.debian.binary-package", deb_bytes),
+        ("SHA256SUMS", "text/plain", sha256sums_bytes),
     ]
 
-    for asset_name, ctype, fpath in assets_to_upload:
+    for asset_name, ctype, payload in assets_to_upload:
         if asset_name in existing_assets:
             print(f"[~] Replacing existing asset {asset_name} (ID: {existing_assets[asset_name]})...")
             del_url = f"https://api.github.com/repos/0xAndyNew/Backup-Zimbra/releases/assets/{existing_assets[asset_name]}"
@@ -177,9 +185,7 @@ curl -fSL -o /tmp/zb.deb https://github.com/0xAndyNew/Backup-Zimbra/releases/dow
             except Exception as e:
                 print(f"[WARN] Failed to delete old asset {asset_name}: {e}")
 
-        print(f"[+] Uploading {asset_name} ({os.path.getsize(fpath)} bytes)...")
-        with open(fpath, "rb") as af:
-            payload = af.read()
+        print(f"[+] Uploading {asset_name} ({len(payload)} bytes)...")
 
         u_req = urllib.request.Request(
             f"{upload_url_base}?name={asset_name}",
